@@ -1,5 +1,7 @@
 # Humanity
 
+> **Written by AI** (as **澄** / Cheng) — code, tests and docs were produced by an AI assistant; requirements, decisions and acceptance belong to the repository owner.
+
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![DSH](https://img.shields.io/badge/DSH-0.1.5--rc.2%20%7C%200.2.0--rc.2-4B6BFB.svg)](https://github.com/deepseek-ai/deepseek-harness)
 [![node](https://img.shields.io/badge/node-%3E%3D22-339933.svg)](https://nodejs.org/)
