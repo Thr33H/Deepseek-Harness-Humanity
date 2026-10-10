@@ -1,0 +1,14 @@
+# 依赖与构建产物：从源码重建，不进版本库（升级零迁移的前提是"源码即真源"）
+node_modules/
+lib/
+.build/
+.tmp/
+*.tsbuildinfo
+
+# 打包产物：发布走 npm pack / CI 现场生成，不进库
+*.tgz
+
+# 编辑器 / 系统噪声
+.DS_Store
+Thumbs.db
+npm-debug.log*

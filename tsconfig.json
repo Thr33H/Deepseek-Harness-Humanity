@@ -1,0 +1,22 @@
+{
+  // 全量类型检查配置（不产出文件）。
+  // 之所以用 NodeNext：宿主半边是真正的 Node ESM 包，相对导入必须带 .js 扩展名，
+  // 只有 NodeNext 会在编译期把这类错误挡住；客户端半边由 esbuild 打包，
+  // 其模块解析规则与 NodeNext 一致，因此一份配置可以同时覆盖两侧。
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "NodeNext",
+    "moduleResolution": "nodenext",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
+}

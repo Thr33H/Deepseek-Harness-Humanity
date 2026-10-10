@@ -1,0 +1,70 @@
+name: 功能建议
+description: 提一个想法或改进
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先说清**你想解决的场景**，再说你希望的实现 —— 场景比方案更重要，
+        因为本项目刻意保持模块最小可理解，方案常需要换一种切法。
+
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 你的场景
+      description: 你现在怎么用的？卡在哪一步？为什么会想要这个功能？
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你希望它怎么做
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 你试过的替代办法（可选）
+      description: 例如改配置、用别的插件、手动编辑数据文件
+    validations:
+      required: false
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: 涉及哪个模块
+      multiple: true
+      options:
+        - 人格
+        - 记忆
+        - 技能
+        - 自进化 / 梦境
+        - 工作台界面
+        - 安装 / 升级
+        - 文档
+        - 其他
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 你估计这个改动的范围
+      options:
+        - 只想改文案 / 界面细节
+        - 改现有行为，不新增模块
+        - 需要新增一个模块或数据结构
+        - 不确定
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已经搜过 Issue 与 README，没有重复
+          required: true

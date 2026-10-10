@@ -1,0 +1,17 @@
+{
+  // 宿主半边的产出配置：编成真正的 Node ESM 多文件包（lib/index.js + 同目录兄弟模块）。
+  // 之所以不复用单文件 bundle：宿主半边是普通的 Node 包，分文件产出可读、可断点、
+  // 也让 DSH 的 loader 诊断能指到真实文件；客户端半边才必须打成单文件（见 build-client.mjs）。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src/host",
+    "outDir": "lib",
+    "declaration": false,
+    "sourceMap": false,
+    // tsc 默认「类型报错也照样产出 JS」，于是构建失败时 lib/ 里会留下一份"看起来能用"的产物，
+    // 跑测试也照样绿——排查时极具误导性（本项目已经踩过一次）。宁可不产出，也不要产出半成品。
+    "noEmitOnError": true
+  },
+  "include": ["src/host/**/*.ts"]
+}

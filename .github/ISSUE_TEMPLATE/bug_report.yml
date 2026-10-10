@@ -1,0 +1,107 @@
+name: Bug 报告
+description: 报告一个可复现的问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请把**环境**与**复现步骤**填清楚 —— 这两项决定我们能不能复现。
+        > 🔒 安全问题请走仓库页 `Security` 标签页的**私密报告**（见 SECURITY.md），不要开公开 Issue。
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际发生了什么
+      description: 贴报错原文最好（含完整堆栈）
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 你期待发生什么
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 越具体越好。能稳定复现请注明"必现"，偶发请写出现频率
+      placeholder: |
+        1. 打开工作台 → ...
+        2. 点 ...
+        3. 看到 ...
+    validations:
+      required: true
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Humanity 版本
+      placeholder: 例如 0.1.15（或 commit sha）
+    validations:
+      required: true
+
+  - type: input
+    id: dsh-version
+    attributes:
+      label: DSH 版本
+      placeholder: 例如 0.2.0-rc.2
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node 版本
+      placeholder: 例如 22.19.0
+    validations:
+      required: false
+
+  - type: dropdown
+    id: preset
+    attributes:
+      label: Agent 预设
+      description: 极简模式会跳过插件的 systemPrompt 注入，是常见差异来源
+      options:
+        - 标准模式
+        - 极简模式
+        - 其他 / 不确定
+    validations:
+      required: true
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: 涉及哪个模块
+      multiple: true
+      options:
+        - 人格
+        - 记忆
+        - 技能
+        - 自进化 / 梦境
+        - 工作台界面
+        - 安装 / 升级
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 截图（可选）
+      description: ⚠️ 贴之前请先看一眼里面有没有你自己的隐私内容（人格卡、记忆、路径、地址）
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已经搜过 Issue，没有重复
+          required: true
+        - label: 这不是安全问题（安全问题走 Security 私密通道）
+          required: true

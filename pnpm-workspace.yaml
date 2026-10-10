@@ -1,0 +1,4 @@
+# pnpm 11 的构建放行闸门：只允许 esbuild 跑安装脚本（它的 postinstall 负责落平台二进制）。
+# 不写这一条，`pnpm install` 会以 ERR_PNPM_IGNORED_BUILDS 退 1（装包其实成功，是闸门拦的）。
+allowBuilds:
+  esbuild: true
