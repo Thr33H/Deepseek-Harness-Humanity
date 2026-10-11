@@ -61,7 +61,7 @@ export const workbenchZh = {
     '⚠️ 这条技能用到了这些插件的能力：**{plugins}**。卸载对应插件后，这条技能将无法正常使用（技能文件本身还在、仍会被 DSH 加载）。',
   'skills.deleteHint':
     '这里没有「删除」：DSH 的文件服务与官方工具都只提供读/写/改，有意不给删除能力。'
-    + '要下线就用「停用」；真要删文件，跟 Han 说一声，我走运维通道帮你删（会先备份）。',
+    + '要下线就用「停用」；真要删文件，跟运维通道说一声，我帮你删（会先备份）。',
   'skills.editor.file': '这个技能的文件',
   'skills.editor.newTitle': '新建技能',
   'skills.editor.editTitle': '编辑技能',
@@ -134,7 +134,7 @@ export const workbenchEn = {
     '⚠️ This skill relies on these plugins: **{plugins}**. Uninstall them and the skill stops working (the file itself stays and is still loaded by DSH).',
   'skills.deleteHint':
     'No “delete” here: DSH\'s file service and its official tools only offer read/write/edit — deletion is deliberately absent. '
-    + 'Use “Disable” to retire a skill; to really remove the file, tell Han and I will do it through the ops channel (with a backup first).',
+    + 'Use “Disable” to retire a skill; to really remove the file, ask through the ops channel and I will do it (with a backup first).',
   'skills.editor.file': 'File for this skill',
   'skills.editor.newTitle': 'New skill',
   'skills.editor.editTitle': 'Edit skill',

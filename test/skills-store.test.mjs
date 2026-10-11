@@ -8,7 +8,7 @@
  * `createIfAbsent`（命中已有文件 ⇒ 抛 `code: 'FS_NOT_OBSERVED'`）——这样测的是我们与官方
  * 的**契约**，而不是一个自己编的宽松替身。
  *
- * 格式部分对着本机 Han 的官方技能（`$DSH_HOME/skills/` 下的 `card-xiaohongshu` 等）同构：
+ * 格式部分对着本机安装的官方技能（`$DSH_HOME/skills/` 下的 `card-xiaohongshu` 等）同构：
  * frontmatter 只写 `name` + `description`，值一律带引号（描述里出现 `: `、`#`、引号时裸写会破坏 YAML）。
  */
 import assert from 'node:assert/strict'
