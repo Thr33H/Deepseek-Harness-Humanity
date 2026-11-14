@@ -54,6 +54,11 @@ export interface PersonaSection {
    * 唯一用途：初始化状态翻转后重判工具注册（封存后 init 下线），见 `tools.ts`。
    */
   onDocumentChanged(listener: () => void): () => void
+  /**
+   * 订阅「命名空间刚接上」。与 `onDocumentChanged` 的区别：**这不是一次写入**，
+   * 而是"数据终于可读了" —— 启动时按封存状态决定要注册哪套预设的人，等的就是这一刻。
+   */
+  onAttached(listener: () => void): () => void
 }
 
 /**
@@ -101,6 +106,7 @@ function attachSection(ctx: Context, log: Log, state: SectionState): void {
       // 句柄类型与官方不同，但 section 只用到 get / replace / update（窄接口），行为一致。
       state.settings = plane as unknown as SettingsProvider
       state.attached = true
+      for (const listener of state.attachedListeners ?? []) listener()
       log.info('0.1.7：人格文档改由自有数据面承载')
 
       return () => {
@@ -117,6 +123,7 @@ function attachSection(ctx: Context, log: Log, state: SectionState): void {
 
     log.info('人格命名空间已接入设置服务')
     state.attached = true
+    for (const listener of state.attachedListeners ?? []) listener()
 
     return () => {
       // 句柄必须一起清掉：留着一个已摘除的服务引用会继续读一份不再被写入的值。
@@ -150,6 +157,15 @@ export function installPersonaSection(ctx: Context, log: Log, history: () => His
       state.changedListeners?.add(listener)
       return () => {
         state.changedListeners?.delete(listener)
+      }
+    },
+    onAttached: (listener) => {
+      state.attachedListeners ??= new Set()
+      state.attachedListeners.add(listener)
+      // 已经接上了：立刻叫一次，避免"订阅得比接上晚"这种竞态。
+      if (state.attached) listener()
+      return () => {
+        state.attachedListeners?.delete(listener)
       }
     },
   }

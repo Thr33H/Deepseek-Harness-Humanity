@@ -40,6 +40,14 @@ export interface SectionState {
   fallback: PersonaDocument
   /** 「写入成功」监听者；工具注册集依赖初始化状态翻转，见 `writePersona` 末尾。 */
   changedListeners?: Set<() => void>
+  /**
+   * 「命名空间刚接上」监听者。
+   *
+   * 为什么需要它（2026-11-14 真机）：预设要在启动时按"人格是否已封存"注册，但设置服务是
+   * 异步接上的 —— 早于它读到的永远是默认文档（`sealedAt` 为空），于是已封存的实例被当成
+   * 未封存，注册了错的那套清单。写入监听帮不上忙：这不是一次写入，是"数据终于可读了"。
+   */
+  attachedListeners?: Set<() => void>
 }
 
 /**

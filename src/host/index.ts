@@ -24,7 +24,7 @@ import { createLog, type Log } from './log.js'
 import { createModuleRegistry, describeModules, MODULES, type Disposer, type ModuleRegistry } from './modules.js'
 import { migrateLegacyDocuments } from './migrate.js'
 import { createPlaneSettings, installPlaneSettings } from './plane-settings.js'
-import { installPresets } from './presets.js'
+import { installPresets, type PresetHandle } from './presets.js'
 import { createCompatState } from './preset-compat.js'
 import { installSettings, SETTINGS_NAMESPACE } from './settings.js'
 import { installMemory } from './memory/index.js'
@@ -142,6 +142,11 @@ export function apply(ctx: Context, config: HumanityConfig): void {
   const registry = createModuleRegistry(MODULES, log)
   const state: HostState = {}
   const modules = createModuleSync(ctx, registry)
+  /**
+   * 预设句柄。**提前声明**：存储打开的回调要在这里用它重判一次封存状态，
+   * 而它真正赋值在 `apply()` 末尾（那时人格模块已经装好、`sealed()` 才有东西可读）。
+   */
+  let presets: PresetHandle | undefined
 
   // 先注册卸载钩子，让模块清理一定挂在 fiber 上；后续任何一步失败都不会漏掉它。
   ctx.effect(() => modules.dispose, 'humanity: 模块卸载')
@@ -180,6 +185,9 @@ export function apply(ctx: Context, config: HumanityConfig): void {
   openStore(ctx, log, state, (documents) => {
     // 旧设置 → 文档表的一次性迁移（幂等、只读源文件、失败显式报错）。
     void migrateLegacyDocuments(documents, log, dshHome())
+    // ⚠️ 存储打开是"人格文档真的读得到"的那一刻：在此之前 `section.read()` 拿到的是默认文档
+    // （`sealedAt` 为空），预设会按"未封存"注册。`presets` 在这之后才会赋值，用 `?.` 兜住。
+    presets?.sync()
   })
 
   // 净室排除：极简会话拒绝 Humanity 工具（complete 吞 prompt 不吞工具目录，工具层由 guard 兜底）。
@@ -198,13 +206,16 @@ export function apply(ctx: Context, config: HumanityConfig): void {
   syncModulesEnabled(state, settings.read())
 
   // 预设（2026-11-14）：未封存只有"取内容"的工具，封存后换成沉浸式清单。
-  // 必须排在人格/记忆之后 —— 工具闸的白名单要能解析到 humanity 自己的工具名。
-  // 封存状态**现读**人格文档：封存那一刻由 `onDocumentChanged` 触发一次切换。
-  const presets = installPresets(ctx, log, () => state.persona?.section.read().identityCard.sealedAt !== '')
-  ctx.effect(() => presets.dispose, 'humanity: 预设卸载')
+  // 必须排在人格/记忆之后 —— 封存状态要能在那一刻读到，工具清单也才完整。
+  // 封存状态**现读**人格文档；三个时机会重判：文档写入、命名空间接上、存储打开。
+  presets = installPresets(ctx, log, () => state.persona?.section.read().identityCard.sealedAt !== '')
+  ctx.effect(() => presets?.dispose, 'humanity: 预设卸载')
   if (state.persona !== undefined) {
-    const off = state.persona.section.onDocumentChanged(() => presets.sync())
+    const off = state.persona.section.onDocumentChanged(() => presets?.sync())
     ctx.effect(() => off, 'humanity: 预设随封存切换')
+    // 启动时"数据可读"比"有写入"更早发生也更关键：那一刻才知道人格到底封没封存。
+    const offAttached = state.persona.section.onAttached(() => presets?.sync())
+    ctx.effect(() => offAttached, 'humanity: 预设随命名空间接上重判')
   }
 
   // 一行摘要：出问题时对方和日志都能立刻看到「谁被关掉了、为什么」。

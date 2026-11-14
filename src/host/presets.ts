@@ -127,7 +127,7 @@ export function functionalPlugins(): Entry[] {
     { id: 'command-goal', name: '@deepseek-ai/dsh-command-goal' },
     { id: 'tool-goal', name: '@deepseek-ai/dsh-tool-goal' },
     { id: 'tool-ask-user', name: '@deepseek-ai/dsh-tool-ask-user' },
-    { id: 'tool-todo', name: '@deepseek-ai/dsh-tool-todo' },
+    { id: 'tool-todo', name: '@deepseek-ai/dsh-tool-todo', config: { allowParallelInProgress: true } },
     { id: 'tool-web', name: '@deepseek-ai/dsh-tool-web', config: { fetch: true } },
     { id: 'tool-cordis', name: '@deepseek-ai/dsh-tool-cordis' },
     { id: 'skill-filesystem', name: '@deepseek-ai/dsh-skill-filesystem' },
