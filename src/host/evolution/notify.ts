@@ -26,6 +26,14 @@ import { neutralizePromptVars } from '../text.js'
 import { PROPOSALS_SECTION_NAME, PROPOSALS_SECTION_ORDER } from './constants.js'
 import type { EvolutionState } from './state.js'
 
+/** 分类计数（文案里报给用户）。 */
+export interface PendingCounts {
+  memory: number
+  persona: number
+  route: number
+  total: number
+}
+
 /** 提醒需要的待确认事实（宿主跨模块接线：提案在自进化存储，记忆 pending 在记忆存储）。 */
 export interface PendingFacts {
   /** 待确认提案 id（pending 状态）。 */
@@ -33,7 +41,7 @@ export interface PendingFacts {
   /** 待确认记忆指纹（pending 状态）。 */
   memoryFingerprints(): string[]
   /** 分类计数（文案里报给用户）。 */
-  counts(): { memory: number; persona: number; skill: number; route: number; total: number }
+  counts(): PendingCounts
 }
 
 /** 提醒注入的依赖。 */
@@ -55,11 +63,10 @@ export function hashBatch(ids: readonly string[]): string {
 }
 
 /** 渲染提醒正文；不该提醒时返回空串。 */
-function renderNotice(counts: { memory: number; persona: number; skill: number; route: number; total: number }): string {
+function renderNotice(counts: PendingCounts): string {
   const parts: string[] = []
   if (counts.memory > 0) parts.push(`记忆 ${counts.memory} 条`)
   if (counts.persona > 0) parts.push(`人格 ${counts.persona} 条`)
-  if (counts.skill > 0) parts.push(`技能 ${counts.skill} 条`)
   if (counts.route > 0) parts.push(`路由 ${counts.route} 条`)
   return (
     `【待确认提案】现在有 ${counts.total} 条内容在等待用户确认（${parts.join('、')}）。` +

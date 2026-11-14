@@ -74,7 +74,6 @@ export function PendingCard(props: PendingCardProps) {
             <Tag tone="outline">{t('evolution.badge').replace('{count}', String(total))}</Tag>
             <CountTag t={t} labelKey="evolution.pending.memory" count={counts.memory} />
             <CountTag t={t} labelKey="evolution.proposal.kind.persona" count={counts.persona} />
-            <CountTag t={t} labelKey="evolution.proposal.kind.skill" count={counts.skill} />
             <Button size="sm" onClick={() => setOpen((was) => !was)}>
               {open ? t('pending.hide') : t('pending.show')}
             </Button>

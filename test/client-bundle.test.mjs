@@ -323,7 +323,7 @@ test('工作台能渲染：总览四项（无通道时如实说读不到）+ 页
   assert.ok(!markup.includes('后续版本提供'), '不再有"后续版本提供"这种空头承诺')
 
   // 页面清单整段已按用户的决定**删除**（不可交互的重复列表只是噪音）；页签与总览仍在。
-  for (const label of ['总览', '记忆', '自进化', '技能', '待确认']) {
+  for (const label of ['总览', '记忆', '自进化', '待确认']) {
     assert.ok(markup.includes(label), `工作台缺少页面/页签：${label}`)
   }
   assert.ok(!markup.includes('计划中的页面') && !markup.includes('数据 / 设置'), '不该再有页面清单与占位项')
@@ -337,8 +337,8 @@ test('工作台能渲染：总览四项（无通道时如实说读不到）+ 页
   assert.ok(countHints(markup) >= 5, '卡片与条目旁边都要有「?」入口')
   assert.match(markup, /data-tooltip="[^"]*DSH 设置/, '「?」里必须如实指路：开关在 DSH 设置里调')
 
-  // 页签换成卡片式：四张等宽卡片，当前页只有一张亮着。
-  assert.match(markup, /grid-template-columns:repeat\(4, minmax\(0, 1fr\)\)/, '页签是四张等宽卡片')
+  // 页签换成卡片式：三张等宽卡片，当前页只有一张亮着。
+  assert.match(markup, /grid-template-columns:repeat\(3, minmax\(0, 1fr\)\)/, '页签是三张等宽卡片')
   assert.equal(markup.split('aria-current="page"').length - 1, 1, '当前页只能有一张卡片亮着')
 })
 
@@ -489,77 +489,6 @@ test('宿主返回缺数组的文档时，工作台照样渲染（render 期不�
 test('顶层配置命名空间在宿主与浏览器两侧必须一致（独立判断开关就写在它上面）', async () => {
   const client = await loadBundle().then((descriptor) => descriptor.factory(createPlatformRequire()))
   assert.equal(client.HUMANITY_NAMESPACE, SETTINGS_NAMESPACE, '写错命名空间等于开关点了没反应')
-})
-
-test('技能页：名字、说明、落盘状态、来源与文件路径都在（回答"技能在哪、是什么"）', async () => {
-  const client = (await loadBundle()).factory(createPlatformRequire())
-  const { ctx, localeNamespaces } = createFakeContext()
-  client.apply(ctx)
-  const translate = translator(localeNamespaces)
-
-  const controller = fakeSnapshotController({
-    skills: [
-      {
-        name: 'roleplay-memory-verify',
-        description: '在角色扮演会话中回答剧情事实前先检索记忆库',
-        content: '# 适用场景\n\n角色扮演里被问及剧情事实时。',
-        status: 'on-disk',
-        file: '/home/user/project/skills/roleplay-memory-verify/SKILL.md',
-        origin: '新技能：roleplay-memory-verify',
-        decidedAt: '2026-09-25T18:00:00.000Z',
-        disabled: false,
-        pluginDeps: ['Humanity'],
-      },
-      {
-        name: 'not-flushed-yet',
-        description: '还没落盘的',
-        content: 'x',
-        status: 'runtime-only',
-        file: '',
-        origin: '',
-        decidedAt: '',
-        disabled: false,
-        pluginDeps: [],
-      },
-    ],
-  })
-  const markup = render(nodeRequire('react').createElement(client.SkillsPage, { t: translate, controller }))
-
-  assert.match(markup, /roleplay-memory-verify/)
-  assert.match(markup, /已存成文件/)
-  assert.match(markup, /还没存成文件/, '没存成文件的技能要如实标注（它就是"找不到"的那种）')
-  assert.match(markup, /\/home\/user\/project\/skills\/roleplay-memory-verify\/SKILL\.md/, '必须给出文件路径')
-  assert.match(markup, /新技能：roleplay-memory-verify/, '要显示来源提案')
-  assert.match(markup, /data-tooltip="[^"]*不会自动执行/, '机制说明挂在标题的「?」上（不再铺成说明段）')
-  assert.ok(markup.includes(CARD_SKELETON), '技能卡要用统一骨架（左元信息 | 中内容 | 右操作）')
-  assert.ok(!visibleText(markup).includes('不会自动执行'), '机制说明不该同时留在正文里')
-  assert.match(markup, /Humanity/, '用到插件的能力时要指名警告（卸载对应插件后这条技能就废了）')
-  assert.ok(visibleText(markup).includes('Humanity'), '插件依赖是警告：必须留在正文里，不许收进 ? ')
-  assert.ok(!markup.includes('看正文'), '按钮只有「编辑」「停用」：编辑展开即可看正文（用户 2026-09-26 定）')
-})
-
-test('技能页：没有技能时给空态与"批准后会出现"的指引（不空白、不假装）', async () => {
-  const client = (await loadBundle()).factory(createPlatformRequire())
-  const { ctx, localeNamespaces } = createFakeContext()
-  client.apply(ctx)
-
-  const markup = render(
-    nodeRequire('react').createElement(client.SkillsPage, {
-      t: translator(localeNamespaces),
-      controller: fakeSnapshotController({ skills: [] }),
-    }),
-  )
-  assert.match(markup, /还没有技能/)
-  assert.match(markup, /待确认/, '空态要告诉用户技能从哪来')
-})
-
-test('技能页：控制器缺席时照样渲染（崩溃防线，不许读 undefined）', async () => {
-  const client = (await loadBundle()).factory(createPlatformRequire())
-  const { ctx, localeNamespaces } = createFakeContext()
-  client.apply(ctx)
-
-  const markup = render(nodeRequire('react').createElement(client.SkillsPage, { t: translator(localeNamespaces) }))
-  assert.ok(markup.length > 0, '缺席也要出界面，而不是把外壳带崩')
 })
 
 test('人格卡：注入账目就写在卡上（装得下报条数，装不下如实警告到小节）', async () => {

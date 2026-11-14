@@ -9,7 +9,6 @@
  */
 import Schema from '@deepseek-ai/schemastery'
 
-import { SkillViewsSchema } from '../skills/doc.js'
 import { EvolutionRequestSchema, type EvolutionRequestView } from './section-request.js'
 
 // 消费方（section-runtime 等）仍从本文件取类型：这里只做转出口，不改它们的 import。
@@ -52,7 +51,6 @@ export interface ProposalView {
 export interface PendingCountsView {
   memory: number
   persona: number
-  skill: number
   route: number
   total: number
 }
@@ -67,8 +65,6 @@ export interface StatusView {
   scanReady: boolean
   /** 模型路由是否可用（缺席 = 不能解析；未配置默认模型也是 false）。 */
   modelReady: boolean
-  /** 技能服务是否在场（缺席 = 技能提案只存不注册）。 */
-  skillsReady: boolean
 }
 
 /** 命名空间里的文档。 */
@@ -125,22 +121,14 @@ export const EvolutionDocSchema = Schema.object({
   pendingCounts: Schema.object({
     memory: Schema.number().default(0),
     persona: Schema.number().default(0),
-    skill: Schema.number().default(0),
     route: Schema.number().default(0),
     total: Schema.number().default(0),
   }),
-  // 技能清单（M7）：形状与说明见 `skills/doc.ts`（归技能模块自己维护）。
-  skills: SkillViewsSchema,
-  /** 技能落盘是否可用（false ⇒ 技能只活在运行时，技能页要如实说明）。 */
-  skillsWritable: Schema.boolean().default(false),
-  /** 上一次技能恢复的账（写入/可用/失败条数与原因）。 */
-  skillsReport: Schema.string().default(""),
   status: Schema.object({
     enabled: Schema.boolean().default(true),
     storeReady: Schema.boolean().default(false),
     scanReady: Schema.boolean().default(false),
     modelReady: Schema.boolean().default(false),
-    skillsReady: Schema.boolean().default(false),
   }),
   nextRunAt: Schema.number().default(0),
   baselineAt: Schema.string().default(''),

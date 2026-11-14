@@ -20,7 +20,7 @@ const BASELINE = '2026-09-20T00:00:00.000Z'
 const CREATED = Date.parse(BASELINE) + 60000
 
 /** 最小合法解析输出。 */
-const EMPTY_OUTPUT = { memories: [], personaSections: [], personaFixed: [], skills: [], insights: [], narrative: '' }
+const EMPTY_OUTPUT = { memories: [], personaSections: [], personaFixed: [], insights: [], narrative: '' }
 
 /** 造运行环境：假 LLM 按调用次序回放；记忆表真管线。 */
 function harness(options = {}) {
@@ -63,7 +63,6 @@ function harness(options = {}) {
       memoryStore: () => createMemoryStore(memoryTable),
       memoryPolicy: () => resolveMemoryPolicy('balanced'),
       persona: () => undefined,
-      skills: () => undefined,
       state,
       log,
     }),

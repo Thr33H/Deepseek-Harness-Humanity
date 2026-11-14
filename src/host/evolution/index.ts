@@ -5,7 +5,7 @@
  * 存储（storageDomain）是**异步打开**的，而调度器一装就要读写单值状态（nextRunAt、补跑对账）。
  * 与其让调度器处处判空，不如等 `notifyStoreReady()` 一次到位——与记忆模块"存储就绪后
  * 补消费命令 + 重投影"是同一种时序处理。存储没就绪前：工作台投影为空、命令被跳过、
- * 调度不排程；就绪那一刻：恢复已应用技能、对账错过的定时、投影一次。
+ * 调度不排程；就绪那一刻：对账错过的定时、投影一次。
  *
  * ### 模块独立（P-048）
  * 记忆/人格句柄都是宿主喂进来的**现读函数**：那边关了或未就绪，这边对应分类自动跳过，
@@ -20,8 +20,6 @@ import type { HumanityStore } from '../store-schema.js'
 import type { MemoryStore } from '../memory/store.js'
 import type { MemoryPolicy } from '../memory/types.js'
 import type { PersonaSection } from '../persona/section.js'
-import { createSkillEditor } from '../skills/edit-ops.js'
-import { skillInventory } from '../skills/inventory.js'
 import { installActivityTracker } from './activity.js'
 import { createLlmAccess } from './llm.js'
 import { installProposalNotification } from './notify.js'
@@ -30,8 +28,6 @@ import type { Runner } from './run.js'
 import type { SchedulerHandle } from './scheduler.js'
 import { installEvolutionSection, type EvolutionSection } from './section.js'
 import { dayKeyOf } from './schedule-time.js'
-import { installSkillRuntime } from './skill-runtime.js'
-import { installSkillPersistTool, pendingSkillPersists, sandboxFactsOf } from './tools-skill-persist.js'
 import { createEvolutionState, type EvolutionState } from './state.js'
 import { buildRunner, buildScheduler } from './runtime.js'
 import { pendingFacts, sessionQueryReader, stateReader } from './wiring.js'
@@ -53,7 +49,7 @@ export interface EvolutionModule {
   reconfigure(): void
   /** 重新投影一次。 */
   refresh(): Promise<void>
-  /** 存储刚就绪：懒装 runner/scheduler、恢复已应用技能、补消费命令、重投影。 */
+  /** 存储刚就绪：懒装 runner/scheduler、补消费命令、重投影。 */
   notifyStoreReady(): void
   dispose(): void
 }
@@ -63,9 +59,6 @@ interface EvolutionStateful {
   enabled: boolean
   runner?: Runner
   scheduler?: SchedulerHandle
-  restored: boolean
-  /** 上一次技能恢复的账（写给技能页看：写了几条、为什么没写成）。 */
-  skillReport?: string
   /** 懒装件对应的存储表组：存储服务摘除再挂回时表是新对象，懒装件必须跟着重建。 */
   installedTables?: unknown
 }
@@ -77,20 +70,10 @@ interface EvolutionStateful {
  * @param deps - 宿主注入的外部事实。
  */
 export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): EvolutionModule {
-  const internal: EvolutionStateful = { enabled: true, restored: false }
+  const internal: EvolutionStateful = { enabled: true }
   const readState = stateReader(deps.store)
   const sessionQuery = sessionQueryReader(ctx)
   const llm = createLlmAccess(ctx, log)
-  const { store: skillStore, bridge: skills } = installSkillRuntime(ctx, log)
-  // 0.1.12：技能落盘工具。为什么必须由 **agent 调用**才修得动落盘：插件的批准/启动路径
-  // 没有会话身份，官方文件后端只能回落部署默认模式（本部署 workspace-write，根是 /workspace）
-  // ⇒ 技能目录一律被拒；本工具在会话里被调用 ⇒ 用那次会话的模式与 cwd 解析 per-call 策略
-  // （详见 `tools-skill-persist.ts` 头部引的 DSH 源码原文）。
-  const skillPersistTool = installSkillPersistTool(ctx, log, {
-    store: () => (skillStore.available() ? skillStore : undefined),
-    pending: () => pendingSkillPersists(readState()),
-    sandbox: () => sandboxFactsOf(ctx),
-  })
   const activity = installActivityTracker(ctx)
   const pending = pendingFacts(readState, deps.memoryStore)
   const moduleEnabled = (): boolean => {
@@ -105,8 +88,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       if (state === undefined || internal.runner === undefined) return undefined
       return {
         runner: internal.runner,
-        proposals: createProposalActions({ state, persona: deps.personaSection, skills, log }),
-        skills: createSkillEditor(skillStore),
+        proposals: createProposalActions({ state, persona: deps.personaSection, log }),
         refresh: () => void section.refresh(),
         warn: (message, error) => log.warn(message, error),
       }
@@ -120,7 +102,6 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       storeReady: readState() !== undefined,
       scanReady: sessionQuery() !== undefined,
       modelReady: llm.route() !== undefined,
-      skillsReady: skills.available(),
     }),
     memoryPendingCount: () => deps.memoryStore()?.list(undefined, 'pending').length ?? 0,
     nextRunAt: () => internal.scheduler?.nextRunAt() ?? 0,
@@ -128,11 +109,6 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     // 「今天」按调度时区算，与运行记账共用 `dayKeyOf`（审计 E5：UTC 日期与调度日差 8 小时）。
     dayKey: () =>
       dayKeyOf(Date.now(), deps.config().modules.evolution.schedule, (message) => log.warn(message)),
-    // 技能页（M7）：清单、能不能落盘、上一次恢复的账。
-    // 注册表清单要**现读**（技能可以在运行期注册/卸载）：查到才算 `runtime-only`（审计 E4）。
-    skillViews: async () => skillInventory(readState()?.listProposals() ?? [], skillStore, await skills.names()),
-    skillsWritable: () => skillStore.available(),
-    skillsReport: () => internal.skillReport ?? "",
   })
 
   const disposeNotify = installProposalNotification(ctx, log, {
@@ -150,7 +126,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     void section.refresh().catch((error: unknown) => log.warn('适配器变化后的重投影失败', error))
   })
 
-  /** 存储就绪后的一次性懒装：runner + scheduler + 已应用技能恢复；存储重开时重建懒装件。 */
+  /** 存储就绪后的一次性懒装：runner + scheduler；存储重开时重建懒装件。 */
   const ensureInstalled = (): void => {
     const opened = deps.store()
     if (opened === undefined) return
@@ -163,28 +139,14 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     }
     internal.installedTables = opened.evolution
     const state = createEvolutionState(opened.evolution)
-    const parts = { deps, moduleEnabled, sessionQuery, llm, skills, activity, log, refresh: () => void section.refresh() }
+    const parts = { deps, moduleEnabled, sessionQuery, llm, activity, log, refresh: () => void section.refresh() }
     internal.runner = buildRunner(parts, state)
     internal.scheduler = buildScheduler(ctx, parts, state, internal.runner)
-    if (!internal.restored) {
-      internal.restored = true
-      void skills
-        .restoreApplied(state.listProposals())
-        .then((report) => {
-          internal.skillReport =
-            `落盘写入 ${report.written} 条、可用 ${report.restored} 条、失败 ${report.failed} 条` +
-            (report.note === "" ? "" : `（${report.note}）`)
-          log.info(`技能恢复：${internal.skillReport}`)
-          void section.refresh()
-        })
-        .catch((error: unknown) => log.warn('已应用技能恢复失败（提案数据仍在，可在批准后重试）', error))
-    }
   }
 
   const cleanup = (): void => {
     internal.scheduler?.dispose()
     activity.dispose()
-    skillPersistTool.dispose()
     disposeAdapterListener()
     disposeNotify()
     log.info('自进化模块已卸载')

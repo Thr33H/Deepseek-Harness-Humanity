@@ -9,7 +9,7 @@
 [English](README-EN.md) | 简体中文
 
 **Humanity** 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的**拟人化套件**：
-把**人格、记忆、技能、自进化与梦境**四件事收进同一个原生 Web 工作台，对外是一个可安装的
+把**人格、记忆、自进化与梦境**三件事收进同一个原生 Web 工作台，对外是一个可安装的
 bundle，内部各模块互相独立、可单独开关。
 
 它想解决的问题很朴素：**让你的 Agent 记得住事、有自己的性格，而且这些都在你看得见、改得动的地方。**
@@ -20,10 +20,9 @@ bundle，内部各模块互相独立、可单独开关。
 |---|---|
 | **人格** | 身份卡 + 人格卡两栏编辑。原生项锁定（插件靠它们认标识），其余一切是自定义项：可增、可改名、可整项删除；每项的**名称固定、内容直接改**，不用"点一下才出现"；改动**即时生效**（热更新），并留一份可回滚的历史 |
 | **记忆** | 三层记忆（长期 / 区域 / 会话）自动写入 + 七信号相关性检索；低风险内容自动落库，高风险内容**只生成提案等你批准**；条目可改归属、可合并去重、可归档与恢复；不会无限膨胀，也**不会被自动删掉** |
-| **技能** | 自进化总结出来的技能落在官方用户技能目录，工作台里可新建 / 修改 / 停用 / 恢复；技能引用了哪个插件的工具，会**指名到插件**告警 |
 | **自进化与梦境** | 后台定期扫描新会话 → 模型解析 → 产出记忆与提案，全程记账、可设每日上限；「梦境」把整理过程写成一条可读的运行时间线 |
 
-另外还有：一个**总开关**与四个模块开关（改动即时生效）；开关注册进 DSH 设置服务，所以在 DSH 自己的设置里搜 `Humanity` 也能找到。
+另外还有：一个**总开关**与三个模块开关（改动即时生效）；开关注册进 DSH 设置服务，所以在 DSH 自己的设置里搜 `Humanity` 也能找到。
 
 ## 环境要求
 
@@ -81,7 +80,7 @@ dsh plugin --profile web update deepseek-harness-humanity    # 更新
 dsh plugin --profile web remove deepseek-harness-humanity    # 卸载
 ```
 
-插件的数据（`$DSH_HOME/storages/humanity.json`、`$DSH_HOME/skills/`）是**独立数据**，卸载插件不会删除它们。
+插件的数据（`$DSH_HOME/storages/humanity.json`）是**独立数据**，卸载插件不会删除它。
 
 ## 数据放在哪
 
@@ -90,7 +89,6 @@ dsh plugin --profile web remove deepseek-harness-humanity    # 卸载
 | 人格卡、记忆条目、提案、运行记录 | `$DSH_HOME/storages/humanity.json`（版本化存储领域 `humanity`） |
 | 人格历史（被取代 / 被删内容的留档） | 同一份存储的 `persona_history` 表，**有保留期**（默认 30 天，可设为永久） |
 | 模块开关、记忆模式、自进化调度与预算 | `$DSH_HOME/settings.yaml` 的 `humanity` 段 |
-| 技能文件 | `$DSH_HOME/skills/` |
 | 会话 | `$DSH_HOME/sessions/`（DSH 自己的） |
 
 一切都在 `$DSH_HOME` 里，跟着 DSH 一起备份 / 迁移；插件不往别处写。
@@ -150,7 +148,7 @@ cordis.patch.yml     本包作为 bundle 层提供的组合补丁
 
 | 文档 | 内容 |
 |---|---|
-| [docs/USAGE.md](docs/USAGE.md) | 使用说明：人格卡、记忆三层的取舍、技能落盘、自进化与梦境的每个开关 |
+| [docs/USAGE.md](docs/USAGE.md) | 使用说明：人格卡、记忆三层的取舍、自进化与梦境的每个开关 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构与设计约束：模块边界、兼容门、为什么这样切 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本沿革（含每个修复要解决的真实症状） |
 

@@ -11,7 +11,6 @@ import type { PersonaNamespaceView } from './persona-channel.js'
 import { asEvolutionConfig } from './evolution-config-doc.js'
 import { asEvolutionDocument } from './evolution-document.js'
 import { EvolutionStateBase } from './evolution-state.js'
-import type { SkillDraftView } from './evolution-views.js'
 
 /** 回扫范围（与宿主 `RescanRange` 的命令行形状一致）。 */
 export interface RescanSelection {
@@ -101,7 +100,7 @@ export class EvolutionWorkbenchController extends EvolutionStateBase {
     })
   }
 
-  /** 批准一条提案（P-038：固定层/技能/路由都只能由用户在这里放行）。 */
+  /** 批准一条提案（P-038：固定层/路由都只能由用户在这里放行）。 */
   approve(id: string): Promise<boolean> {
     return this.dispatch('op:approve', { op: 'approve', id, mode: '', rescanKind: '', rescanValue: '' })
   }
@@ -119,25 +118,6 @@ export class EvolutionWorkbenchController extends EvolutionStateBase {
   /** 改调度/扫描/预算（写顶层 `humanity` 配置；宿主 onChanged 会立即重排定时器）。 */
   setEvolutionConfig(patch: Record<string, unknown>): Promise<void> {
     return this.sendConfig({ modules: { evolution: patch } })
-  }
-
-  // 技能编辑（M7）：三个动作共用同一组表单字段，宿主各自回一句如实结论。
-  createSkill(draft: SkillDraftView): Promise<boolean> { return this.skillOp('skill-create', draft) }
-
-  /** 修改一条已存在的技能（宿主带版本乐观锁写回）。 */
-  updateSkill(draft: SkillDraftView): Promise<boolean> { return this.skillOp('skill-update', draft) }
-
-  /** 停用 / 恢复（官方 disable-model-invocation；不是删除）。 */
-  setSkillDisabled(name: string, disabled: boolean): Promise<boolean> {
-    return this.skillOp(disabled ? 'skill-disable' : 'skill-enable', { name, description: '', content: '' })
-  }
-
-  private skillOp(op: string, draft: SkillDraftView): Promise<boolean> {
-    // 四个通用字段留空：技能命令只带表单三字段（宿主按 op 分流）。
-    return this.dispatch(`op:${op}`, {
-      op, id: '', mode: '', rescanKind: '', rescanValue: '',
-      skillName: draft.name, skillDescription: draft.description, skillContent: draft.content,
-    })
   }
 
   private dispatch(busy: string, request: Record<string, string>): Promise<boolean> {

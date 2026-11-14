@@ -270,7 +270,7 @@ test('记忆页面渲染不崩，且关键控件都在（策略 / 待确认 / �
   assert.equal(html.includes('memory.scope.session'), false, '关掉的作用域直接不显示')
   assert.equal(html.includes('memory.degraded.title'), false, '没探测到极简模式时不该出现警告条')
 
-  // 统一卡片骨架（用户 2026-09-26：「包括人格、记忆、技能……总之有很多条目，风格统一」）：
+  // 统一卡片骨架（用户 2026-09-26：「包括人格、记忆……总之有很多条目，风格统一」）：
   // 左元信息（归属 + 重要度/时间）｜中内容｜右操作，三个页面同一组列宽。
   assert.ok(html.includes(CARD_SKELETON), '记忆条目要用统一骨架')
   assert.ok(html.split(CARD_SKELETON).length - 1 >= 3, '每条记忆各一张卡（样例里有 3 条）')

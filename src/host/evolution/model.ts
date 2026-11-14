@@ -172,14 +172,6 @@ const PersonaFixedProposalSchema = z.object({
   reason: z.string().min(1).max(300),
 })
 
-/** 解析输出里的技能提案（P-041 查重后决定形态）。 */
-const SkillProposalSchema = z.object({
-  name: z.string().min(1).max(80),
-  description: z.string().min(1).max(300),
-  content: z.string().min(1).max(20000),
-  reason: z.string().min(1).max(300),
-})
-
 /**
  * 一次解析调用的**输出合同**。
  *
@@ -191,7 +183,6 @@ export const AnalysisOutputSchema = z.object({
   personaSections: z.array(PersonaSectionUpdateSchema).max(9).default([]),
   sectionConsolidations: z.array(PersonaConsolidationSchema).max(10).default([]),
   personaFixed: z.array(PersonaFixedProposalSchema).max(5).default([]),
-  skills: z.array(SkillProposalSchema).max(5).default([]),
   insights: z.array(z.string().min(1).max(500)).max(20).default([]),
   narrative: z.string().max(6000).default(''),
 })

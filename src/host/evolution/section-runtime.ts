@@ -12,7 +12,6 @@
 import type { SettingsProvider } from '@deepseek-ai/dsh-settings'
 
 import type { Log } from '../log.js'
-import type { SkillView } from '../skills/inventory.js'
 import { EVOLUTION_NAMESPACE } from './constants.js'
 import { applyEvolutionRequest, EMPTY_REQUEST, type EvolutionOps, type EvolutionRequest } from './ops.js'
 import { proposalViewOf, runViewOf, type EvolutionDocument, type StatusView } from './section-doc.js'
@@ -50,12 +49,6 @@ export interface EvolutionSectionDeps {
    * 两处各算一次，时区一换就会出现"界面显示今天用了 0 次、实际已经用满"。
    */
   dayKey?(): string
-  /** 技能清单（M7：官方目录 + 提案表合成；缺席时技能页显示空清单）。 */
-  skillViews?(): Promise<SkillView[]>
-  /** 技能能不能落盘（文件服务与 DSH_HOME 是否都在场；技能页据此如实提示）。 */
-  skillsWritable?(): boolean
-  /** 上一次技能恢复的账（含失败原因，技能页原样显示）。 */
-  skillsReport?(): string
 }
 
 /** 运行期的完整依赖（接线状态由 section.ts 补进来）。 */
@@ -83,9 +76,8 @@ export function shouldClearRequest(live: EvolutionRequest | undefined, consumed:
   if (live === undefined) return false
   if (live.op === '') return true
   if (consumed === undefined) return false
-  // **逐字段**比对（2026-09-26 审计抓到的静默丢命令）：原来只比 op/id/mode/rescanKind/rescanValue，
-  // 而技能命令把这三项全留空、真正的内容在 skillName/Description/Content 里 ——
-  // 于是"第一条技能命令的投影"会把窗口内提交的第二条技能命令一起清掉，用户按了保存却什么都没发生。
+  // **逐字段**比对（2026-09-26 审计抓到的静默丢命令）：原先只比少数几个键，于是"第一条命令的
+  // 投影"会把窗口内提交的第二条命令一起清掉，用户按了保存却什么都没发生。
   // 写法上不写死字段名：任一侧多出的键都参与比较，以后加字段不会再漏。
   const keys = new Set([...Object.keys(live), ...Object.keys(consumed)])
   return [...keys].every(
@@ -96,7 +88,6 @@ export function shouldClearRequest(live: EvolutionRequest | undefined, consumed:
 /** 拼投影补丁（只含宿主拥有的字段；`request` 按守则决定清不清）。 */
 function projectionPatch(
   state: RuntimeState,
-  skills: readonly SkillView[],
   consumed?: EvolutionRequest,
 ): Record<string, unknown> {
   const { deps } = state
@@ -124,9 +115,6 @@ function projectionPatch(
     dailyOutputTokens: today ? record.dailyOutputTokens : 0,
     dailyCallCap: deps.dailyCallCap(),
     notice: state.notice,
-    skills: [...skills],
-    skillsWritable: deps.skillsWritable?.() ?? false,
-    skillsReport: deps.skillsReport?.() ?? "",
     ...(shouldClearRequest(deps.read()?.request, consumed) ? { request: EMPTY_REQUEST } : {}),
   }
 }
@@ -136,16 +124,8 @@ async function refreshProjection(state: RuntimeState, consumed?: EvolutionReques
   const { deps } = state
   const settings = deps.settings()
   if (settings === undefined || deps.state() === undefined) return
-  // 技能清单要读官方目录（IO）：在投影外先取好，`projectionPatch` 保持纯同步（好测）。
-  // 取不到不算错误：技能页显示空清单，其余投影照常写。
-  let skills: readonly SkillView[] = []
   try {
-    skills = (await deps.skillViews?.()) ?? []
-  } catch (error) {
-    deps.log.warn('技能清单读取失败（本次投影的技能页为空）', error)
-  }
-  try {
-    await settings.update(EVOLUTION_NAMESPACE, projectionPatch(state, skills, consumed))
+    await settings.update(EVOLUTION_NAMESPACE, projectionPatch(state, consumed))
   } catch (error) {
     deps.log.warn('自进化投影写入失败（工作台可能看到旧数据）', error)
   }

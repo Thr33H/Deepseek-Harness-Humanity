@@ -135,7 +135,7 @@ export { PendingCard } from './PendingCard.js'
 export { EvolutionPage } from './EvolutionPage.js'
 export { HumanityPanelIcon, HumanityPanelIconWithBadge } from './HumanityPanelIcon.js'
 export { PersonaBoundary } from './PersonaBoundary.js'
-export { SkillsPage } from './SkillsPage.js'
+
 export { OverviewPanel } from './WorkbenchOverview.js'
 export { createWorkbenchSeat } from './WorkbenchSeat.js'
 export { subscribeToProjection } from './remote-attach.js'

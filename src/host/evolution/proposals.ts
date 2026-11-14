@@ -5,8 +5,8 @@
  * - **approve 只能由工作台命令触发**（用户真源）：人格写入用 `source: 'user'`——
  *   用户点了批准，就是用户的决定（P-023：固定层只有用户能改）。**没有**任何 Agent 工具
  *   能走到这里，所以"模型自己批准自己的提案"在结构上不可能发生。
- * - reject/delete 只动提案表，不触碰人格/记忆/技能。
- * - 应用失败（校验拒绝、技能重名、服务缺席）：提案**保持 pending**，原因原样进通知——
+ * - reject/delete 只动提案表，不触碰人格/记忆。
+ * - 应用失败（校验拒绝、服务缺席）：提案**保持 pending**，原因原样进通知——
  *   失败的批准不是拒绝，用户改完还能再批（不静默吞，P-011）。
  *
  * 路由提案的"应用"= 标记 applied 并**只作存档**：自动路由功能已裁撤（用户 2026-09-26），
@@ -19,15 +19,12 @@ import type { PersonaSection } from '../persona/section.js'
 import type { PersonaDocument } from '../persona/types.js'
 import { mergePersonaSections } from './classify-persona.js'
 import type { EvolutionState } from './state.js'
-import type { SkillBridge } from './skills.js'
-import { parseAppliedSkill } from './skills.js'
 import type { ProposalRecord } from './types.js'
 
 /** 审核动作依赖。 */
 export interface ProposalActionDeps {
   state: EvolutionState
   persona(): PersonaSection | undefined
-  skills: SkillBridge
   log: Log
   now?(): string
 }
@@ -102,7 +99,7 @@ async function applyPersonaProposal(deps: ProposalActionDeps, proposal: Proposal
 
 /**
  * 造审核动作入口。
- * @param deps - 存储、人格段与技能桥。
+ * @param deps - 存储与人格段。
  */
 export function createProposalActions(deps: ProposalActionDeps): ProposalActions {
   const mark = async (proposal: ProposalRecord, status: ProposalRecord['status']): Promise<void> => {
@@ -120,10 +117,6 @@ export function createProposalActions(deps: ProposalActionDeps): ProposalActions
       if (proposal.kind === 'persona') {
         notice = await applyPersonaProposal(deps, proposal)
         if (!notice.startsWith('提案已应用')) return notice // 应用未成功：保持 pending
-      } else if (proposal.kind === 'skill') {
-        const skill = parseAppliedSkill(proposal)
-        if (skill === undefined) return '提案数据已损坏，无法应用；可以删除它。'
-        await deps.skills.apply(skill)
       } else if (proposal.kind === 'route') {
         // 自动路由已裁撤（用户 2026-09-26）：route 只作为**历史类别**保留，能被查看与拒绝，
         // 但不再由自进化产出。这里如实说明，不给"以后会生效"的暗示。

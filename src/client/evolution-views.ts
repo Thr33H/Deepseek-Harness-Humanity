@@ -40,39 +40,8 @@ export interface ProposalView {
 export interface PendingCountsView {
   memory: number
   persona: number
-  skill: number
   route: number
   total: number
-}
-
-/**
- * 一条技能（M7；与宿主 `SkillView` 同形）。
- *
- * `status` 五态由宿主算好（目录与提案的差集 + 注册表核对），工作台只负责**如实显示** ——
- * 让用户一眼看出"这条技能是真的落在磁盘上、只活在运行时注册里，还是根本没生效"。
- */
-export interface SkillView {
-  name: string
-  description: string
-  content: string
-  /** `on-disk` / `runtime-only` / `unregistered` / `file-only` / `diverged`（陌生值按 `file-only` 显示，不猜）。 */
-  status: string
-  /** 文件路径（回答"技能在哪"）；仅运行时注册 / 没生效时为空。 */
-  file: string
-  /** 来源提案标题（用户手写的技能为空）。 */
-  origin: string
-  decidedAt: string
-  /** 是否被停用（官方 `disable-model-invocation`：模型不再自动调用，文件保留）。 */
-  disabled: boolean
-  /** 这条技能用到的插件（卸载对应插件后它无法正常工作，页面据此如实警告）。 */
-  pluginDeps: string[]
-}
-
-/** 技能编辑表单（工作台 → 宿主；M7 的新建/修改共用这三个字段）。 */
-export interface SkillDraftView {
-  name: string
-  description: string
-  content: string
 }
 
 /** 模块可用性状态（哪个环节降级了、工作台如实显示）。 */
@@ -81,7 +50,6 @@ export interface StatusView {
   storeReady: boolean
   scanReady: boolean
   modelReady: boolean
-  skillsReady: boolean
 }
 
 /** 数值兜底读取（坏字段当 0，不 NaN 进界面）。 */
@@ -134,22 +102,6 @@ export function proposalOf(value: unknown): ProposalView {
     status: strOf(record.status),
     createdAt: strOf(record.createdAt),
     decidedAt: strOf(record.decidedAt),
-  }
-}
-
-/** 解析一条技能视图（M7）。 */
-export function skillOf(value: unknown): SkillView {
-  const record = (value ?? {}) as Record<string, unknown>
-  return {
-    name: strOf(record.name),
-    description: strOf(record.description),
-    content: strOf(record.content),
-    status: strOf(record.status),
-    file: strOf(record.file),
-    origin: strOf(record.origin),
-    decidedAt: strOf(record.decidedAt),
-    disabled: record.disabled === true,
-    pluginDeps: Array.isArray(record.pluginDeps) ? record.pluginDeps.filter((item) => typeof item === 'string') : [],
   }
 }
 

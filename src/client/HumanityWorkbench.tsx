@@ -7,7 +7,6 @@ import { MemoryPage } from './MemoryPage.js'
 import { PendingCard } from './PendingCard.js'
 import { OverviewPanel } from './WorkbenchOverview.js'
 import { PersonaEditor } from './PersonaEditor.js'
-import { SkillsPage } from './SkillsPage.js'
 import { WorkbenchTabs, type WorkbenchTab } from './WorkbenchTabs.js'
 import type { EvolutionWorkbenchController } from './evolution-controller.js'
 import type { MemoryWorkbenchController } from './memory-controller.js'
@@ -27,7 +26,7 @@ export interface HumanityWorkbenchProps extends PropsLocale<typeof NS> {
 /**
  * Humanity 主工作台。
  *
- * 结构：标题（说明收进 ?）+ 常驻的待确认卡片 + 总览 + 四个模块卡片页签 + 当前页签的内容。
+ * 结构：标题（说明收进 ?）+ 常驻的待确认卡片 + 总览 + 三个模块卡片页签 + 当前页签的内容。
  * 数据只有一条来源：各命名空间经 `ctx.remote.settings` 读写（裁决 3），
  * 校验用的是宿主同一个规则模块（`persona/rules.ts`）。
  * @param props - 字典座位与三个工作台控制器。
@@ -40,8 +39,6 @@ export function HumanityWorkbench({ t, controller, memory, evolution }: Humanity
       <PersonaEditor t={t} controller={controller} />
     ) : tab === 'memory' ? (
       <MemoryPage t={t} controller={memory} />
-    ) : tab === 'skills' ? (
-      <SkillsPage t={t} controller={evolution} />
     ) : (
       <EvolutionPage t={t} controller={evolution} />
     )

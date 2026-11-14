@@ -1,12 +1,11 @@
 /**
- * 提案审核与技能桥测试：approve/reject/delete 状态机、封存语义（source='user'）、
- * 失败保持 pending、技能注册的文法与重名硬检查、装配恢复的幂等。
+ * 提案审核测试：approve/reject/delete 状态机、封存语义（source='user'）、
+ * 失败保持 pending、拒绝留档与幂等。
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import { createProposalActions } from '../lib/evolution/proposals.js'
-import { createSkillBridge } from '../lib/evolution/skills.js'
 import { createLog } from '../lib/log.js'
 import { PersonaWriteRejected } from '../lib/persona/document.js'
 import { CORE_IDENTITY_KEYS, STANDARD_SECTION_TITLES } from '../lib/persona/constants.js'
@@ -47,28 +46,12 @@ function fakePersona(document, options = {}) {
   }
 }
 
-/** 造假技能桥（记录 apply 调用；可设定失败）。 */
-function fakeBridge(options = {}) {
-  const applied = []
-  return {
-    applied,
-    available: () => true,
-    list: async () => options.catalog ?? [],
-    apply: async (skill) => {
-      if (options.fail !== undefined) throw new Error(options.fail)
-      applied.push(skill)
-    },
-    restoreApplied: async () => 0,
-  }
-}
-
 /** 造审核环境。 */
 function harness(options = {}) {
   const { state } = fakeEvolutionState()
   const persona = options.persona === null ? undefined : fakePersona(options.document ?? initializedPersona(), options)
-  const skills = options.bridge ?? fakeBridge(options)
-  const actions = createProposalActions({ state, persona: () => persona, skills, log })
-  return { state, persona, skills, actions }
+  const actions = createProposalActions({ state, persona: () => persona, log })
+  return { state, persona, actions }
 }
 
 /** 落一条提案进表并返回记录。 */
@@ -148,22 +131,6 @@ test('approve 被人格校验拒绝：保持 pending，拒绝原因给用户看�
   assert.equal(state.getProposal(proposal.id).status, 'pending')
 })
 
-test('approve 技能提案：桥注册成功才 applied；注册失败保持 pending 并带原因', async () => {
-  const bridge = fakeBridge()
-  const { state, actions } = harness({ bridge })
-  const proposal = await seed(state, 'skill', { name: 'weekly-report', description: '生成周报', content: '# 步骤' })
-  await actions.approve(proposal.id)
-  assert.deepEqual(bridge.applied, [{ name: 'weekly-report', description: '生成周报', content: '# 步骤' }])
-  assert.equal(state.getProposal(proposal.id).status, 'applied')
-
-  const failing = fakeBridge({ fail: '技能「weekly-report」已存在于目录' })
-  const env2 = harness({ bridge: failing })
-  const p2 = await seed(env2.state, 'skill', { name: 'weekly-report', description: '生成周报', content: '# 步骤' })
-  const notice = await env2.actions.approve(p2.id)
-  assert.ok(notice.includes('已存在于目录'))
-  assert.equal(env2.state.getProposal(p2.id).status, 'pending')
-})
-
 test('approve 路由提案：applied + 如实说明已裁撤（不假装生效；历史类别仍可处理）', async () => {
   const { state, actions } = harness()
   const proposal = await seed(state, 'route', { title: '夜间便宜模型', reason: '成本', scenario: '', provider: '', model: '' })
@@ -193,54 +160,4 @@ test('重复 approve：第二次不再应用（幂等，不双写人格）', asy
   const notice = await actions.approve(proposal.id)
   assert.ok(notice.includes('已被处理过'))
   assert.equal(persona.writes.length, 1)
-})
-
-// ---------- 技能桥（真 createSkillBridge + 假 ctx.skills） ----------
-
-/** 造假 ctx：只有 get('skills') 有值。 */
-function fakeCtx(skills) {
-  return { get: (name) => (name === 'skills' ? skills : undefined) }
-}
-
-test('技能桥：名字文法与描述硬校验；服务缺席报不可用', async () => {
-  const registered = []
-  const bridge = createSkillBridge(fakeCtx({ list: async () => [], register: (skill) => (registered.push(skill), () => {}) }), log)
-  await assert.rejects(bridge.apply({ name: 'Bad Name', description: 'd', content: 'c' }), /kebab-case/)
-  await assert.rejects(bridge.apply({ name: 'ok-name', description: '  ', content: 'c' }), /缺少描述/)
-
-  const absent = createSkillBridge(fakeCtx(undefined), log)
-  assert.equal(absent.available(), false)
-  await assert.rejects(absent.apply({ name: 'ok-name', description: 'd', content: 'c' }), /不可用/)
-  assert.deepEqual(await absent.list(), [], '缺席时目录降级为空数组，不抛')
-})
-
-test('技能桥：目录已有同名 → 拒绝注册（P-041 不覆盖任何已有技能）', async () => {
-  const bridge = createSkillBridge(
-    fakeCtx({ list: async () => [{ name: 'weekly-report', description: '已有' }], register: () => () => {} }),
-    log,
-  )
-  await assert.rejects(
-    bridge.apply({ name: 'weekly-report', description: 'd', content: 'c' }),
-    /已存在于目录/,
-  )
-})
-
-test('技能桥：注册成功走 runtime source；restoreApplied 只处理 applied 的技能提案并如实记账', async () => {
-  const registered = []
-  const bridge = createSkillBridge(fakeCtx({ list: async () => [], register: (skill) => (registered.push(skill), () => {}) }), log)
-  const payload = JSON.stringify({ name: 'deploy-check', description: '部署检查', content: '# 步骤' })
-  const proposals = [
-    { id: 'a', kind: 'skill', status: 'applied', title: 'A', reason: '', payload, diff: '', createdAt: '', decidedAt: '', sourceRunId: '', sourceSessionIds: [] },
-    { id: 'b', kind: 'skill', status: 'pending', title: 'B', reason: '', payload, diff: '', createdAt: '', decidedAt: '', sourceRunId: '', sourceSessionIds: [] },
-    { id: 'c', kind: 'route', status: 'applied', title: 'C', reason: '', payload: '{}', diff: '', createdAt: '', decidedAt: '', sourceRunId: '', sourceSessionIds: [] },
-    { id: 'd', kind: 'skill', status: 'applied', title: 'D', reason: '', payload: '坏数据', diff: '', createdAt: '', decidedAt: '', sourceRunId: '', sourceSessionIds: [] },
-  ]
-  const report = await bridge.restoreApplied(proposals)
-  assert.equal(report.restored, 1, '只恢复 applied 的技能提案')
-  assert.equal(registered.length, 1)
-  assert.equal(registered[0].source, 'runtime')
-  // 没有落盘入口（store 缺席）时全走运行时注册，账要如实：写入 0、失败 1（payload 坏的那条）。
-  assert.equal(report.written, 0)
-  assert.equal(report.failed, 1)
-  assert.match(report.note, /payload 形状不对/, '失败原因要落到账上，不能只留一句看不见的 warn')
 })

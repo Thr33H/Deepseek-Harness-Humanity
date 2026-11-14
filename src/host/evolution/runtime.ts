@@ -1,7 +1,7 @@
 /**
  * 懒装件的**构建工厂**（从 `index.ts` 拆出）：runner 与 scheduler 的依赖装配各自一个函数。
  *
- * 放一起的理由：两者共享同一组"部件"（配置读取、门禁、LLM、技能桥、活动追踪），
+ * 放一起的理由：两者共享同一组"部件"（配置读取、门禁、LLM、活动追踪），
  * 拆到两个文件只会把同一份参数表抄两遍。存储就绪后由 `index.ts` 的 `ensureInstalled` 调用；
  * 存储服务摘除再挂回时用**新的表**重建（旧表句柄已死）。
  * @module humanity/evolution/runtime
@@ -18,7 +18,6 @@ import type { Runner } from './run.js'
 import { createRunner } from './run.js'
 import type { SchedulerHandle } from './scheduler.js'
 import { installScheduler } from './scheduler.js'
-import type { SkillBridge } from './skills.js'
 import type { EvolutionState } from './state.js'
 import type { SessionQueryLike } from './types.js'
 import type { EvolutionDeps } from './index.js'
@@ -29,7 +28,6 @@ export interface RuntimeParts {
   moduleEnabled(): boolean
   sessionQuery(): SessionQueryLike | undefined
   llm: LlmAccess
-  skills: SkillBridge
   activity: ActivityTracker
   log: Log
   /** 投影刷新（调度重排/运行结束后让工作台看到新值）。 */
@@ -56,7 +54,6 @@ export function buildRunner(parts: RuntimeParts, state: EvolutionState): Runner 
       memoryStore: deps.memoryStore,
       memoryPolicy: deps.memoryPolicy,
       persona: deps.personaSection,
-      skills: () => (parts.skills.available() ? parts.skills : undefined),
       state,
       log,
       personaFit: budgetOf,

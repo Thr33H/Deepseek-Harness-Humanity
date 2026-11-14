@@ -30,7 +30,7 @@ export function visibleText(markup) {
  * 卡片骨架的**渲染特征串**（`card-styles.cardLayout` 的 grid 列定义）。
  *
  * 为什么钉这个：用户 2026-09-26 要求"所有条目风格统一"—— 统一在实现上就是**同一组列宽**。
- * 三个页面（记忆 / 技能 / 自进化）的条目卡都必须渲染出这一串，才算真的走同一副骨架。
+ * 两个页面（记忆 / 自进化）的条目卡都必须渲染出这一串，才算真的走同一副骨架。
  * 改 `card-styles.ts` 的列定义时，这里要一起改（测试会当场变红，这正是它存在的意义）。
  */
 export const CARD_SKELETON = 'grid-template-columns:minmax(96px, 160px) minmax(0, 1fr) max-content'

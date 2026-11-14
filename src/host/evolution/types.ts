@@ -2,13 +2,12 @@
  * 自进化模块的类型：**存储记录**与**结构 seam**。
  *
  * seam 类型为什么全部结构化声明而不 import 官方包：与 `memory/identity.ts` 同一取舍——
- * `dsh-session-query` / `dsh-llm` / `dsh-skill` 都不是本插件依赖（G-002 零硬依赖），
+ * `dsh-session-query` / `dsh-llm` 都不是本插件依赖（G-002 零硬依赖），
  * 只用到窄窄几个方法，结构声明 + 运行时形状检查即可；官方包缺席时降级而不是编译失败。
  * 字段出处（2026-09-25 实读，两处版本核对一致）：
  * - `SessionRecord`/`SessionEventSearchDocument`：`dsh-session-query/lib/types/types.d.ts:14-21,43-54,208-211`；
  * - `SessionHeader`：`dsh-session/lib/types/types.d.ts:58-95`（`origin`/`delegationDepth`/`cwd`/`parentSession`）；
- * - `StreamChunk`/`TokenUsage`：`dsh-llm/lib/types/types.d.ts:359-390,136-148`；
- * - `SkillSummary`：`dsh-skill/lib/types/index.d.ts:268`（`list()` 返回值）。
+ * - `StreamChunk`/`TokenUsage`：`dsh-llm/lib/types/types.d.ts:359-390,136-148`。
  * @module humanity/evolution/types
  */
 import type { RUN_MODES, RUN_STATUSES, RUN_TRIGGERS, PROPOSAL_KINDS, PROPOSAL_STATUSES } from './constants.js'
@@ -49,7 +48,7 @@ export interface RunRecord {
   error: string
 }
 
-/** 一条待用户确认的提案（P-038：固定人格/技能/路由只提案，不自动生效）。 */
+/** 一条待用户确认的提案（P-038：固定人格/路由只提案，不自动生效）。 */
 export interface ProposalRecord {
   id: string
   kind: ProposalKind
@@ -57,7 +56,7 @@ export interface ProposalRecord {
   reason: string
   /** 应用所需的完整内容，JSON 字符串（结构按 kind 在应用侧校验）。 */
   payload: string
-  /** 展示用差异说明（人格=旧新对照；技能=与现有技能的关系）。 */
+  /** 展示用差异说明（人格=旧新对照）。 */
   diff: string
   status: ProposalStatus
   createdAt: string
@@ -164,13 +163,6 @@ export interface LlmLike {
 /** `ctx.agentDefaultModel` 的窄面。 */
 export interface DefaultModelLike {
   currentSelection(): { provider: string; model: string; reasoningEffort?: string }
-}
-
-/** `ctx.skills` 的窄面（查重用 list/get；注册在 `skills.ts` 的桥里，不在解析路径上）。 */
-export interface SkillsLike {
-  list(options?: unknown): Promise<Array<{ name: string; description?: string }>>
-  /** 读完整技能正文（含 content）；用于"已有但过时"的 diff。可选：缺席时更新提案不带正文对比。 */
-  get?(name: string, options?: unknown): Promise<{ content?: string } | undefined>
 }
 
 /** 一次模型调用的路由（provider + model）。 */

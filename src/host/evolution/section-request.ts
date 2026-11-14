@@ -14,10 +14,6 @@ export interface EvolutionRequestView {
   mode: string
   rescanKind: string
   rescanValue: string
-  /** 技能编辑表单（M7）；只在 skill-create / skill-update 时带值。 */
-  skillName: string
-  skillDescription: string
-  skillContent: string
 }
 
 /** 命令槽的 schema（默认值即"没有命令"）。 */
@@ -27,17 +23,10 @@ export const EvolutionRequestSchema = Schema.object({
   mode: Schema.string().default(''),
   rescanKind: Schema.string().default(''),
   rescanValue: Schema.string().default(''),
-  // 技能编辑表单（M7）：只在 skill-create / skill-update 时带值。
-  skillName: Schema.string().default(''),
-  skillDescription: Schema.string().default(''),
-  skillContent: Schema.string().default(''),
 }).default({
   op: '',
   id: '',
   mode: '',
   rescanKind: '',
   rescanValue: '',
-  skillName: '',
-  skillDescription: '',
-  skillContent: '',
 })

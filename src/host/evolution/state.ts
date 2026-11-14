@@ -30,7 +30,6 @@ export interface EvolutionTables {
 /** 待确认提案的分类计数（P-042 徽标与顶部数量；记忆类由客户端从记忆命名空间合并）。 */
 export interface ProposalCounts {
   persona: number
-  skill: number
   route: number
   total: number
 }
@@ -169,7 +168,7 @@ export function createEvolutionState(tables: EvolutionTables): EvolutionState {
     putProposal: (record) => proposals.put(record.id, record),
     removeProposal: (id) => proposals.delete(id),
     countPending: () => {
-      const counts: ProposalCounts = { persona: 0, skill: 0, route: 0, total: 0 }
+      const counts: ProposalCounts = { persona: 0, route: 0, total: 0 }
       for (const record of proposals.entries()) {
         const [, proposal] = record
         if (proposal.status !== 'pending') continue

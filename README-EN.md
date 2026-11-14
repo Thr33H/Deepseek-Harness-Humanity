@@ -9,7 +9,7 @@
 English | [简体中文](README.md)
 
 **Humanity** is a personification suite for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness):
-persona, memory, skills, self-evolution and dreaming, all behind one native Web workbench.
+persona, memory, self-evolution and dreaming, all behind one native Web workbench.
 It ships as a single installable bundle whose modules stay independent and individually switchable.
 
 The problem it solves is plain: **let your agent remember things and have a character of its own —
@@ -21,7 +21,6 @@ in a place you can see, edit and undo.**
 |---|---|
 | **Persona** | Identity card + persona card. Native sections are locked (the plugin keys off them); everything else is yours: add, rename, delete. Names are fixed text, content is a plain editable field. Changes take effect **immediately** (hot reload) and history is kept for rollback |
 | **Memory** | Three scopes (long-term / workspace / session), automatic capture, seven-signal relevance retrieval. Low-risk content is stored automatically; high-risk content only becomes a **proposal you approve**. Entries can be re-scoped, deduplicated, archived and restored — it never grows without bound, and it is **never auto-deleted** |
-| **Skills** | Skills distilled by self-evolution land in the official user skills directory; create, edit, disable and restore them from the workbench. Tool dependencies are reported **by plugin name**, not as a vague warning |
 | **Self-evolution & dreaming** | Scheduled passes over new sessions → model analysis → memories and proposals, fully metered with a daily cap. "Dreaming" renders each pass as a readable run timeline |
 
 Plus: one master switch and four module switches (effective immediately), registered in DSH's own
@@ -84,7 +83,7 @@ dsh plugin --profile web update deepseek-harness-humanity
 dsh plugin --profile web remove deepseek-harness-humanity
 ```
 
-Plugin data (`$DSH_HOME/storages/humanity.json`, `$DSH_HOME/skills/`) is **independent data**:
+Plugin data (`$DSH_HOME/storages/humanity.json`) is **independent data**:
 uninstalling the plugin does not delete it.
 
 ## Where data lives
@@ -94,7 +93,6 @@ uninstalling the plugin does not delete it.
 | Persona, memories, proposals, run records | `$DSH_HOME/storages/humanity.json` (versioned storage domain `humanity`) |
 | Persona history (superseded / deleted entries) | `persona_history` table, with a **retention window** (30 days by default, or forever) |
 | Module switches, memory mode, schedule and budget | `$DSH_HOME/settings.yaml`, `humanity` section |
-| Skill files | `$DSH_HOME/skills/` |
 
 Everything stays inside `$DSH_HOME` and migrates with DSH. The plugin writes nowhere else.
 
@@ -134,7 +132,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions, and [docs/](docs/) for a
 
 | Document | Content |
 |---|---|
-| [docs/USAGE.md](docs/USAGE.md) | Using personas, the memory tiers, skill persistence, every self-evolution switch |
+| [docs/USAGE.md](docs/USAGE.md) | Using personas, the memory tiers, every self-evolution switch |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Module boundaries, the compatibility gate, and why they are cut this way |
 | [CHANGELOG.md](CHANGELOG.md) | Release history, including the symptom behind each fix |
 

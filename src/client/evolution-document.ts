@@ -9,10 +9,10 @@
 import type { EvolutionRequest } from './evolution-channel.js'
 import { EMPTY_EVOLUTION_REQUEST } from './evolution-channel.js'
 import { defaultEvolutionConfig, type EvolutionConfigView } from './evolution-config-doc.js'
-import { numOf, proposalOf, runOf, skillOf, strOf, type PendingCountsView, type ProposalView, type RunView, type SkillView, type StatusView } from './evolution-views.js'
+import { numOf, proposalOf, runOf, strOf, type PendingCountsView, type ProposalView, type RunView, type StatusView } from './evolution-views.js'
 
 // 视图形状在 evolution-views.ts 定义；这里原样转出口，消费方（页面组件）仍从本文件取类型。
-export type { ProposalView, RunView, PendingCountsView, SkillView, StatusView } from './evolution-views.js'
+export type { ProposalView, RunView, PendingCountsView, StatusView } from './evolution-views.js'
 
 /** 自进化工作台的完整状态。 */
 export interface EvolutionWorkbenchState {
@@ -25,12 +25,6 @@ export interface EvolutionWorkbenchState {
   configRevision?: number
   runs: RunView[]
   proposals: ProposalView[]
-  /** 技能清单（M7）：官方目录 + 提案表合成；四态见 `SkillView`。 */
-  skills: SkillView[]
-  /** 技能能不能落盘（false ⇒ 只活在运行时；页面要如实提示，不假装已持久化）。 */
-  skillsWritable: boolean
-  /** 上一次技能恢复的账（写入/可用/失败条数与原因）。 */
-  skillsReport: string
   pendingCounts: PendingCountsView
   evolutionStatus: StatusView
   /** 顶层配置里 `modules.evolution` 的当前值（设置表单的数据源；宿主 schema 是真源）。 */
@@ -55,11 +49,8 @@ export function emptyEvolutionState(): EvolutionWorkbenchState {
     writable: false,
     runs: [],
     proposals: [],
-    skills: [],
-    skillsWritable: false,
-    skillsReport: '',
-    pendingCounts: { memory: 0, persona: 0, skill: 0, route: 0, total: 0 },
-    evolutionStatus: { enabled: true, storeReady: false, scanReady: false, modelReady: false, skillsReady: false },
+    pendingCounts: { memory: 0, persona: 0, route: 0, total: 0 },
+    evolutionStatus: { enabled: true, storeReady: false, scanReady: false, modelReady: false },
     config: defaultEvolutionConfig(),
     nextRunAt: 0,
     baselineAt: '',
@@ -90,13 +81,9 @@ export function asEvolutionDocument(value: unknown): Omit<EvolutionWorkbenchStat
   return {
     runs: Array.isArray(record.runs) ? record.runs.map(runOf) : [],
     proposals: Array.isArray(record.proposals) ? record.proposals.map(proposalOf) : [],
-    skills: Array.isArray(record.skills) ? record.skills.map(skillOf) : [],
-    skillsWritable: record.skillsWritable === true,
-    skillsReport: strOf(record.skillsReport),
     pendingCounts: {
       memory: numOf(counts.memory),
       persona: numOf(counts.persona),
-      skill: numOf(counts.skill),
       route: numOf(counts.route),
       total: numOf(counts.total),
     },
@@ -105,7 +92,6 @@ export function asEvolutionDocument(value: unknown): Omit<EvolutionWorkbenchStat
       storeReady: status.storeReady === true,
       scanReady: status.scanReady === true,
       modelReady: status.modelReady === true,
-      skillsReady: status.skillsReady === true,
     },
     nextRunAt: numOf(record.nextRunAt),
     baselineAt: strOf(record.baselineAt),

@@ -20,18 +20,7 @@ import type { PersonaChannel } from './persona-channel.js'
 export const EVOLUTION_NAMESPACE = 'humanity-evolution'
 
 /** 工作台能发起的操作（与宿主 `evolution/ops.ts` 的 `EVOLUTION_OPS` 同一集合，同样由测试比对）。 */
-export const EVOLUTION_OPS = [
-  'run',
-  'rescan',
-  'approve',
-  'reject',
-  'delete',
-  // M7 技能编辑（与宿主 ops.ts 同一集合，由 bundle 测试比对）。
-  'skill-create',
-  'skill-update',
-  'skill-disable',
-  'skill-enable',
-] as const
+export const EVOLUTION_OPS = ['run', 'rescan', 'approve', 'reject', 'delete'] as const
 
 /** 工作台能发起的操作。 */
 export type EvolutionOp = (typeof EVOLUTION_OPS)[number]

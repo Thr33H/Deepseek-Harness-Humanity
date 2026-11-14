@@ -9,7 +9,7 @@
  * - **差异横跨整卡**（`cardSpan`）—— 它是关于整条的补充，塞进中列会看起来像标题的一部分。
  *
  * 界面纪律：**不做乐观更新**——点了批准，按钮进入 busy，等宿主投影回来才改状态；
- * 应用失败（校验拒绝/技能重名）时提案仍是待确认，notice 里是宿主给的原因（P-011）。
+ * 应用失败（校验拒绝）时提案仍是待确认，notice 里是宿主给的原因（P-011）。
  * @module deepseek-harness-humanity/client/proposal-list
  */
 import { Button, Tag } from '@deepseek-ai/dsh-client-ui-primitives'

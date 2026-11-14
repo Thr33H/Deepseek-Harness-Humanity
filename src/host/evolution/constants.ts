@@ -12,18 +12,7 @@
 export const EVOLUTION_NAMESPACE = 'humanity-evolution'
 
 /** 工作台能发起的命令（与客户端 `evolution-channel.ts` 同一集合，由 bundle 测试比对）。 */
-export const EVOLUTION_OPS = [
-  'run',
-  'rescan',
-  'approve',
-  'reject',
-  'delete',
-  // M7 技能编辑：新建 / 修改 / 停用 / 恢复（删除不在其中——官方文件能力里没有删除）。
-  'skill-create',
-  'skill-update',
-  'skill-disable',
-  'skill-enable',
-] as const
+export const EVOLUTION_OPS = ['run', 'rescan', 'approve', 'reject', 'delete'] as const
 
 /** 工作台命令名。 */
 export type EvolutionOp = (typeof EVOLUTION_OPS)[number]
@@ -53,7 +42,7 @@ export const RUN_TRIGGERS = ['idle', 'scheduled', 'manual'] as const
 export const RUN_STATUSES = ['running', 'completed', 'failed', 'skipped'] as const
 
 /** 提案类别（P-038；记忆高风险走既有 pending 条目，不重复建类）。 */
-export const PROPOSAL_KINDS = ['persona', 'skill', 'route'] as const
+export const PROPOSAL_KINDS = ['persona', 'route'] as const
 
 /** 提案状态机。 */
 export const PROPOSAL_STATUSES = ['pending', 'approved', 'rejected', 'applied'] as const

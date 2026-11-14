@@ -9,7 +9,7 @@ import { test } from 'node:test'
 import { AnalyzeError, analyzeDigest, extractJson } from '../lib/evolution/analyze.js'
 
 /** 最小合法输出（全默认值也合法——合同允许"没发现"）。 */
-const MINIMAL = JSON.stringify({ memories: [], personaSections: [], personaFixed: [], skills: [], insights: [], narrative: '' })
+const MINIMAL = JSON.stringify({ memories: [], personaSections: [], personaFixed: [], insights: [], narrative: '' })
 
 /** 造一个按次序回放的假 LLM 入口（route 显式传 null = 模拟"没有可用路由"）。 */
 function fakeLlm(responses, route) {

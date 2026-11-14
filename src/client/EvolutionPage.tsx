@@ -29,14 +29,13 @@ export interface EvolutionPageProps extends PropsLocale<typeof NS> {
 /** 回扫的四个范围档（顺序即下拉里的顺序）。 */
 const RESCAN_KINDS = ['days', 'workspace', 'session', 'all'] as const
 
-/** 状态行：五项就绪灯（降级原因如实展示，G-002「说清楚」）。 */
+/** 状态行：四项就绪灯（降级原因如实展示，G-002「说清楚」）。 */
 function StatusPanel({ t, state }: { t: Translate; state: EvolutionWorkbenchState }) {
   const flags = [
     ['evolution.status.enabled', state.evolutionStatus.enabled],
     ['evolution.status.store', state.evolutionStatus.storeReady],
     ['evolution.status.scan', state.evolutionStatus.scanReady],
     ['evolution.status.model', state.evolutionStatus.modelReady],
-    ['evolution.status.skills', state.evolutionStatus.skillsReady],
   ] as const
   const nextRun = state.nextRunAt > 0 ? new Date(state.nextRunAt).toLocaleString() : t('evolution.nextRun.none')
   return (

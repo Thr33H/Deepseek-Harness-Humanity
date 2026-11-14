@@ -33,7 +33,7 @@ const CREATED = Date.parse(BASELINE) + 60000
 const INDEPENDENT_JUDGMENT = true
 
 /** 最小合法解析输出。 */
-const EMPTY_OUTPUT = { memories: [], personaSections: [], personaFixed: [], skills: [], insights: [], narrative: '' }
+const EMPTY_OUTPUT = { memories: [], personaSections: [], personaFixed: [], insights: [], narrative: '' }
 
 /**
  * 造一份人格文档。
@@ -124,7 +124,6 @@ function harness(options = {}) {
       memoryStore: () => createMemoryStore(memoryTable),
       memoryPolicy: () => resolveMemoryPolicy('balanced'),
       persona: () => personaSection,
-      skills: () => undefined,
       state,
       log,
     }),

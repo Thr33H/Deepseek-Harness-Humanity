@@ -50,24 +50,24 @@ test(`运行记录：超过 ${MAX_RUN_RECORDS} 条裁掉最旧`, async () => {
 test('提案：按状态过滤、分类计数只算 pending', async () => {
   const { state } = fakeEvolutionState()
   const persona = proposal('persona', '固定层补自定义字段A', { createdAt: '2026-09-02T00:00:00.000Z' })
-  const skill = proposal('skill', '周报技能', { createdAt: '2026-09-03T00:00:00.000Z' })
+  const second = proposal('persona', '可变层补说话风格', { createdAt: '2026-09-03T00:00:00.000Z' })
   const route = proposal('route', '夜间便宜模型', { createdAt: '2026-09-01T00:00:00.000Z' })
   await state.putProposal(persona)
-  await state.putProposal(skill)
+  await state.putProposal(second)
   await state.putProposal({ ...route, status: 'applied' })
 
   assert.equal(state.listProposals().length, 3)
   assert.deepEqual(
     state.listProposals('pending').map((record) => record.title),
-    ['周报技能', '固定层补自定义字段A'],
+    ['可变层补说话风格', '固定层补自定义字段A'],
   )
-  assert.deepEqual(state.countPending(), { persona: 1, skill: 1, route: 0, total: 2 })
+  assert.deepEqual(state.countPending(), { persona: 2, route: 0, total: 2 })
 })
 
 test('提案：payload 超字节上限即抛（一条失控提案不进表）', () => {
   const huge = 'x'.repeat(70000)
   assert.throws(
-    () => createProposal({ kind: 'skill', title: '超大', payload: { content: huge } }, 65536),
+    () => createProposal({ kind: 'persona', title: '超大', payload: { content: huge } }, 65536),
     /超过 65536 字节上限/,
   )
 })

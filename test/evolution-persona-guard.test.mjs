@@ -43,7 +43,7 @@ const CREATED = Date.parse(BASELINE) + 60000
 const JUDGMENT = true
 
 /** 最小合法解析输出。 */
-const EMPTY_OUTPUT = { memories: [], personaSections: [], personaFixed: [], skills: [], insights: [], narrative: '' }
+const EMPTY_OUTPUT = { memories: [], personaSections: [], personaFixed: [], insights: [], narrative: '' }
 
 /** 4 个**原生**小节（0.1.14 起人格卡的默认集合）。 */
 /** 夹具里最后一节（空的，用来接新条目）。 */
@@ -158,7 +158,6 @@ function harness(options = {}) {
       memoryStore: () => createMemoryStore(memoryTable),
       memoryPolicy: () => resolveMemoryPolicy('balanced'),
       persona: () => personaSection,
-      skills: () => undefined,
       state,
       log,
       // 与宿主接线同一处口径：预演用的拟合器就是提示词注入用的那一个。

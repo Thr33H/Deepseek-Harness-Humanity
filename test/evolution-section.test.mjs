@@ -68,7 +68,7 @@ async function boot(options = {}) {
     state: () => (storeReady ? state : undefined),
     ops: () => ({ runner, proposals, refresh: () => {}, warn: () => {} }),
     // 0.1.9：`storeReady` 由宿主**现算**（不再由投影层写死 true）⇒ 这里也如实跟着存储句柄走。
-    status: () => ({ enabled: true, storeReady, scanReady: true, modelReady: true, skillsReady: true }),
+    status: () => ({ enabled: true, storeReady, scanReady: true, modelReady: true }),
     memoryPendingCount: () => options.memoryPending ?? 0,
     nextRunAt: () => options.nextRunAt ?? 0,
     dailyCallCap: () => 20,
@@ -100,23 +100,20 @@ async function boot(options = {}) {
   }
 }
 
-test('命令槽按**逐字段**比对清空：技能命令的内容字段也算数（审计：漏比等于静默吞命令）', () => {
-  // 技能命令把 op/id/mode/rescan* 之外的字段留在 skillName / skillDescription / skillContent 里，
-  // 旧实现只比前五项 —— 于是"第一条技能命令的投影"会把窗口内提交的第二条技能命令一起清掉，
+test('命令槽按**逐字段**比对清空：任一字段不同都算另一条命令（审计：漏比等于静默吞命令）', () => {
+  // 旧实现只比固定几项 —— 于是"第一条命令的投影"会把窗口内提交的第二条命令一起清掉，
   // 用户按了保存却什么都没发生（没有任何报错，最难查的一类）。
-  const skill = (name, content) => ({
-    ...EMPTY_REQUEST,
-    op: 'skill-update',
-    skillName: name,
-    skillContent: content,
-  })
+  const rescan = (value) => ({ ...EMPTY_REQUEST, op: 'rescan', rescanKind: 'days', rescanValue: value })
 
-  assert.equal(shouldClearRequest(skill('a', '正文一'), skill('a', '正文一')), true, '同一条 ⇒ 可以清')
-  assert.equal(shouldClearRequest(skill('a', '正文二'), skill('a', '正文一')), false, '正文改了 ⇒ 是另一条命令')
-  assert.equal(shouldClearRequest(skill('b', '正文一'), skill('a', '正文一')), false, '换了个技能 ⇒ 不许清')
-  assert.equal(shouldClearRequest({ ...EMPTY_REQUEST }, skill('a', '正文一')), true, '空槽无事可做')
-  assert.equal(shouldClearRequest(undefined, skill('a', '正文一')), false, '读不到槽就不动它')
-  assert.equal(shouldClearRequest(skill('a', '正文一'), undefined), false, '不是由命令触发的投影不许替客户端做决定')
+  assert.equal(shouldClearRequest(rescan('7'), rescan('7')), true, '同一条 ⇒ 可以清')
+  assert.equal(shouldClearRequest(rescan('30'), rescan('7')), false, '只改了范围参数 ⇒ 是另一条命令')
+  // 多出来的键也参与比较（以后加字段不会再漏）：命令槽里出现 EMPTY_REQUEST 没有的键时，
+  // 只要两侧不一致就不许清 —— 否则新字段的内容会被一次旧投影顺手抹掉。
+  const extended = { ...rescan('7'), extra: 'x' }
+  assert.equal(shouldClearRequest(extended, rescan('7')), false, '多出的字段参与比对')
+  assert.equal(shouldClearRequest({ ...EMPTY_REQUEST }, rescan('7')), true, '空槽无事可做')
+  assert.equal(shouldClearRequest(undefined, rescan('7')), false, '读不到槽就不动它')
+  assert.equal(shouldClearRequest(rescan('7'), undefined), false, '不是由命令触发的投影不许替客户端做决定')
 })
 
 test('接上设置服务即注册并投影：宿主字段齐、命令槽为空', async () => {
@@ -126,8 +123,8 @@ test('接上设置服务即注册并投影：宿主字段齐、命令槽为空',
     const doc = harness.view()
     assert.deepEqual(doc.runs, [])
     assert.deepEqual(doc.proposals, [])
-    assert.deepEqual(doc.pendingCounts, { memory: 0, persona: 0, skill: 0, route: 0, total: 0 })
-    assert.deepEqual(doc.status, { enabled: true, storeReady: true, scanReady: true, modelReady: true, skillsReady: true })
+    assert.deepEqual(doc.pendingCounts, { memory: 0, persona: 0, route: 0, total: 0 })
+    assert.deepEqual(doc.status, { enabled: true, storeReady: true, scanReady: true, modelReady: true })
     assert.equal(doc.dailyCallCap, 20)
     assert.equal(doc.request.op, '')
   } finally {
@@ -147,7 +144,7 @@ test('存储里有内容 → 投影带出运行/提案/计数；记忆 pending �
     assert.equal(doc.runs.length, 1)
     assert.equal(doc.runs[0].narrative, '一段梦')
     assert.equal(doc.proposals.length, 1)
-    assert.deepEqual(doc.pendingCounts, { memory: 2, persona: 1, skill: 0, route: 0, total: 3 })
+    assert.deepEqual(doc.pendingCounts, { memory: 2, persona: 1, route: 0, total: 3 })
   } finally {
     await harness.dispose()
   }
@@ -241,7 +238,7 @@ test(`已处理提案在投影里最多 ${DECIDED_VIEW_CAP} 条；pending 永远
       await harness.state.putProposal({ ...record, status: 'rejected' })
     }
     for (let index = 0; index < 3; index += 1) {
-      await harness.state.putProposal(createProposal({ kind: 'skill', title: `待确认 ${index}` }, 65536))
+      await harness.state.putProposal(createProposal({ kind: 'persona', title: `待确认 ${index}` }, 65536))
     }
     await harness.section.refresh()
 
@@ -261,7 +258,7 @@ test('设置服务缺席：不抛、attached=false（G-002 降级）', async () 
   const section = installEvolutionSection(ctx, createLog(ctx, 'test'), {
     state: () => state,
     ops: () => undefined,
-    status: () => ({ enabled: true, storeReady: true, scanReady: false, modelReady: false, skillsReady: false }),
+    status: () => ({ enabled: true, storeReady: true, scanReady: false, modelReady: false }),
     memoryPendingCount: () => 0,
     nextRunAt: () => 0,
     dailyCallCap: () => 20,

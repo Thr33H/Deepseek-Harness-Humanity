@@ -78,12 +78,12 @@ test('有待确认批次：注入简短提醒（数量与分类都在），水�
   const harness = await boot()
   try {
     await seedProposal(harness.state, 'persona', '身份卡字段')
-    await seedProposal(harness.state, 'skill', '新技能')
+    await seedProposal(harness.state, 'route', '夜间路由')
 
     const text = await harness.turn(harness.main)
     assert.match(text, /待确认提案/)
     assert.match(text, /2 条/)
-    assert.match(text, /人格 1 条、技能 1 条/)
+    assert.match(text, /人格 1 条、路由 1 条/)
     assert.match(text, /只简短提醒这一次/)
 
     await flush()

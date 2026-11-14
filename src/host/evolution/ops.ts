@@ -12,7 +12,6 @@
 import type { RescanRange } from './scan.js'
 import type { Runner } from './run.js'
 import type { ProposalActions } from './proposals.js'
-import type { SkillDraft, SkillEditor } from '../skills/edit-ops.js'
 
 /** 一条来自工作台的命令。`op` 为空串表示"没有命令"（命名空间稳态）。 */
 export interface EvolutionRequest {
@@ -25,10 +24,6 @@ export interface EvolutionRequest {
   rescanKind: string
   /** rescan 范围的参数（天数/工作区路径/会话 id；all 时忽略）。 */
   rescanValue: string
-  /** 技能编辑表单（M7；`skill-create` / `skill-update` 用）。 */
-  skillName: string
-  skillDescription: string
-  skillContent: string
 }
 
 /** 没有待执行命令时的取值。 */
@@ -38,17 +33,12 @@ export const EMPTY_REQUEST: EvolutionRequest = {
   mode: '',
   rescanKind: '',
   rescanValue: '',
-  skillName: '',
-  skillDescription: '',
-  skillContent: '',
 }
 
 /** 执行一条命令需要的动作面。 */
 export interface EvolutionOps {
   runner: Runner
   proposals: ProposalActions
-  /** 技能编辑（M7：新建 / 修改 / 停用 / 恢复）。 */
-  skills: SkillEditor
   /** 运行结束（无论成败）后刷新投影：时间线要能看到结局。 */
   refresh(): void
   /** 启动被拒（模块已关/互斥竞态）时的告警出口。 */
@@ -89,11 +79,6 @@ function launchRun(ops: EvolutionOps, mode: 'incremental' | 'dream', rescan?: Re
  * @param ops - 动作面。
  * @param request - 命令。
  */
-/** 从命令里取出技能编辑表单。 */
-function draftOf(request: EvolutionRequest): SkillDraft {
-  return { name: request.skillName, description: request.skillDescription, content: request.skillContent }
-}
-
 export async function applyEvolutionRequest(ops: EvolutionOps, request: EvolutionRequest): Promise<string> {
   switch (request.op) {
     case 'run': {
@@ -111,14 +96,6 @@ export async function applyEvolutionRequest(ops: EvolutionOps, request: Evolutio
       return ops.proposals.reject(request.id)
     case 'delete':
       return ops.proposals.delete(request.id)
-    case 'skill-create':
-      return ops.skills.create(draftOf(request))
-    case 'skill-update':
-      return ops.skills.update(draftOf(request))
-    case 'skill-disable':
-      return ops.skills.setDisabled(request.skillName, true)
-    case 'skill-enable':
-      return ops.skills.setDisabled(request.skillName, false)
     default:
       return `不认识的操作：${request.op}`
   }

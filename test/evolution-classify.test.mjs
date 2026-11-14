@@ -1,6 +1,6 @@
 /**
  * 分类写回测试：P-038 权限分层（记忆自动/敏感待确认、可变层自动、固定层只提案）、
- * P-041 技能查重四分类、跨轮提案去重、模块关闭时不越权写数据。
+ * 跨轮提案去重、模块关闭时不越权写数据。
  *
  * 记忆写入用**真管线**（`remember()` + 真策略解析）：classify 的命题是"权限分层被遵守"，
  * 而分层的一半保证在记忆管线里（敏感→pending、去重、冲突），假货会测不到真行为。
@@ -26,14 +26,13 @@ function output(overrides = {}) {
     memories: [],
     personaSections: [],
     personaFixed: [],
-    skills: [],
     insights: [],
     narrative: '',
     ...overrides,
   }
 }
 
-/** 造一套默认依赖（记忆开、人格未初始化、无技能服务）。 */
+/** 造一套默认依赖（记忆开、人格未初始化）。 */
 function deps(overrides = {}) {
   const { state } = fakeEvolutionState()
   const memoryTable = createFakeTable()
@@ -44,7 +43,6 @@ function deps(overrides = {}) {
       memoryStore: () => createMemoryStore(memoryTable),
       memoryPolicy: () => resolveMemoryPolicy('balanced'),
       persona: () => undefined,
-      skills: () => undefined,
       state,
       log,
       ...overrides,
@@ -188,33 +186,6 @@ test('固定层字段：只生成提案，绝不直接写（P-023/P-038）', asy
   const proposal = state.listProposals('pending')[0]
   assert.equal(proposal.kind, 'persona')
   assert.deepEqual(JSON.parse(proposal.payload), { type: 'identity', fieldKey: '归属地', fieldValue: '示例城市' })
-})
-
-test('技能查重四分类（P-041）：重复不生成、同名异内容=更新、新名字=全新', async () => {
-  const catalog = [
-    { name: 'weekly-report', description: '生成周报' },
-    { name: 'deploy-check', description: '部署检查' },
-  ]
-  const skills = {
-    list: async () => catalog,
-    get: async (name) => (name === 'weekly-report' ? { content: '旧内容' } : undefined),
-    register: () => () => {},
-  }
-  const { deps: dependencies, state } = deps({ skills: () => skills })
-
-  const result = await applyAnalysis(dependencies, CONTEXT, output({
-    skills: [
-      { name: 'weekly-report', description: '生成周报', content: '旧内容', reason: '重复出现' },
-      { name: 'weekly-report', description: '生成周报', content: '新内容更完整', reason: '流程升级' },
-      { name: 'meeting-notes', description: '整理会议纪要', content: '# 技能', reason: '重复出现' },
-    ],
-  }))
-
-  assert.equal(result.proposalsCreated, 2, '完全重复的那条不生成')
-  assert.equal(result.proposalsSkipped, 1)
-  const titles = state.listProposals('pending').map((record) => record.title)
-  assert.ok(titles.some((title) => title.startsWith('更新技能：weekly-report')))
-  assert.ok(titles.some((title) => title.startsWith('新技能：meeting-notes')))
 })
 
 test('路由建议已裁撤：解析结果里即便带着 routes 也一律不产提案（用户 2026-09-26 裁撤 M4）', async () => {

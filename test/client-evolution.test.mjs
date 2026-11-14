@@ -58,10 +58,10 @@ function sampleDoc(overrides = {}) {
     ],
     proposals: [
       { id: 'p1', kind: 'persona', title: '身份卡字段：归属地 → 示例城市', reason: '用户明确说过', diff: '', status: 'pending', createdAt: '2026-09-25T03:01:00.000Z', decidedAt: '' },
-      { id: 'p2', kind: 'skill', title: '新技能：weekly-report', reason: '重复出现', diff: '', status: 'applied', createdAt: '2026-09-24T03:01:00.000Z', decidedAt: '2026-09-24T09:00:00.000Z' },
+      { id: 'p2', kind: 'persona', title: '可变层：补说话风格', reason: '重复出现', diff: '', status: 'applied', createdAt: '2026-09-24T03:01:00.000Z', decidedAt: '2026-09-24T09:00:00.000Z' },
     ],
-    pendingCounts: { memory: 1, persona: 1, skill: 0, route: 0, total: 2 },
-    status: { enabled: true, storeReady: true, scanReady: true, modelReady: false, skillsReady: true },
+    pendingCounts: { memory: 1, persona: 1, route: 0, total: 2 },
+    status: { enabled: true, storeReady: true, scanReady: true, modelReady: false },
     nextRunAt: Date.parse('2026-09-26T03:00:00.000Z'),
     baselineAt: '2026-09-20T00:00:00.000Z',
     dailyCalls: 4,
@@ -182,23 +182,6 @@ test('控制器：命令走 evolution 命名空间并带修订号；配置走 hu
   assert.equal(configWrite.ns, 'humanity', '调度/预算写顶层配置（宿主的 onChanged 会重排定时器）')
   assert.deepEqual(configWrite.patch, { modules: { evolution: { schedule: { mode: 'daily' } } } })
   assert.equal(configWrite.revision, 9)
-})
-
-test('技能保存被宿主拒绝时返回 false（页面据此**不关**表单）：用户按的保存不能悄无声息', async () => {
-  // 2026-09-26 客户端审计：`SkillsPage` 原来不管成败都关表单，用户按了保存毫无反馈。
-  // 现在页面只在 `ok === true` 时收起，所以"宿主拒绝"这条路径必须真的回 false。
-  const channel = fakeChannel({ failUpdate: '技能名不符合 kebab-case' })
-  const controller = new EvolutionWorkbenchController()
-  controller.attach(channel)
-  await settle()
-
-  const ok = await controller.updateSkill({ name: 'Weekly Report', description: '说明', content: '正文' })
-
-  assert.equal(ok, false, '必须回 false（true 会让表单关掉、像成功了一样）')
-  assert.match(controller.getSnapshot().error ?? '', /kebab-case/)
-  assert.equal(controller.getSnapshot().busy, '', '忙碌标记要清掉（否则按钮永久禁用）')
-  assert.equal(channel.updates[0].patch.request.op, 'skill-update')
-  assert.equal(channel.updates[0].patch.request.skillName, 'Weekly Report', '表单三字段都要发出去')
 })
 
 test('控制器：只读通道拒绝写入；detach 后回到未就绪但保留数据', async () => {
@@ -329,11 +312,11 @@ test('提案列表：待确认摊开理由、已处理压成一行（点箭头�
 
   // 已处理：压成一行 —— 理由默认**不渲染**（历史备查，不该占满屏幕）。
   assert.equal(markup.includes('重复出现'), false, '已处理提案的理由默认收起')
-  assert.match(markup, /新技能：weekly-report/, '标题仍然看得见（一行摘要）')
+  assert.match(markup, /可变层：补说话风格/, '标题仍然看得见（一行摘要）')
   assert.match(markup, /aria-expanded="false"/, '展开控件要如实标注状态')
   assert.match(markup, /evolution\.proposal\.details/, '展开控件要有无障碍名')
 
-  // 统一卡片骨架：提案与运行记录走的是与记忆/技能同一副骨架。
+  // 统一卡片骨架：提案与运行记录走的是与记忆同一副骨架。
   assert.ok(markup.includes(CARD_SKELETON), '提案/时间线要用统一骨架')
 
   // 面板标题旁挂说明（P-053：解释进「?」，不铺正文）。

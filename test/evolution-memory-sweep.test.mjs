@@ -92,7 +92,6 @@ function harness(options = {}) {
       memoryStore: () => store,
       memoryPolicy: () => policy,
       persona: () => undefined,
-      skills: () => undefined,
       state,
       log,
     }),

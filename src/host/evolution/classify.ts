@@ -6,7 +6,6 @@
  * | 记忆候选 | `remember()` 完整管线（策略门/去重/冲突/敏感→pending 全由记忆模块把关） | P-025/P-033/P-038 |
  * | 可变层小节 | `classify-persona.ts`（完整快照合并 + agent 写入；被拒转提案） | P-017/P-038 |
  * | 固定层字段 | **只生成提案**（approve 仅工作台可发，见 proposals.ts） | P-023/P-038 |
- * | 技能 | 先查目录四分类，**只生成提案** | P-041 |
  * | 路由 | **只生成提案**，绝不自动启用 | P-039 |
  *
  * 模块独立（P-048）：记忆/人格句柄都是宿主喂进来的**现读函数**，模块关闭或未就绪时
@@ -25,14 +24,13 @@ import { MAX_PROPOSAL_PAYLOAD_BYTES, MAX_PROPOSAL_TEXT_CHARS } from './constants
 import { createProposal, type AnalysisOutput, type ProposalInput } from './model.js'
 import type { PersonaBudgetState } from './prompt.js'
 import type { EvolutionState } from './state.js'
-import type { RunMode, SkillsLike } from './types.js'
+import type { RunMode } from './types.js'
 
 /** 分类写回的依赖（全部现读，宿主接线）。 */
 export interface ClassifyDeps {
   memoryStore(): MemoryStore | undefined
   memoryPolicy(): MemoryPolicy | undefined
   persona(): PersonaSection | undefined
-  skills(): SkillsLike | undefined
   state: EvolutionState
   log: Log
   /**
@@ -148,46 +146,6 @@ async function writeMemories(deps: ClassifyDeps, context: ClassifyContext, outpu
   return [written, truncated]
 }
 
-/** 技能候选四分类（P-041）：duplicate 不生成；update/variant/new 生成提案。 */
-async function classifySkills(
-  deps: ClassifyDeps,
-  context: ClassifyContext,
-  output: AnalysisOutput,
-  addProposal: ProposalFactory,
-): Promise<[number, number]> {
-  const skills = deps.skills()
-  const catalog = skills === undefined ? [] : await skills.list().catch(() => [])
-  let created = 0
-  let skipped = 0
-  for (const candidate of output.skills) {
-    const exact = catalog.find((entry) => entry.name === candidate.name)
-    if (exact !== undefined && skills?.get !== undefined) {
-      const existing = await skills.get(candidate.name).catch(() => undefined)
-      if (existing?.content === candidate.content) {
-        skipped += 1 // 完全重复：只记录命中，不生成（P-041.1）
-        continue
-      }
-    }
-    const parent = exact?.name ?? catalog.find((entry) => entry.name !== '' && candidate.name.includes(entry.name))?.name ?? ''
-    const title =
-      exact !== undefined
-        ? `更新技能：${candidate.name}`
-        : parent !== ''
-          ? `技能变体：${candidate.name}（父：${parent}）`
-          : `新技能：${candidate.name}`
-    const createdOne = addProposal(context, {
-      kind: 'skill',
-      title,
-      reason: candidate.reason,
-      payload: { name: candidate.name, description: candidate.description, content: candidate.content, parent },
-      diff: exact !== undefined ? '与现有同名技能内容不同（更新）' : parent !== '' ? `引用父技能 ${parent}，适用场景不同` : '全新技能',
-    })
-    if (createdOne) created += 1
-    else skipped += 1
-  }
-  return [created, skipped]
-}
-
 /**
  * 把一份解析输出写回各归属地。
  * @param deps - 各模块句柄（现读）。
@@ -214,7 +172,6 @@ export async function applyAnalysis(deps: ClassifyDeps, context: ClassifyContext
   result.proposalsCreated += persona.proposals
 
   addCounted(result, addFixedProposals(context, output, addProposal))
-  addCounted(result, await classifySkills(deps, context, output, addProposal))
 
   if (context.mode === 'dream' && output.insights.length > 0) {
     // 洞察不自动写记忆（联想产物的证据强度低）：进运行记录，由用户在时间线里决定。

@@ -235,8 +235,6 @@ export function buildSystemPrompt(context: PromptContext): string {
     '  不是重复，不要提交。这一项合并的是措辞完全不同的同义句（字符串相似度判不出来的那些）。',
     '- personaFixed：对 AI 身份卡（固定层）的修改建议。仅当用户明确陈述或纠正了 AI 的姓名、性别、',
     '  人格偏好、主语言或其自定义字段时提交。fieldKey=字段名；fieldValue=建议值（短文本）；reason=对话依据。',
-    '- skills：重复出现、可复用的工作流程或方法。name=小写连字符短名；description=一句话用途；',
-    '  content=可直接落盘的完整技能文档（markdown，含适用场景与步骤）；reason=为什么值得沉淀。',
     '- insights：跨对话的联想、模式与反思，每条一句话。梦境模式给 3 到 8 条；其余模式没有就给空数组。',
     '- narrative：仅梦境模式输出——以 AI 第一人称把这段时间的经历复述成一段短叙事（不超过 800 字）；',
     '  其余模式给空串。',
