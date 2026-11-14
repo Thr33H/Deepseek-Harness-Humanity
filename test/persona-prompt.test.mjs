@@ -54,30 +54,28 @@ test('渲染：开关关掉 → 空串（可一键关闭）', () => {
   assert.equal(renderPersonaPrompt(filledPersona(), { enabled: false }), '')
 })
 
-test('渲染：**未初始化**时注入引导语而不是空串（否则模型不知道要调 init —— 鸡生蛋）', () => {
+test('渲染：**未初始化**时注入"第一次见面"而不是空串（否则模型不知道要调 init —— 鸡生蛋）', () => {
   // 真机反馈：在已经跑了一段时间的 DSH 上装本插件后，新对话不会引导用户定义姓名等；
   // 全新重置的环境"看起来正常"，因为那时第一次初始化由别的东西触发了。
   const text = renderPersonaPrompt(createDefaultPersona(), { enabled: true })
 
-  assert.match(text, /人格系统（Humanity）/)
-  assert.match(text, /人格尚未初始化/)
-  assert.doesNotMatch(text, /人格底色/, '未初始化时没有底色可注入')
+  assert.match(text, /# 第一次见面/)
+  assert.match(text, /你还没有名字/)
+  assert.doesNotMatch(text, /姓名：/, '未初始化时没有可注入的身份字段')
 })
 
-test('渲染：引导语是**单一路径**（只保留全新安装引导，已删掉场景 B 与判断方法）', () => {
+test('渲染：见面这段只写"做什么"，不写成一步步的流程说明（用户 2026-11-14 定）', () => {
   const text = renderPersonaPrompt(createDefaultPersona(), { enabled: true })
 
-  // 用户 2026-09-23 裁定：只面向新部署，不考虑"旧 DSH 上装插件"的场景。
-  assert.match(text, /首次初始化/)
-  assert.match(text, /第一次回复时主动引导用户完成信息设置/)
-  assert.match(text, /怎么称呼你？/)
+  assert.match(text, /怎么称呼对方/)
+  assert.match(text, /不要一口气抛出多个问题/)
   assert.match(text, /Humanity 工作台/)
+  assert.match(text, /先回应/, '对方先说别的事：先回应，再自然提起')
+  assert.match(text, /不要承诺任何你现在做不到的事/)
   assert.doesNotMatch(text, /场景 B/, '场景 B 已删')
   assert.doesNotMatch(text, /判断方法/, '判断方法已删')
   assert.doesNotMatch(text, /观察侧栏/, '不再让模型去看侧栏')
-  // 用户第一条消息已有明确意图时：先办事，末尾再提初始化。
-  assert.match(text, /先回答他的问题/)
-  assert.match(text, /不要在没有用户确认的情况下编造信息/)
+  assert.doesNotMatch(text, /^\d\. /m, '不写编号步骤：那读起来像说明书')
 })
 
 test('渲染：引导语里的两个工具名与真实注册的工具名一致（字面量不许漂）', () => {
@@ -88,7 +86,7 @@ test('渲染：引导语里的两个工具名与真实注册的工具名一致�
 test('渲染：初始化完成后自动切换成正常人格内容（引导语消失）', () => {
   const text = renderPersonaPrompt(filledPersona(), { enabled: true })
 
-  assert.doesNotMatch(text, /人格尚未初始化/)
+  assert.doesNotMatch(text, /你还没有名字/)
   assert.match(text, /姓名：小安/)
 })
 
@@ -109,7 +107,7 @@ test('渲染：底色 + 信息都在，且带上"只是倾向、不覆盖当前�
 
   assert.match(text, /人格底色/)
   assert.match(text, /姓名：小安/)
-  assert.match(text, /对用户称呼：先生/)
+  assert.match(text, /对TA的称呼：先生/)
   assert.match(text, /先给结论，再给依据/)
   // P0-2（2026-10-04 破戏）：定位还在，但**加了限定域**。原来只说"不覆盖当前对话里的明确要求"
   // （无作用域 ⇒ 一句"你是在扮演"就有资格压过身份层）；现在把作用域钉在任务与偏好上，
@@ -286,7 +284,7 @@ test('热更新（真实 SystemPrompt）：text 是函数 ⇒ 改内容后**不�
   })
 
   const before = await ctx.systemPrompt.assemble()
-  assert.match(seenText(before), /对用户称呼：先生/)
+  assert.match(seenText(before), /对TA的称呼：先生/)
 
   // 模拟"用户在后台把称呼改成 主人"：只换数据，**不碰注册**。
   current = filledPersona()
@@ -294,8 +292,8 @@ test('热更新（真实 SystemPrompt）：text 是函数 ⇒ 改内容后**不�
 
   const after = await ctx.systemPrompt.assemble()
   const text = seenText(after)
-  assert.match(text, /对用户称呼：主人/)
-  assert.doesNotMatch(text, /对用户称呼：先生/)
+  assert.match(text, /对TA的称呼：主人/)
+  assert.doesNotMatch(text, /对TA的称呼：先生/)
 
   dispose()
   await ctx.fiber.dispose()
@@ -330,18 +328,18 @@ test('接线（真实 SystemPrompt + 假 agents 注册表）：主 Agent 有、�
     return seenText(assembly)
   }
 
-  assert.match(await assemblyFor(mainAgent), /对用户称呼：先生/, '主 Agent 必须拿到人格')
+  assert.match(await assemblyFor(mainAgent), /对TA的称呼：先生/, '主 Agent 必须拿到人格')
 
   const childText = await assemblyFor(childAgent)
   assert.doesNotMatch(childText, /人格底色/, '子代理不该拿到人格')
-  assert.doesNotMatch(childText, /对用户称呼：先生/, '子代理不该拿到人格')
+  assert.doesNotMatch(childText, /对TA的称呼：先生/, '子代理不该拿到人格')
 
   // 热更新：只改数据、**不重新注册**，下一次 assemble（= 下一轮）就是新的。
   current = filledPersona()
   current.mutableLayer.sections[0].items = ['主人']
   const updated = await assemblyFor(mainAgent)
-  assert.match(updated, /对用户称呼：主人/)
-  assert.doesNotMatch(updated, /对用户称呼：先生/)
+  assert.match(updated, /对TA的称呼：主人/)
+  assert.doesNotMatch(updated, /对TA的称呼：先生/)
 
   // 开关：关掉后同一装配主体也不再注入（可一键关闭）。
   enabled = false
@@ -453,7 +451,7 @@ test('⛔ 真机事故回归：注入**不声明 agents 依赖** —— 没有 a
 
   const assembly = await ctx.systemPrompt.assemble({ agent: mainAgent, scope: mainAgent })
   const text = seenText(assembly)
-  assert.match(text, /对用户称呼：先生/, '没有 agents 服务也必须照常注入（不再依赖它）')
+  assert.match(text, /对TA的称呼：先生/, '没有 agents 服务也必须照常注入（不再依赖它）')
 
   dispose()
   await ctx.fiber.dispose()
@@ -628,11 +626,11 @@ test('独立判断：配置键就是 independentJudgment（2026-10-06 改名，�
 })
 
 test('init 工具描述划清底色与信息（真机：AI 曾把称呼写进底色）', () => {
-  // 真机反馈（2026-09-24）：首次初始化时 AI 把「对用户的称呼」写进底色自定义字段。
+  // 真机反馈（2026-09-24）：首次初始化时 AI 把"称呼"写进底色自定义字段。
   // 根因是工具描述只说了"引导用户描述他希望这个 AI 是什么样的人"，没划清两个层。
   assert.match(INIT_DESCRIPTION, /底色只放/)
   assert.match(INIT_DESCRIPTION, /不属于\*\*底色|不属于/, '必须明说哪些信息不属于底色')
-  assert.match(INIT_DESCRIPTION, /对用户的称呼/, '称呼的归属必须点名')
+  assert.match(INIT_DESCRIPTION, /对TA的称呼/, '称呼的归属必须点名')
   assert.match(INIT_DESCRIPTION, /humanity_persona_update/, '要给出正确的落点（信息工具）')
   // 核心字段名从常量派生：增减核心字段时这段描述不会漏。
   for (const key of CORE_IDENTITY_KEYS) assert.ok(INIT_DESCRIPTION.includes(key), `描述里缺少核心字段「${key}」`)

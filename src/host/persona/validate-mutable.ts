@@ -205,6 +205,6 @@ function checkUserDefined(entries: readonly UserDefinedEntry[], issues: PersonaI
   }
 }
 
-// 「对用户称呼」**不再是高风险**（2026-09-23 真机反馈后的裁定：一个人可以有多个称呼）。
+// 「对TA的称呼」**不再是高风险**（2026-09-23 真机反馈后的裁定：一个人可以有多个称呼）。
 // 曾经这里有一条 `mutable.address-changed` 拒绝；它把用户指向一个当时还不存在的"工作台确认"入口，
 // 而且 Agent 在对话里已经问清、用户也已经答过，仍会被拒 —— 那是死结，不是保护。

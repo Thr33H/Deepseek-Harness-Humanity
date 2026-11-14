@@ -43,7 +43,7 @@ export const CORE_IDENTITY_KEYS = ['姓名', '性别', '人格偏好', '主语�
  * **不再在界面上渲染/编辑**（数据保留，见 `docs/plans/humanity-0.1.14-native-four.md` §5）。
  */
 export const STANDARD_SECTION_TITLES = [
-  '对用户称呼',
+  '对TA的称呼',
   '说话风格',
   '交付格式',
   '行为边界',
@@ -71,7 +71,7 @@ export const isLockedSectionTitle = (title: string): boolean => LOCKED_SECTION_T
 /**
  * 稳定的问题代码。新增代码只能追加，不能改已有含义（工作台会按它分支）。
  *
- * 曾经有一个 `mutable.address-changed`（把"改对用户称呼"判为高风险拒绝）—— 2026-09-23 真机反馈后
+ * 曾经有一个 `mutable.address-changed`（把"改对TA的称呼"判为高风险拒绝）—— 2026-09-23 真机反馈后
  * **删掉**：一个人可以有多个称呼，改称呼是低风险（用户裁定），而当时的拒绝文案把用户指向一个尚不存在的
  * 工作台确认入口，形成死结。删掉一个**永远不会再产生**的代码不影响"含义稳定"这条约定。
  *

@@ -110,7 +110,7 @@ test('V4 删掉「经验教训」整节：文档里没有、注入里也没有�
   assert.match(beforePrompt, /别在深夜做决定/, '删之前它应当进提示词')
   assert.deepEqual(
     collectPersonaContent(controller.getSnapshot().stored).sections.map((section) => section.title),
-    ['对用户称呼', '说话风格', '经验教训', '决定权'],
+    ['对TA的称呼', '说话风格', '经验教训', '决定权'],
   )
 
   // 走界面那条路：请求删除 → 二次确认 → 落进草稿 → 保存。
@@ -147,7 +147,7 @@ test('V4 删掉「经验教训」整节：文档里没有、注入里也没有�
   assert.equal(prompt.includes('经验教训'), false, '连小节名都不该出现在注入内容里')
   assert.deepEqual(
     collectPersonaContent(stored).sections.map((section) => section.title),
-    ['对用户称呼', '说话风格', '决定权'],
+    ['对TA的称呼', '说话风格', '决定权'],
     '投影读数：剩下的小节里没有它',
   )
   // 阴性对照的另一半：正文其余内容照旧在（不是"整个注入都没了"）。
@@ -217,7 +217,7 @@ test('V3 反面①：客户端没有"删除锁定项"这个动作 —— 连二�
   // 0.1.14：默认只有 4 个**原生**小节；「经验教训」「决定权」是夹具当**自定义项**加进去的，
   // 因此排在原生 4 个之后（顺序按文档里的先后）。
   assert.deepEqual(draft.mutableLayer.sections.map((section) => section.title), [
-    '对用户称呼',
+    '对TA的称呼',
     '说话风格',
     '交付格式',
     '行为边界',
@@ -229,7 +229,7 @@ test('V3 反面①：客户端没有"删除锁定项"这个动作 —— 连二�
 
 test('V3 反面②：绕过界面直接请求删除 —— 宿主校验拒绝（工作台不是后门）', async () => {
   const prev = seededPersona()
-  const next = withoutSection(prev, '对用户称呼')
+  const next = withoutSection(prev, '对TA的称呼')
 
   // 浏览器直写就是走这条判定（`section.ts` 的 `validate` 钩子逐字是
   // `validatePersona(normalizePersona(value), effectivePersona(readCurrent(state)), 'user')`）。
@@ -238,12 +238,12 @@ test('V3 反面②：绕过界面直接请求删除 —— 宿主校验拒绝（
   const locked = asHook.issues.find((issue) => issue.code === 'mutable.section-locked-missing')
   assert.ok(locked !== undefined, `必须有锁定项缺失这条拒绝（实际：${asHook.issues.map((issue) => issue.code).join(',')}）`)
   assert.equal(locked.severity, 'rejected')
-  assert.equal(locked.path, 'mutableLayer.sections.对用户称呼')
+  assert.equal(locked.path, 'mutableLayer.sections.对TA的称呼')
 
   // 走宿主真实写入路径：抛 PersonaWriteRejected，且落盘那份文档一个字没改。
   const { state, store, sink } = hostHarness(prev)
   await assert.rejects(() => writePersona(state, sink, next, 'user'), PersonaWriteRejected)
-  assert.equal(store.value.mutableLayer.sections.some((section) => section.title === '对用户称呼'), true, '拒绝后宿主那份没被改')
+  assert.equal(store.value.mutableLayer.sections.some((section) => section.title === '对TA的称呼'), true, '拒绝后宿主那份没被改')
 
   // 反面②的另一半：Agent 侧同样拒（锁定与来源无关）。
   assert.equal(validatePersona(normalizePersona(next), effectivePersona(prev), 'agent').ok, false)
@@ -419,7 +419,7 @@ test('V10 正面：改名成功后**落盘**，且注入/投影里是新名字�
   const content = collectPersonaContent(stored)
   assert.deepEqual(
     content.sections.map((section) => section.title),
-    ['对用户称呼', '说话风格', '经验教训', '审批权'],
+    ['对TA的称呼', '说话风格', '经验教训', '审批权'],
     '投影里的自定义小节是新名字',
   )
   // 投影只收**有值**的字段（人格偏好 / 主语言在 seededPersona 里是空的，所以不在这里）。
@@ -463,7 +463,7 @@ test('V11 反面（控制器）：**锁定的 8 项** beginRename 是空操作�
     'identity:2',
     'identity:3',
     // 原生 4 小节：名字是插件认的标识（`LOCKED_SECTION_TITLES`），既不可删也不可改名。
-    'section:对用户称呼',
+    'section:对TA的称呼',
     'section:说话风格',
     'section:交付格式',
     'section:行为边界',
@@ -487,7 +487,7 @@ test('V13 边界（控制器）：空名 / 撞标准名 / 重名一律不落草�
   const attempts = [
     ['section:决定权', '   ', '空名'],
     ['section:决定权', '经验教训', '撞已有小节名（重名）'],
-    ['section:决定权', '对用户称呼', '撞原生锁定小节名'],
+    ['section:决定权', '对TA的称呼', '撞原生锁定小节名'],
     ['identity:4', '咖啡', '撞「用户定义」的键（数据仍在文档里 ⇒ 仍占名字空间）'],
     ['identity:4', '姓名', '撞底色字段名（宿主 core-key-shadowed）'],
   ]
@@ -569,7 +569,7 @@ test('V7 回归：schema 默认值仍由常量生成（0.1.14 起只预置 4 个
   const persona = createDefaultPersona()
   assert.deepEqual(
     persona.mutableLayer.sections.map((section) => section.title),
-    ['对用户称呼', '说话风格', '交付格式', '行为边界'],
+    ['对TA的称呼', '说话风格', '交付格式', '行为边界'],
     '新装不再预置那 4 个空节（用户："dsh 新装一个 Humanity，也是显示 8 个原生项"）',
   )
   assert.equal(validatePersona(normalizePersona(persona), effectivePersona(persona), 'user').ok, true)

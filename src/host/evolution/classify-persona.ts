@@ -83,7 +83,7 @@ export function mergePersonaSections(
     for (const item of update.items) {
       const value = item.trim()
       // **同义也算已存在**（2026-09-26 修，P-056）：只比逐字相同的话，模型每次换个说法就多一条 ——
-      // 真机上「对用户称呼」正是这样攒到 7 条、其中 5 条同义的。判据与整合器是同一个。
+      // 真机上「对TA的称呼」正是这样攒到 7 条、其中 5 条同义的。判据与整合器是同一个。
       if (value === '' || section.items.some((existing) => isNearDuplicateItem(existing, value))) continue
       section.items.push(value)
       added.push(`${title}：+ ${value}`)

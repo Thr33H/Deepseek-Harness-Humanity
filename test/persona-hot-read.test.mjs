@@ -180,7 +180,7 @@ test('Bug A 设置服务尚未就绪时：读到的是空文档、不注入，�
   // 注意：**文档本身**的 `initializedAt` 是空串，所以直接渲染会得到"人格尚未初始化"的引导语；
   // 真正决定"这一轮注不注入"的是注入 provider 的 `ready()` 闸（见下面两条接线用例与
   // prompt.ts 的 `PersonaPromptSource.ready`）—— 空文档不代表用户没初始化过，不能凭它指挥模型。
-  assert.match(renderPersonaPrompt(read, { enabled: true }), /人格尚未初始化/)
+  assert.match(renderPersonaPrompt(read, { enabled: true }), /你还没有名字/)
 
   await ctx.fiber.dispose()
 })
@@ -201,7 +201,7 @@ test('Bug A（接线）：设置未就绪（ready=false）时，连"尚未初始
 
   const assembly = await ctx.systemPrompt.assemble({ agent, scope: agent })
   const text = seenText(assembly)
-  assert.doesNotMatch(text, /人格尚未初始化/, '未就绪 ⇒ 什么都不注入')
+  assert.doesNotMatch(text, /你还没有名字/, '未就绪 ⇒ 什么都不注入')
   assert.equal(assembly.sections.find((section) => section.name === 'humanity:persona')?.text, '')
 
   dispose()
@@ -271,7 +271,7 @@ test('⭐ 端到端热更新：像工作台那样写一次底色，下一次 ass
     const text = await assembled()
     assert.match(text, /自定义字段A（自定义）：示例值A/, '底色的新字段必须在**下一轮**就出现')
     assert.match(text, /自定义字段B（自定义）：示例值B/)
-    assert.match(text, /对用户称呼：先生/, '信息同一轮写入也要生效（两层一视同仁）')
+    assert.match(text, /对TA的称呼：先生/, '信息同一轮写入也要生效（两层一视同仁）')
 
     disposeInjection()
   } finally {

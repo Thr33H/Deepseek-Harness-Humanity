@@ -7,7 +7,7 @@
  * 2. 低风险（去空白、去重）自动做，高风险（删核心字段、整节删除）一律拒绝，
  *    长文本只警告不拒绝（P-010/P-015）。
  *
- * 注：「改对用户称呼」**曾经**也在这条高风险线里，2026-09-23 真机反馈后按用户裁定拿掉了
+ * 注：「改对TA的称呼」**曾经**也在这条高风险线里，2026-09-23 真机反馈后按用户裁定拿掉了
  * （一个人可以有多个称呼）—— 相关用例已反转，见下面两条。
  */
 import assert from 'node:assert/strict'
@@ -141,7 +141,7 @@ test('默认 8 项：锁定小节整节删除被拒绝（用户与 Agent 两侧�
   // 用户 2026-10-09：默认 8 项（底色 4 项 + 信息前 4 个小节）不可删。
   // 底色那一半由 `identity.core-missing` 管，信息这一半由 `mutable.section-locked-missing` 管。
   const prev = filledPersona()
-  for (const title of ['对用户称呼', '说话风格', '交付格式', '行为边界']) {
+  for (const title of ['对TA的称呼', '说话风格', '交付格式', '行为边界']) {
     const next = filledPersona()
     next.mutableLayer.sections = next.mutableLayer.sections.filter((section) => section.title !== title)
 
@@ -195,7 +195,7 @@ test('用户删掉非锁定小节：放行，且生效口径里它**确实不存
   )
 })
 
-test('Agent 改变对用户称呼主值**不再**被判高风险（2026-09-23 真机反馈后的裁定）', () => {
+test('Agent 改变对TA的称呼主值**不再**被判高风险（2026-09-23 真机反馈后的裁定）', () => {
   // 旧行为：rejected + 「请让用户在工作台确认」—— 而那个确认入口当时并不存在，形成死结。
   // 新行为：一个人可以有多个称呼，改称呼就是普通写入（进历史、可被下一次整理取代）。
   const prev = filledPersona()
@@ -631,6 +631,22 @@ test('迁移：「当前状态」节自动改名为「情绪」，内容一字�
   assert.deepEqual(normalizePersona(migrated), migrated)
 })
 
+test('迁移：「对用户称呼」节自动改名为「对TA的称呼」（2026-11-14 文案去客服化），内容不丢且幂等', () => {
+  const legacy = createDefaultPersona()
+  withSection(legacy, '对用户称呼', ['主人', '先生'])
+
+  const migrated = normalizePersona(legacy)
+  const titles = migrated.mutableLayer.sections.map((section) => section.title)
+
+  assert.equal(titles.includes('对用户称呼'), false, '旧标题必须消失')
+  assert.deepEqual(
+    migrated.mutableLayer.sections.find((section) => section.title === '对TA的称呼').items,
+    ['主人', '先生'],
+    '内容原样并入新标题那一节',
+  )
+  assert.deepEqual(normalizePersona(migrated), migrated, '幂等：再跑一次结果不变')
+})
+
 test('迁移：新旧标题同时存在时**合并**，不产生重复标题（否则用户每次保存都会被拒）', () => {
   const both = createDefaultPersona()
   withSection(both, '情绪', ['今天很开心'])
@@ -673,7 +689,7 @@ test('主语言：默认文档里就有这个字段（schema 默认值跟着 COR
 
 test('反向查重：底色新增字段与信息小标题撞名被拒；存量同名字段祖父化放行（round 48）', () => {
   const persona = createDefaultPersona()
-  persona.identityCard.fields.push({ key: '对用户称呼', value: '公主', custom: true })
+  persona.identityCard.fields.push({ key: '对TA的称呼', value: '公主', custom: true })
 
   const validation = validatePersona(normalizePersona(persona), createDefaultPersona(), 'user')
   assert.equal(validation.ok, false, '撞名必须在源头被拒，而不是留给每次信息写入去报')

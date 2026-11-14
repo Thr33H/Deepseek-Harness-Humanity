@@ -20,8 +20,13 @@ import type { IdentityField, MutableSection } from './types.js'
  * 旧小标题 → 现名（一次性迁移表；以后改标题时在这里加一行即可，幂等）。
  *
  * 「当前状态」→「情绪」（用户 2026-09-23）：语义从"临时上下文"变成"用户此刻的心情"。
+ * 「对用户称呼」→「对TA的称呼」（用户 2026-11-14）：提示词里不再出现"用户"这种把人放到
+ * 乙方位置的词；这是**存量数据里的标题**，所以必须走迁移而不是只改常量。
  */
-export const LEGACY_SECTION_TITLES: ReadonlyMap<string, string> = new Map([['当前状态', '情绪']])
+export const LEGACY_SECTION_TITLES: ReadonlyMap<string, string> = new Map([
+  ['当前状态', '情绪'],
+  ['对用户称呼', '对TA的称呼'],
+])
 
 /**
  * 保证底色里**每个核心字段都存在**，缺的按默认值补上（`value: ''`、`custom: false`）。

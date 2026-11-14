@@ -3,7 +3,7 @@
  *
  * 缘起：用户「自进化系统应该也要有整合这些的能力，而不是靠用户发现，然后用户调整」。
  * 真机背景：信息是**追加式**写回（只跳过逐字相同的），模型每次换个说法就多一条 ——
- * 某实例的「对用户称呼」攒到 7 条、其中 5 条同义，把信息顶到注入预算上限。
+ * 某实例的「对TA的称呼」攒到 7 条、其中 5 条同义，把信息顶到注入预算上限。
  *
  * 这个文件钉四件事：
  * 1. **该并的并**：措辞几乎相同的（真机 Dice 0.87–1.00）并成一条，留信息量更大的那条；
@@ -152,7 +152,7 @@ test('写入路径：同义的新条目不追加（这才是重复的源头）',
 
 test('写入路径：模型给的整合建议只在"逐字对得上"时生效', () => {
   const persona = personaWith({
-    对用户称呼: ['「主人」', '在该角色扮演设定中，以「主人」称呼用户', '称呼主人为「主人」'],
+    对TA的称呼: ['「主人」', '在该角色扮演设定中，以「主人」称呼用户', '称呼主人为「主人」'],
   })
 
   const { next, merged } = mergePersonaSections(
@@ -160,7 +160,7 @@ test('写入路径：模型给的整合建议只在"逐字对得上"时生效', 
     [],
     [
       {
-        section: '对用户称呼',
+        section: '对TA的称呼',
         keep: '在该角色扮演设定中，以「主人」称呼用户',
         // 第三条形近但不同字：对不上就不动（宁可少并一条，也不凭"大概"删用户的内容）。
         drop: ['「主人」', '称呼用户为「主人」'],
@@ -170,20 +170,20 @@ test('写入路径：模型给的整合建议只在"逐字对得上"时生效', 
   )
 
   assert.equal(merged, 1, '只并掉逐字对得上的那条')
-  assert.deepEqual(itemsOf(next, '对用户称呼'), ['在该角色扮演设定中，以「主人」称呼用户', '称呼主人为「主人」'])
+  assert.deepEqual(itemsOf(next, '对TA的称呼'), ['在该角色扮演设定中，以「主人」称呼用户', '称呼主人为「主人」'])
 })
 
 test('写入路径：keep 不在该小节里时整条建议作废（不能把两条都删掉）', () => {
-  const persona = personaWith({ 对用户称呼: ['「主人」', '称呼主人为「主人」'] })
+  const persona = personaWith({ 对TA的称呼: ['「主人」', '称呼主人为「主人」'] })
 
   const { next, merged } = mergePersonaSections(
     persona,
     [],
-    [{ section: '对用户称呼', keep: '这条根本不在卡里', drop: ['「主人」', '称呼主人为「主人」'], reason: 'x' }],
+    [{ section: '对TA的称呼', keep: '这条根本不在卡里', drop: ['「主人」', '称呼主人为「主人」'], reason: 'x' }],
   )
 
   assert.equal(merged, 0)
-  assert.equal(itemsOf(next, '对用户称呼').length, 2, '保留项找不到时不许删任何东西')
+  assert.equal(itemsOf(next, '对TA的称呼').length, 2, '保留项找不到时不许删任何东西')
 })
 
 test('自进化会在运行开头做免费整合：并掉了就写入，没得并可写就不写', async () => {
@@ -236,9 +236,9 @@ test('整合失败绝不冒泡：写入被拒只记一条警告（不许影响�
 
 test('提示词必须把信息原文交给模型（否则它没法逐字指出要并掉哪几条）', async () => {
   const { buildSystemPrompt } = await import('../lib/evolution/prompt.js')
-  const card = [{ title: '对用户称呼', items: ['「主人」', '在该角色扮演设定中，以「主人」称呼用户'] }]
+  const card = [{ title: '对TA的称呼', items: ['「主人」', '在该角色扮演设定中，以「主人」称呼用户'] }]
 
-  const withCard = buildSystemPrompt({ mode: 'incremental', workspaceLabel: 'TEST', sectionTitles: ['对用户称呼'], personaCard: card })
+  const withCard = buildSystemPrompt({ mode: 'incremental', workspaceLabel: 'TEST', sectionTitles: ['对TA的称呼'], personaCard: card })
   assert.match(withCard, /当前信息内容/, '要有一段"当前内容"')
   assert.match(withCard, /在该角色扮演设定中，以「主人」称呼用户/, '条目要逐字给出来')
   assert.match(withCard, /sectionConsolidations/, '要有整合字段的规则')

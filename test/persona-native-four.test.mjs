@@ -146,7 +146,7 @@ test('V4-② 反面：改成**原生**名字仍被拦（那是"变成锁定项"�
 
   const before = JSON.stringify(controller.getSnapshot().draft)
   controller.beginRename('section:经验教训')
-  controller.setRenameName('对用户称呼')
+  controller.setRenameName('对TA的称呼')
   controller.confirmRename()
   assert.equal(JSON.stringify(controller.getSnapshot().draft), before, '被拦下时草稿一个字不动（原生名是保留名）')
   assert.notEqual(controller.getSnapshot().renaming, undefined, '表单不关：用户看得见自己填的名字')
@@ -171,7 +171,7 @@ test('V5 正面（界面半边）：原生 4 小节既没有删除入口、也�
   assert.equal(JSON.stringify(controller.getSnapshot().draft), before, '四个原生小节一个都没被动过')
 
   // 条目级的编辑**不受影响**（锁的是"整项删除/改名"，不是内容）。
-  controller.setSectionText('对用户称呼', '主人')
+  controller.setSectionText('对TA的称呼', '主人')
   assert.deepEqual(controller.getSnapshot().draft.mutableLayer.sections[0].items, ['主人'])
 })
 
@@ -203,7 +203,7 @@ test('V5 反面（宿主半边）：绕过界面直删/直改原生小节被拒�
   // ① 直删一个原生小节 ⇒ `mutable.section-locked-missing`（rejected）。
   const dropped = {
     ...prev,
-    mutableLayer: { ...prev.mutableLayer, sections: prev.mutableLayer.sections.filter((s) => s.title !== '对用户称呼') },
+    mutableLayer: { ...prev.mutableLayer, sections: prev.mutableLayer.sections.filter((s) => s.title !== '对TA的称呼') },
   }
   const asUser = validatePersona(normalizePersona(dropped), effectivePersona(prev), 'user')
   assert.equal(asUser.ok, false, '绕过界面的删除必须被宿主拒绝（工作台不是后门）')
@@ -315,7 +315,7 @@ test('V7-② 数据保留（非空）：`userDefined` 原样穿过保存，一�
   }
 
   assert.deepEqual(controller.getSnapshot().draft.mutableLayer.userDefined, [{ key: '咖啡', value: '不加糖' }], '读到草稿里')
-  controller.setSectionText('对用户称呼', '主人')
+  controller.setSectionText('对TA的称呼', '主人')
   await controller.save()
 
   assert.equal(fake.calls.replace.length, 1, '一次保存')
@@ -352,18 +352,18 @@ test('V8 注入：原生 4 节 + 自定义节都进提示词，原生在前；�
   withSection(persona, '我自己的标题', ['自定义内容'])
 
   const text = renderPersonaPrompt(persona, { enabled: true, independentJudgment: false })
-  for (const needle of ['对用户称呼', '主人', '说话风格', '先给结论', '经验教训', '别在深夜做决定', '我自己的标题']) {
+  for (const needle of ['对TA的称呼', '主人', '说话风格', '先给结论', '经验教训', '别在深夜做决定', '我自己的标题']) {
     assert.ok(text.includes(needle), `注入内容里必须有「${needle}」`)
   }
   // 原生在前：4 个原生标题里**有内容的**都排在那两个自定义小节之前。
-  const positions = ['对用户称呼', '说话风格', '经验教训', '我自己的标题'].map((title) => text.indexOf(title))
+  const positions = ['对TA的称呼', '说话风格', '经验教训', '我自己的标题'].map((title) => text.indexOf(title))
   assert.deepEqual(positions, [...positions].sort((a, b) => a - b), '顺序：原生在前，自定义在后（按文档顺序）')
 
   // 投影与预算读数：4 + 2 节都在投影里，且这份小卡没超预算。
   const content = collectPersonaContent(persona)
   assert.deepEqual(
     content.sections.map((section) => section.title),
-    ['对用户称呼', '说话风格', '经验教训', '我自己的标题'],
+    ['对TA的称呼', '说话风格', '经验教训', '我自己的标题'],
     '投影只收有内容的小节，顺序不变',
   )
   const report = personaPromptReport(persona, { independentJudgment: false })

@@ -186,7 +186,7 @@ test('未初始化时 update 被拒，提示先走聊天初始化', async () => 
   const harness = await boot()
   try {
     const result = await harness.call(PERSONA_UPDATE_TOOL, {
-      sections: mutableSnapshot({ 对用户称呼: ['主人'] }),
+      sections: mutableSnapshot({ 对TA的称呼: ['主人'] }),
       userDefined: [],
     })
 
@@ -254,7 +254,7 @@ test('⑤ 只给一个小标题就能更新，其它节全部原样保留（不�
   try {
     await harness.call(PERSONA_INIT_TOOL, initArgs)
     await harness.call(PERSONA_UPDATE_TOOL, {
-      sections: mutableSnapshot({ 对用户称呼: ['主人'], 经验教训: ['不要在深夜改配置'] }),
+      sections: mutableSnapshot({ 对TA的称呼: ['主人'], 经验教训: ['不要在深夜改配置'] }),
       userDefined: [{ key: '时区', value: 'CST' }],
     })
 
@@ -265,7 +265,7 @@ test('⑤ 只给一个小标题就能更新，其它节全部原样保留（不�
 
     assert.equal(changed.value.ok, true)
     const doc = harness.persona.read()
-    assert.deepEqual(itemsOf(doc, '对用户称呼'), ['主人'], '没传的节必须原样保留')
+    assert.deepEqual(itemsOf(doc, '对TA的称呼'), ['主人'], '没传的节必须原样保留')
     assert.deepEqual(itemsOf(doc, '经验教训'), ['不要在深夜改配置'])
     assert.deepEqual(itemsOf(doc, '说话风格'), ['先给结论'])
   } finally {
@@ -498,15 +498,15 @@ test('改称呼现在直接成功，不再要求任何确认（真机反馈的�
   const harness = await boot()
   try {
     await harness.call(PERSONA_INIT_TOOL, initArgs)
-    await harness.call(PERSONA_UPDATE_TOOL, { sections: mutableSnapshot({ 对用户称呼: ['主人'] }), userDefined: [] })
+    await harness.call(PERSONA_UPDATE_TOOL, { sections: mutableSnapshot({ 对TA的称呼: ['主人'] }), userDefined: [] })
 
     const changed = await harness.call(PERSONA_UPDATE_TOOL, {
-      sections: mutableSnapshot({ 对用户称呼: ['先生'] }),
+      sections: mutableSnapshot({ 对TA的称呼: ['先生'] }),
       userDefined: [],
     })
 
     assert.equal(changed.value.ok, true, '改称呼必须是普通写入')
-    assert.deepEqual(itemsOf(harness.persona.read(), '对用户称呼'), ['先生'])
+    assert.deepEqual(itemsOf(harness.persona.read(), '对TA的称呼'), ['先生'])
   } finally {
     await harness.dispose()
   }

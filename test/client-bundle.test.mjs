@@ -722,7 +722,7 @@ test('V14 正面：同一项的「改名」「删除」在**同一行**（动作
   // ⚠️ 0.1.14：已经没有"可删但不可改名"的项了 —— 自定义项两个动作都有（上面已验），
   // 原生项两个都没有（下面验）。旧用例里那半段（拿「经验教训」当"标准小节"）随产品决定删除。
   // 锁定项（两个动作都没有）：动作格作为**空占位**仍然在（三栏结构要一致），但里面没有任何动作。
-  for (const id of ['identity:0', 'section:对用户称呼']) {
+  for (const id of ['identity:0', 'section:对TA的称呼']) {
     const at = markup.indexOf(`data-persona-actions="${id}"`)
     assert.ok(at >= 0, `${id} 应当有空的动作格占位（三栏结构一致）`)
     const cell = markup.slice(at, markup.indexOf('data-persona-cell="name"', at + 1))
@@ -771,7 +771,7 @@ test('V16 回归口径：默认态名称区仍无输入框、内容区仍是输�
   const { client, controller } = await bootUiPersona()
   const markup = await renderPersona(client, controller)
 
-  const ids = ['identity:0', 'identity:4', 'section:决定权', 'section:对用户称呼', 'section:经验教训', 'section:决定权']
+  const ids = ['identity:0', 'identity:4', 'section:决定权', 'section:对TA的称呼', 'section:经验教训', 'section:决定权']
   for (const id of ids) {
     const region = nameRegion(markup, id)
     assert.equal(region.includes('<input'), false, `${id} 的名称区仍不许有输入框`)
@@ -882,7 +882,7 @@ test('V17 正面：每一项的三格都按「名称 → 内容 → 动作」横
     'identity:3',
     'identity:4',
     // 0.1.14：原生小节只剩 4 个；「经验教训」「决定权」是夹具当**自定义项**加进来的，同样三栏一行。
-    'section:对用户称呼',
+    'section:对TA的称呼',
     'section:说话风格',
     'section:交付格式',
     'section:行为边界',
@@ -964,7 +964,7 @@ test('V5 形态：**名称区没有输入框**，而**内容区一直是输入�
   )
 
   // ② 名称区：一个输入控件都没有（这就是用户说的"名称不要输入框"）。
-  for (const id of ['identity:0', 'identity:4', 'section:决定权', 'section:经验教训', 'section:对用户称呼']) {
+  for (const id of ['identity:0', 'identity:4', 'section:决定权', 'section:经验教训', 'section:对TA的称呼']) {
     const region = nameRegion(markup, id)
     assert.equal(region.includes('<input'), false, `${id} 的名称区不该有输入框`)
     assert.equal(region.includes('<textarea'), false, `${id} 的名称区不该有多行框`)
@@ -1007,7 +1007,7 @@ test('V3 正面：**锁定的 8 项**在界面上没有删除入口，其余项�
   for (const id of ['identity:0', 'identity:1', 'identity:2', 'identity:3']) {
     assert.equal(markup.includes(deleteMarker(id)), false, `${id} 是锁定项，界面上不该有删除入口`)
   }
-  for (const title of ['对用户称呼', '说话风格', '交付格式', '行为边界']) {
+  for (const title of ['对TA的称呼', '说话风格', '交付格式', '行为边界']) {
     assert.equal(markup.includes(deleteMarker(`section:${title}`)), false, `「${title}」是锁定项，界面上不该有删除入口`)
     assert.match(markup, new RegExp(`data-persona-item="section:${title}"[^>]*data-locked="true"`), `「${title}」要标明是锁定项`)
   }
@@ -1049,13 +1049,13 @@ test('V3 删除要二次确认：界面先出确认带，确认前内容一个�
 test('V3 锁定项连二次确认都进不去：界面上没有确认带，草稿也不动', async () => {
   const { client, controller } = await bootUiPersona()
 
-  // 「对用户称呼」是锁定的标准小节：强行请求删除，控制器直接静默拒绝。
-  controller.requestDelete('section:对用户称呼')
+  // 「对TA的称呼」是锁定的标准小节：强行请求删除，控制器直接静默拒绝。
+  controller.requestDelete('section:对TA的称呼')
   assert.equal(controller.getSnapshot().pendingDelete, undefined)
   const markup = await renderPersona(client, controller)
   assert.equal(markup.includes('delete-confirm-band'), false, '锁定项不该出现确认带')
   assert.equal(
-    controller.getSnapshot().draft.mutableLayer.sections.some((s) => s.title === '对用户称呼'),
+    controller.getSnapshot().draft.mutableLayer.sections.some((s) => s.title === '对TA的称呼'),
     true,
   )
 })
@@ -1118,7 +1118,7 @@ test('V4 界面半边：删掉的小节不再出现在列表里（不复活成�
   assert.equal(markup.includes('data-persona-item="section:经验教训"'), false, '整项删除后列表里不再有它')
   assert.equal(markup.includes('>别在深夜做决定<'), false, '它的内容也不再显示')
   // 其它小节与锁定项照旧在（不是整张卡都没了）。
-  assert.match(markup, />对用户称呼</)
+  assert.match(markup, />对TA的称呼</)
   assert.match(markup, />决定权</)
 })
 
@@ -1135,7 +1135,7 @@ const LOCKED_IDS = [
   'identity:1',
   'identity:2',
   'identity:3',
-  'section:对用户称呼',
+  'section:对TA的称呼',
   'section:说话风格',
   'section:交付格式',
   'section:行为边界',
@@ -1192,7 +1192,7 @@ test('V12 不破新口径：默认态名称区仍无输入框；改名态只动�
   // ① 默认态：**所有**项的名称区都没有输入控件（上一轮的口径不能因为加了改名而破掉）。
   const allIds = ['identity:0', 'identity:1', 'identity:2', 'identity:3', 'identity:4']
   // 0.1.14：原生 4 个 + 非原生的自定义小节（含原来的「经验教训」）。
-  for (const title of ['对用户称呼', '说话风格', '交付格式', '行为边界', '经验教训', '决定权']) {
+  for (const title of ['对TA的称呼', '说话风格', '交付格式', '行为边界', '经验教训', '决定权']) {
     allIds.push(`section:${title}`)
   }
   for (const id of allIds) {
@@ -1240,7 +1240,7 @@ test('V13 界面：空名 / 没改动 / 重名 / 撞标准名都有明确提示�
 
   // 0.1.14：保留名只剩"锁定的 8 项"（4 个底色字段名 + 4 个原生小节标题）。
   // 原来的「经验教训」不再是保留名 —— 改成它是**合法**的（只要不撞已有项），见下一条用例。
-  controller.setRenameName('对用户称呼')
+  controller.setRenameName('对TA的称呼')
   assert.equal(await issueOf(), 'reserved', '撞原生锁定小节名 ⇒ 保留名，不给自定义项用')
   assert.equal(await confirmDisabled(), true)
 

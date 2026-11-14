@@ -252,7 +252,7 @@ test('Bug B 清空自定义节的正文 = 删除该节（用户不必再找别�
   await controller.save()
   const after = calls.replace[1].section.mutableLayer.sections.map((section) => section.title)
   assert.equal(after.includes('经验教训'), false, '非原生节清空 = 删掉（与自定义节同待遇）')
-  assert.equal(after.includes('对用户称呼'), true, '原生节照旧在')
+  assert.equal(after.includes('对TA的称呼'), true, '原生节照旧在')
 })
 
 test('R2 历史遗留的空壳自定义节在读取时就不显示（下一次保存顺手从存储里清掉）', async () => {

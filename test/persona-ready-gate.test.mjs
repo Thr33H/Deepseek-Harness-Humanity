@@ -85,9 +85,9 @@ test('F1 ①：设置就绪但**存储未就绪** ⇒ 人格段是空串（不�
   try {
     const text = await personaText(booted)
     assert.equal(text, '', '存储读不到时这一轮什么都不注入')
-    assert.doesNotMatch(text, /人格尚未初始化/, '**不得**宣告"未初始化"——那可能是假话')
-    assert.doesNotMatch(text, /人格系统（Humanity）/, '引导语也不得出现')
-    assert.doesNotMatch(seenText(await booted.ctx.systemPrompt.assemble({ agent: booted.agent, scope: booted.agent })), /人格尚未初始化/)
+    assert.doesNotMatch(text, /你还没有名字/, '**不得**宣告"未初始化"——那可能是假话')
+    assert.doesNotMatch(text, /第一次见面/, '引导语也不得出现')
+    assert.doesNotMatch(seenText(await booted.ctx.systemPrompt.assemble({ agent: booted.agent, scope: booted.agent })), /你还没有名字/)
   } finally {
     await teardown(booted)
   }
@@ -97,8 +97,8 @@ test('F1 ②：存储就绪 + 人格未初始化 ⇒ 注入引导语（此时"�
   const booted = await boot({ storeReady: true })
   try {
     const text = await personaText(booted)
-    assert.match(text, /人格尚未初始化/, '真·未初始化时要照常引导')
-    assert.match(text, /人格系统（Humanity）/, '引导语正文应在')
+    assert.match(text, /你还没有名字/, '真·未初始化时要照常引导')
+    assert.match(text, /第一次见面/, '引导语正文应在')
     assert.doesNotMatch(text, /# 你是谁（人格底色）/, '未初始化时没有底色可注入')
   } finally {
     await teardown(booted)
@@ -119,7 +119,7 @@ test('F1 ③：存储就绪 + 人格已初始化 ⇒ 注入人格段（不是引
     const text = await personaText(booted)
     assert.match(text, /# 你是谁（人格底色）/, '已初始化 ⇒ 应注入人格段')
     assert.match(text, /小安/, '卡里的姓名应在')
-    assert.doesNotMatch(text, /人格尚未初始化/, '已初始化时不得再说未初始化')
+    assert.doesNotMatch(text, /你还没有名字/, '已初始化时不得再说未初始化')
   } finally {
     await teardown(booted)
   }
@@ -135,8 +135,8 @@ test('F1 ③：存储就绪 + 人格已初始化 ⇒ 注入人格段（不是引
 test('F1 钉子：绕过 gate（直接渲染空默认文档）⇒ 真的会出现「人格尚未初始化」——这就是被修掉的假声明', async () => {
   const { renderPersonaPrompt } = await import('../lib/persona/render.js')
   const text = renderPersonaPrompt(createDefaultPersona(), { enabled: true, independentJudgment: true })
-  assert.match(text, /人格尚未初始化/, '空默认文档的渲染结果就是那句假声明（故 gate 不可删）')
-  assert.match(renderPersonaPrompt(createDefaultPersona(), { enabled: true, independentJudgment: true }), /人格系统（Humanity）/)
+  assert.match(text, /你还没有名字/, '空默认文档的渲染结果就是那句假声明（故 gate 不可删）')
+  assert.match(renderPersonaPrompt(createDefaultPersona(), { enabled: true, independentJudgment: true }), /第一次见面/)
 })
 
 test('F1 反向：`ready` 必须把 `section.attached` 也算进去（否则未接设置前会误报未初始化）', async () => {
