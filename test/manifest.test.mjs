@@ -52,9 +52,9 @@ test('客户端声明只列出真实存在的同组合包（写错会让组合�
   assert.equal(packageJson.dsh.client.external, undefined)
 })
 
-test('组合补丁：插入插件行 + 停噪音 + 默认预设 + 替换 system-prompt 身份行', () => {
-  assert.ok(Array.isArray(patch) && patch.length === 5)
-  const [layer, fileRefRow, devContextRow, registryRow, identityLayer] = patch
+test('组合补丁：插入插件行 + 停三段噪音 + 默认预设 + 替换 system-prompt 身份行', () => {
+  assert.ok(Array.isArray(patch) && patch.length === 6)
+  const [layer, fileRefRow, devContextRow, deliverableRow, registryRow, identityLayer] = patch
   assert.ok(Array.isArray(layer.insert) && layer.insert.length === 1)
 
   const [row] = layer.insert
@@ -73,6 +73,8 @@ test('组合补丁：插入插件行 + 停噪音 + 默认预设 + 替换 system-
   assert.equal(fileRefRow.disabled, true)
   assert.equal(devContextRow.id, 'harness-dev-context', 'checkout / Web GUI 说明来自这一行')
   assert.equal(devContextRow.disabled, true)
+  assert.equal(deliverableRow.id, 'deliverable-file-references', '文件链接 / present 那段英文来自这一行')
+  assert.equal(deliverableRow.disabled, true)
 
   // 默认预设（2026-11-14）：指向 humanity 自己注册的那一个，否则新会话会落到 standard。
   assert.equal(registryRow.id, 'agent-preset-registry')

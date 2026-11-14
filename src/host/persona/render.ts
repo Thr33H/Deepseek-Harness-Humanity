@@ -7,7 +7,7 @@
  * @module humanity/persona/render
  */
 import { CORE_IDENTITY_KEYS } from './constants.js'
-import { INDEPENDENT_JUDGMENT_PROMPT, MUTABLE_OPS_GUIDE, UNINITIALIZED_PROMPT } from './prompt-texts.js'
+import { INDEPENDENT_JUDGMENT_PROMPT, MUTABLE_OPS_GUIDE, uninitializedPrompt } from './prompt-texts.js'
 import { collectPersonaContent, blocksOf } from './render-content.js'
 import { fitPersonaContent, type FitStats } from './render-fit.js'
 import type { PersonaDocument } from './types.js'
@@ -56,7 +56,7 @@ function contentBudget(fixedLength: number): number {
  */
 export function renderPersonaPrompt(
   doc: PersonaDocument,
-  options: { enabled: boolean; independentJudgment?: boolean },
+  options: { enabled: boolean; independentJudgment?: boolean; now?: Date },
 ): string {
   try {
     return renderPersonaPromptOrThrow(doc, options)
@@ -91,13 +91,14 @@ export function renderPersonaPrompt(
  */
 function renderPersonaPromptOrThrow(
   doc: PersonaDocument,
-  options: { enabled: boolean; independentJudgment?: boolean },
+  options: { enabled: boolean; independentJudgment?: boolean; now?: Date },
 ): string {
   if (!options.enabled) return ''
 
-  // 未初始化 ⇒ 注入引导语。判定**先于**其他一切：未初始化的文档必然是空的，
+  // 未初始化 ⇒ 注入"第一次见面"。判定**先于**其他一切：未初始化的文档必然是空的，
   // "低于阈值不注入"会把唯一能启动整个流程的话也一起吞掉（鸡生蛋）。
-  if (doc?.identityCard?.initializedAt === '') return UNINITIALIZED_PROMPT
+  // 日期在**渲染时**算（`{{变量}}` 只有 provider/model，写别的会让整轮组装抛错）。
+  if (doc?.identityCard?.initializedAt === '') return uninitializedPrompt(dayText(options.now))
 
   // 独立判断段**只在底色已封存后**注入（理由见上面的函数注释：封存前注入会让模型拿它拒绝对方的设定）。
   // 判据用 `sealedAt`（P-002：状态由独立标记判定，不比对内容）。
@@ -114,6 +115,14 @@ function renderPersonaPromptOrThrow(
   const fitted = fitPersonaContent(blocksOf(content), contentBudget(fixed.length))
   const persona = fitted.lines.join('\n')
   return `${anti === '' ? '' : `${anti}\n\n`}${persona}\n\n${MUTABLE_OPS_GUIDE}`
+}
+
+/** 本地日期 `YYYY-MM-DD`（未初始化那段开头要写"今天是几号"）。 */
+function dayText(now: Date | undefined): string {
+  const at = now ?? new Date()
+  const month = String(at.getMonth() + 1).padStart(2, '0')
+  const day = String(at.getDate()).padStart(2, '0')
+  return `${at.getFullYear()}-${month}-${day}`
 }
 
 /**

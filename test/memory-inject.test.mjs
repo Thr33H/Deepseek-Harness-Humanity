@@ -188,7 +188,9 @@ test('命中会推进使用统计（异步补记），且注入本身不因为�
     assert.ok(entry.lastUsedAt.length > 0)
 
     const again = await harness.turn(harness.main, '今天想喝咖啡')
-    assert.equal(again.match(/^- /gm)?.length, 1, '条数由检索与上限决定，频率只影响排序')
+    // 判据不看行首 "- "（引导语本身也是列表），直接数**这条记忆**出现了几次：
+    // 频率只影响排序，不该让同一条记忆在注入里重复出现。
+    assert.equal(again.split('用户喜欢喝咖啡').length - 1, 1, '同一条记忆只出现一次')
   } finally {
     await harness.dispose()
   }
@@ -280,8 +282,8 @@ test('引导语含召回义务（2026-09-25 真机事故回归钉：注入块被
   // 义务必须写在每轮注入的引导语里（工具描述的触发条件会被注入块满足而永不触发）。
   assert.match(MEMORY_GUIDANCE, /humanity_recall/)
   assert.match(MEMORY_GUIDANCE, /不是记忆库全部/)
-  assert.match(MEMORY_GUIDANCE, /先调用/)
-  assert.match(MEMORY_GUIDANCE, /不得把即兴发挥、推测或本会话临时铺陈的内容当作记忆陈述/)
+  assert.match(MEMORY_GUIDANCE, /查一遍/)
+  assert.match(MEMORY_GUIDANCE, /不许拿推测或本会话的即兴内容冒充记忆/)
 })
 
 test('P0-1（2026-10-04 破戏）：引导语里不再出现"扮演"这类元信息措辞', () => {

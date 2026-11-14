@@ -31,7 +31,11 @@ import { CORE_IDENTITY_KEYS } from '../lib/persona/constants.js'
 import { INIT_DESCRIPTION, PERSONA_INIT_TOOL } from '../lib/persona/init.js'
 import { createDefaultPersona } from '../lib/persona/model.js'
 import { installPersonaInjection, PERSONA_SECTION_NAME, PERSONA_SECTION_ORDER } from '../lib/persona/prompt.js'
-import { INDEPENDENT_JUDGMENT_PROMPT, MUTABLE_OPS_GUIDE, UNINITIALIZED_PROMPT } from '../lib/persona/prompt-texts.js'
+import { INDEPENDENT_JUDGMENT_PROMPT, MUTABLE_OPS_GUIDE, uninitializedPrompt } from '../lib/persona/prompt-texts.js'
+
+// 未初始化那段开头要写"今天是几号"：测试钉死日期，否则结果随日历漂移。
+const FIXED_NOW = new Date(2026, 10, 14)
+const INIT_TEXT = uninitializedPrompt('2026-11-14')
 import { PROMPT_CHAR_BUDGET, renderPersonaPrompt } from '../lib/persona/render.js'
 import { withSection } from './helpers/persona-fake.mjs'
 import { Config } from '../lib/index.js'
@@ -67,9 +71,9 @@ test('渲染：**未初始化**时注入"第一次见面"而不是空串（否�
 test('渲染：见面这段只写"做什么"，不写成一步步的流程说明（用户 2026-11-14 定）', () => {
   const text = renderPersonaPrompt(createDefaultPersona(), { enabled: true })
 
-  assert.match(text, /自己决定该问哪些/, '问题清单不写死：让模型看工具能收什么再自己挑')
+  assert.match(text, /把它们分成两类/, '问题清单不写死：让模型看工具能收什么再自己分类')
   assert.match(text, /一次问完/, '用户 2026-11-14：一次问全，不要挤牙膏')
-  assert.match(text, /自己补全/, '没问到的由模型补全，不逐项确认')
+  assert.match(text, /你替他定一个合理的/, '没问到的由模型补全，不逐项确认')
   assert.match(text, /Humanity 工作台/)
   assert.match(text, /先回应/, '对方先说别的事：先回应，再自然提起')
   assert.match(text, /不要承诺任何你现在做不到的事/)
@@ -80,8 +84,8 @@ test('渲染：见面这段只写"做什么"，不写成一步步的流程说明
 })
 
 test('渲染：引导语里的两个工具名与真实注册的工具名一致（字面量不许漂）', () => {
-  assert.ok(UNINITIALIZED_PROMPT.includes(PERSONA_INIT_TOOL))
-  assert.ok(UNINITIALIZED_PROMPT.includes(PERSONA_UPDATE_TOOL))
+  assert.ok(INIT_TEXT.includes(PERSONA_INIT_TOOL))
+  assert.ok(INIT_TEXT.includes(PERSONA_UPDATE_TOOL))
 })
 
 test('渲染：初始化完成后自动切换成正常人格内容（引导语消失）', () => {
@@ -99,8 +103,8 @@ test('渲染：引导语不受字符预算影响，但仍是有界的一次性�
   // 它比人格正文长（几百字符，用户已确认可接受），但**提前 return** ⇒ 从不参与预算计算；
   // 这里只钉"它不会无限增长，且确实明显小于整份人格预算"（2026-09-26 预算涨到 2400 后，
   // 旧断言拿"预算的 1/4"当尺子 ⇒ 变成要求引导语长到 600 字，那是在追着预算跑，不是在守边界）。
-  assert.ok(UNINITIALIZED_PROMPT.length > 300, '引导语要有实质内容（几百字符量级）')
-  assert.ok(UNINITIALIZED_PROMPT.length * 2 < PROMPT_CHAR_BUDGET, '它应当远小于整份人格的注入预算')
+  assert.ok(INIT_TEXT.length > 300, '引导语要有实质内容（几百字符量级）')
+  assert.ok(INIT_TEXT.length * 2 < PROMPT_CHAR_BUDGET, '它应当远小于整份人格的注入预算')
 })
 
 test('渲染：底色 + 信息都在，且带上"只是倾向、不覆盖当前要求"的定位', () => {
@@ -584,9 +588,9 @@ test('独立判断：缺省（没传这个开关）视为开 —— 与 schema �
 })
 
 test('独立判断：未初始化时**只有引导语**，不塞独立判断段（引导语优先）', () => {
-  const text = renderPersonaPrompt(createDefaultPersona(), { enabled: true, independentJudgment: true })
+  const text = renderPersonaPrompt(createDefaultPersona(), { enabled: true, independentJudgment: true, now: FIXED_NOW })
 
-  assert.equal(text, UNINITIALIZED_PROMPT)
+  assert.equal(text, INIT_TEXT)
   assert.doesNotMatch(text, /独立判断/)
 })
 
@@ -638,9 +642,9 @@ test('init 工具描述划清底色与信息（真机：AI 曾把称呼写进底
 })
 
 test('引导语也区分两个层，并给出"称呼不放底色"的明确指令', () => {
-  assert.match(UNINITIALIZED_PROMPT, /底色/)
-  assert.match(UNINITIALIZED_PROMPT, /信息/)
-  assert.match(UNINITIALIZED_PROMPT, /称呼\*\*不要\*\*放进底色|不要\*\*放进底色/)
+  assert.match(INIT_TEXT, /底色/)
+  assert.match(INIT_TEXT, /信息/)
+  assert.match(INIT_TEXT, /称呼\*\*不要\*\*放进底色|不要\*\*放进底色/)
 })
 
 test('平台限制（已接受）：极简模式的 complete section 会吞掉我们注入的段', async () => {
@@ -694,6 +698,6 @@ test('初始化后注入操作约定段：告诉模型什么写信息、什么�
   assert.equal(text.includes('humanity_remember'), true)
 
   // 未初始化时只有引导语（引导语自己讲清了分层），不叠操作约定段。
-  const uninit = renderPersonaPrompt({ ...filledPersona(), identityCard: { ...filledPersona().identityCard, initializedAt: '' } }, { enabled: true })
-  assert.equal(uninit, UNINITIALIZED_PROMPT)
+  const uninit = renderPersonaPrompt({ ...filledPersona(), identityCard: { ...filledPersona().identityCard, initializedAt: '' } }, { enabled: true, now: FIXED_NOW })
+  assert.equal(uninit, INIT_TEXT)
 })

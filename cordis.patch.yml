@@ -14,14 +14,17 @@
     - id: humanity
       name: deepseek-harness-humanity
 
-# 宿主平面的两段提示词噪音（2026-11-14 用户要求"系统提示词要干净"）：
+# 宿主平面的三段提示词噪音（2026-11-14 用户要求"系统提示词要干净"）：
 #   - file-reference-local：注入"@ 前缀的路径怎么写"约 600 字符；
-#   - harness-dev-context：注入 DSH 源码 checkout 与 Web GUI 热更新说明约 1900 字符。
+#   - harness-dev-context：注入 DSH 源码 checkout 与 Web GUI 热更新说明约 1900 字符；
+#   - deliverable-file-references：注入"文件怎么链接、卡片怎么给、present 什么时候用"约 1 段英文。
 # 它们**不在任何 agent preset 里**（挂在宿主平面），所以预设砍不掉，只能在补丁层整行停掉。
-# 两行都没有配置项，`disabled: true` 是唯一开关。
+# 这三行都没有配置项，`disabled: true` 是唯一开关。
 - id: file-reference-local
   disabled: true
 - id: harness-dev-context
+  disabled: true
+- id: deliverable-file-references
   disabled: true
 
 # 默认预设指向 humanity 自己注册的那个（见 src/host/presets.ts）。
