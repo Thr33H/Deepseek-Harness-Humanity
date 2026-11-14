@@ -24,7 +24,7 @@ import type { IdentityField, MutableSection } from './types.js'
 export const LEGACY_SECTION_TITLES: ReadonlyMap<string, string> = new Map([['当前状态', '情绪']])
 
 /**
- * 保证身份卡里**每个核心字段都存在**，缺的按默认值补上（`value: ''`、`custom: false`）。
+ * 保证底色里**每个核心字段都存在**，缺的按默认值补上（`value: ''`、`custom: false`）。
  *
  * ### 为什么必须有它（2026-09-23 真机事故）
  *

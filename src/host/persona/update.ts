@@ -1,5 +1,5 @@
 /**
- * `humanity_persona_update`：重新生成可变层的完整快照（P-017）。
+ * `humanity_persona_update`：重新生成信息的完整快照（P-017）。
  *
  * 唯一会"先问再写"的工具：这次快照若会删掉用户已有的内容，必须先在**当前对话**里确认。
  * 语义表（漏传 vs 传空）见工具描述与 `tool-helpers.ts` 的 `completeSections`。
@@ -15,7 +15,7 @@ import { completeSections, NOT_INITIALIZED_REASON } from './tool-helpers.js'
 import { RESULT_SCHEMA, refusal, renderValue, success, text, warningsOf, type PersonaToolValue } from './tool-result.js'
 import type { MutableSection, PersonaDocument, PersonaIssue, UserDefinedEntry } from './types.js'
 
-/** 可变层整理工具名。 */
+/** 信息整理工具名。 */
 export const PERSONA_UPDATE_TOOL = 'humanity_persona_update'
 
 /**
@@ -23,7 +23,7 @@ export const PERSONA_UPDATE_TOOL = 'humanity_persona_update'
  * 差别极大却都很隐晦，是当时最主要的误用来源。
  */
 const UPDATE_DESCRIPTION =
-  '更新人格可变层（意识与经验层）。参数是快照，语义如下（**漏传与传空是两件不同的事**）：' +
+  '更新人格信息（意识与经验层）。参数是快照，语义如下（**漏传与传空是两件不同的事**）：' +
   '① 某个小标题**完全不传** = **不动它**（保留当前内容，不需要回传原值）；' +
   '② 传 `items: []` = **显式清空这一节**——这会删掉用户内容，本工具会在**当前对话**里弹确认框，' +
   '用户点确认后才落盘；用户拒绝、或当前环境没有确认入口时，一律不删；' +
@@ -31,7 +31,7 @@ const UPDATE_DESCRIPTION =
   '标准小标题（对用户称呼、说话风格、交付格式、行为边界、习惯与偏好、经验教训、情绪、未结修正）' +
   '+ 兜底层「用户定义」；不支持追加补丁（给的是每节的完整条目列表，不是增量）；' +
   '漏传的小标题原样保留，不会被清空。' +
-  '固定层已封存，参数里没有它，也不会被本工具修改；「姓名 / 性别 / 人格偏好」等固定层字段名' +
+  '底色已封存，参数里没有它，也不会被本工具修改；「姓名 / 性别 / 人格偏好」等底色字段名' +
   '**不得**作为小标题或「用户定义」的键（会被拒绝）。' +
   '改变对用户称呼是**普通改动**（一个人可以有多个称呼），直接写即可，不需要任何额外确认。' +
   '「用户定义」里同名键会被拒绝（不静默覆盖）；被取代的旧内容会进入历史，历史不参与人格注入。' +
@@ -92,7 +92,7 @@ const UPDATE_PARAMETERS = {
 } as const
 
 /**
- * 定义可变层整理工具。
+ * 定义信息整理工具。
  * @param defineTool - 官方工具定义助手（经 `loadOptional` 取得）。
  * @param context - 人格读写入口与确认回调。
  * @returns 可交给 `tools.register` 的工具定义。
@@ -133,7 +133,7 @@ async function update(
 
   const next: PersonaDocument = {
     ...current,
-    // 固定层**原样带回**：不是"我们保证不改"，而是这里根本没有改它的入口。
+    // 底色**原样带回**：不是"我们保证不改"，而是这里根本没有改它的入口。
     identityCard: current.identityCard,
     mutableLayer: {
       sections: completeSections(rawSections, current),
@@ -149,7 +149,7 @@ async function update(
   }
 
   const written = persona.read()
-  return success('update', written, '可变层已重新生成完整快照。', warningsOf(written))
+  return success('update', written, '信息已重新生成完整快照。', warningsOf(written))
 }
 
 /**
@@ -170,7 +170,7 @@ async function confirmThenWrite(
     (CONFIRMABLE_ISSUES as readonly string[]).includes(issue.code),
   )
   if (confirmable.length === 0 || confirmable.length !== rejected.length) {
-    return refusal('update', current, '可变层校验未通过，没有写入。', issues)
+    return refusal('update', current, '信息校验未通过，没有写入。', issues)
   }
 
   const outcome = await context.confirm(
@@ -184,7 +184,7 @@ async function confirmThenWrite(
   } catch (retry) {
     if (retry instanceof PersonaWriteRejected) {
       // 已确认却仍被拒：说明还有别的 rejected 项（理论上不会走到，上面已比对过）。
-      return refusal('update', current, '可变层校验未通过，没有写入。', retry.issues)
+      return refusal('update', current, '信息校验未通过，没有写入。', retry.issues)
     }
     throw retry
   }

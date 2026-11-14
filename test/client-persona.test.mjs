@@ -140,7 +140,7 @@ test('宿主文档缺核心字段（旧数据）：工作台加载即补齐，�
   assert.deepEqual(
     loaded.draft.identityCard.fields.map((field) => field.key),
     ['姓名', '性别', '人格偏好', '主语言'],
-    '加载时补齐缺失的核心字段（空值）—— 用户看到的是完整身份卡',
+    '加载时补齐缺失的核心字段（空值）—— 用户看到的是完整底色',
   )
 
   controller.setIdentityValue(2, '温和')
@@ -222,7 +222,7 @@ test('⑥ 空的新增行仍旧静默丢掉（点了添加还没填，不该拦�
 
   assert.equal(calls.replace.length, 1)
   assert.deepEqual(calls.replace[0].section.mutableLayer.userDefined, [], '「用户定义」字段照旧原样带回')
-  assert.equal(calls.replace[0].section.identityCard.fields.length, 4, '核心固定层 4 项（含主语言）')
+  assert.equal(calls.replace[0].section.identityCard.fields.length, 4, '核心底色 4 项（含主语言）')
 })
 
 test('Bug B 清空自定义节的正文 = 删除该节（用户不必再找别的入口）；原生节清空后仍留着', async () => {
@@ -431,7 +431,7 @@ test('自定义字段：可加、可改名、可删；核心三段式删不掉�
   // （核心字段列表变过：2026-09-23 加了「主语言」，写死下标的那版就是这么过期的）。
   const customIndex = controller.getSnapshot().draft.identityCard.fields.findIndex((field) => field.custom)
   controller.removeIdentityField(customIndex)
-  assert.equal(controller.getSnapshot().draft.identityCard.fields.length, 4, '核心固定层 4 项（含主语言）不因删自定义字段而减少')
+  assert.equal(controller.getSnapshot().draft.identityCard.fields.length, 4, '核心底色 4 项（含主语言）不因删自定义字段而减少')
 })
 
 /* ---------------------------------------------------------------------------
@@ -526,8 +526,8 @@ test('两张卡各有自己的保存按钮（用户 2026-09-26；底栏不再重
   )
   const html = render(seat)
   const saveCount = html.split('>persona.save<').length - 1
-  assert.ok(saveCount >= 2, `身份卡与人格卡各要一个保存按钮（实际 ${saveCount} 个）`)
-  assert.ok(html.indexOf('persona.identityCard') < html.indexOf('>persona.save<'), '第一个保存按钮出现在身份卡内')
+  assert.ok(saveCount >= 2, `底色与信息各要一个保存按钮（实际 ${saveCount} 个）`)
+  assert.ok(html.indexOf('persona.identityCard') < html.indexOf('>persona.save<'), '第一个保存按钮出现在底色内')
   assert.equal(html.includes('persona.reload'), true, '底栏仍保留重新加载')
 })
 

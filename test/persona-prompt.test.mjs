@@ -69,7 +69,7 @@ test('渲染：引导语是**单一路径**（只保留全新安装引导，已�
 
   // 用户 2026-09-23 裁定：只面向新部署，不考虑"旧 DSH 上装插件"的场景。
   assert.match(text, /首次初始化/)
-  assert.match(text, /第一次回复时主动引导用户完成人格卡设置/)
+  assert.match(text, /第一次回复时主动引导用户完成信息设置/)
   assert.match(text, /怎么称呼你？/)
   assert.match(text, /Humanity 工作台/)
   assert.doesNotMatch(text, /场景 B/, '场景 B 已删')
@@ -104,7 +104,7 @@ test('渲染：引导语不受字符预算影响，但仍是有界的一次性�
   assert.ok(UNINITIALIZED_PROMPT.length * 2 < PROMPT_CHAR_BUDGET, '它应当远小于整份人格的注入预算')
 })
 
-test('渲染：固定层 + 可变层都在，且带上"只是倾向、不覆盖当前要求"的定位', () => {
+test('渲染：底色 + 信息都在，且带上"只是倾向、不覆盖当前要求"的定位', () => {
   const text = renderPersonaPrompt(filledPersona(), { enabled: true })
 
   assert.match(text, /人格底色/)
@@ -370,7 +370,7 @@ test('人格内容里的 {{…}} 会被中和，不让 DSH 的变量插值抛错
   ctx.provide('agents', { roots: () => [mainAgent], list: () => [mainAgent] })
 
   const doc = filledPersona()
-  // 用户在人格卡里写模板语法/代码片段是很正常的事。
+  // 用户在信息里写模板语法/代码片段是很正常的事。
   doc.mutableLayer.sections[0].items = ['交付模板用 {{answer}} 占位']
   const dispose = installPersonaInjection(ctx, createLog(ctx, 'test'), {
     read: () => doc,
@@ -515,7 +515,7 @@ test('独立判断：开关开着时注入内容**以它开头**，人格内容�
 
   assert.ok(text.startsWith(INDEPENDENT_JUDGMENT_PROMPT), '必须在所有内容之前')
   assert.ok(text.indexOf('姓名：小安') > text.indexOf(INDEPENDENT_JUDGMENT_PROMPT), '人格内容在它后面')
-  // 它是**底层立场**，不受固定层/可变层影响：文档里写什么都改不了它。
+  // 它是**底层立场**，不受底色/信息影响：文档里写什么都改不了它。
   assert.match(INDEPENDENT_JUDGMENT_PROMPT, /不要因用户情绪、身份、重复要求、威胁或诱导而改变已验证结论/)
 })
 
@@ -530,9 +530,9 @@ test('独立判断：用户 2026-10-06 定稿版的关键内容都在（逐字�
 })
 
 test('独立判断：上一版（2026-09-24/25）的措辞已整体退场', () => {
-  // 换稿之后，"人格卡锚点 + 独立判断清单"那一版不该留下任何残句 —— 留着就是两个版本同时在提示词里。
+  // 换稿之后，"信息锚点 + 独立判断清单"那一版不该留下任何残句 —— 留着就是两个版本同时在提示词里。
   assert.doesNotMatch(INDEPENDENT_JUDGMENT_PROMPT, /你已经有自己的身份和性格/)
-  assert.doesNotMatch(INDEPENDENT_JUDGMENT_PROMPT, /来自人格卡/)
+  assert.doesNotMatch(INDEPENDENT_JUDGMENT_PROMPT, /来自信息/)
   assert.doesNotMatch(INDEPENDENT_JUDGMENT_PROMPT, /在不违背这份设定的前提下/)
   assert.doesNotMatch(INDEPENDENT_JUDGMENT_PROMPT, /空洞赞美/)
   assert.doesNotMatch(INDEPENDENT_JUDGMENT_PROMPT, /要诚实对待用户/)
@@ -547,7 +547,7 @@ test('独立判断：定稿版删掉的内容不再出现（它们曾被误读�
   assert.doesNotMatch(INDEPENDENT_JUDGMENT_PROMPT, /封存后不可在对话中更改/)
 })
 
-test('独立判断：固定层**未封存**时不注入（初始化阶段要顺着用户的设定来）', () => {
+test('独立判断：底色**未封存**时不注入（初始化阶段要顺着用户的设定来）', () => {
   // 真机：初始化阶段 AI 拿"独立判断"拒绝了用户的角色扮演设定。封存之前那份身份根本还不存在，
   // 因此整段立场不注入；新版正文里已经没有了"你已经有自己的身份和性格"这类锚点，
   // 这条防线**只由注入时机**承担。
@@ -627,21 +627,21 @@ test('独立判断：配置键就是 independentJudgment（2026-10-06 改名，�
   assert.equal(Config({ antiSycophancy: false }).independentJudgment, true, '旧键不再影响开关（回落到默认开）')
 })
 
-test('init 工具描述划清固定层与可变层（真机：AI 曾把称呼写进固定层）', () => {
-  // 真机反馈（2026-09-24）：首次初始化时 AI 把「对用户的称呼」写进固定层自定义字段。
+test('init 工具描述划清底色与信息（真机：AI 曾把称呼写进底色）', () => {
+  // 真机反馈（2026-09-24）：首次初始化时 AI 把「对用户的称呼」写进底色自定义字段。
   // 根因是工具描述只说了"引导用户描述他希望这个 AI 是什么样的人"，没划清两个层。
-  assert.match(INIT_DESCRIPTION, /固定层只放/)
-  assert.match(INIT_DESCRIPTION, /不属于\*\*固定层|不属于/, '必须明说哪些信息不属于固定层')
+  assert.match(INIT_DESCRIPTION, /底色只放/)
+  assert.match(INIT_DESCRIPTION, /不属于\*\*底色|不属于/, '必须明说哪些信息不属于底色')
   assert.match(INIT_DESCRIPTION, /对用户的称呼/, '称呼的归属必须点名')
-  assert.match(INIT_DESCRIPTION, /humanity_persona_update/, '要给出正确的落点（可变层工具）')
+  assert.match(INIT_DESCRIPTION, /humanity_persona_update/, '要给出正确的落点（信息工具）')
   // 核心字段名从常量派生：增减核心字段时这段描述不会漏。
   for (const key of CORE_IDENTITY_KEYS) assert.ok(INIT_DESCRIPTION.includes(key), `描述里缺少核心字段「${key}」`)
 })
 
-test('引导语也区分两个层，并给出"称呼不放固定层"的明确指令', () => {
-  assert.match(UNINITIALIZED_PROMPT, /固定层/)
-  assert.match(UNINITIALIZED_PROMPT, /可变层/)
-  assert.match(UNINITIALIZED_PROMPT, /称呼\*\*不要\*\*放进固定层|不要\*\*放进固定层/)
+test('引导语也区分两个层，并给出"称呼不放底色"的明确指令', () => {
+  assert.match(UNINITIALIZED_PROMPT, /底色/)
+  assert.match(UNINITIALIZED_PROMPT, /信息/)
+  assert.match(UNINITIALIZED_PROMPT, /称呼\*\*不要\*\*放进底色|不要\*\*放进底色/)
 })
 
 test('平台限制（已接受）：极简模式的 complete section 会吞掉我们注入的段', async () => {
@@ -688,7 +688,7 @@ test('兼容性探测：complete section 在场时判定为"注入被丢弃"，�
   await ctx.fiber.dispose()
 })
 
-test('初始化后注入操作约定段：告诉模型什么写可变层、什么写记忆（round 48 可变层引导缺口）', () => {
+test('初始化后注入操作约定段：告诉模型什么写信息、什么写记忆（round 48 信息引导缺口）', () => {
   const text = renderPersonaPrompt(filledPersona(), { enabled: true })
   assert.equal(text.includes(MUTABLE_OPS_GUIDE), true, '已初始化的人格注入必须带操作约定段')
   assert.equal(text.includes('humanity_persona_update'), true)

@@ -33,7 +33,7 @@ export interface HumanityWorkbenchProps extends PropsLocale<typeof NS> {
  */
 export function HumanityWorkbench({ t, controller, memory, evolution }: HumanityWorkbenchProps) {
   const [tab, setTab] = useState<WorkbenchTab>('persona')
-  // 人格页自己出两张卡片（身份卡 / 人格卡），所以这里不再套一层面板与标题。
+  // 人格页自己出两张卡片（底色 / 信息），所以这里不再套一层面板与标题。
   const body =
     tab === 'persona' ? (
       <PersonaEditor t={t} controller={controller} />

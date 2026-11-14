@@ -101,8 +101,8 @@ export function installPersona(
   })
   const tools: PersonaToolsHandle = installPersonaTools(ctx, log, section)
 
-  // 身份层：摘第一方身份前缀，让人格卡成为唯一自我认知（2026-09-25 真机反馈：
-  // 双重身份声明把人格卡降格成「角色扮演」）。配置层那半在 cordis.patch.yml。
+  // 身份层：摘第一方身份前缀，让信息成为唯一自我认知（2026-09-25 真机反馈：
+  // 双重身份声明把信息降格成「角色扮演」）。配置层那半在 cordis.patch.yml。
   installIdentityLayer(ctx, log, deps.enabled)
 
   // T0：把人格注入系统提示词（只主 Agent，裁决 2）。`text` 是函数 ⇒ 每轮重读；

@@ -111,7 +111,7 @@ function usageLabel(t: Translate, evolution: EvolutionWorkbenchState): string {
   })
 }
 
-/** 姓名：从人格卡的身份卡读（没设过或还没初始化时如实说"未设置"）。 */
+/** 姓名：从信息的底色读（没设过或还没初始化时如实说"未设置"）。 */
 function nameLabel(t: Translate, persona: PersonaWorkbenchState | undefined): string {
   const fields = persona?.draft.identityCard.fields ?? []
   const name = (fields.find((field) => field.key === '姓名')?.value ?? '').trim()

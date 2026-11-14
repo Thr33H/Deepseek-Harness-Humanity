@@ -1,14 +1,14 @@
 /**
- * 0.1.14 · 人格卡只剩 **4 个原生项**（其余一律自定义）+ 去掉「用户定义」区块（V3–V8）。
+ * 0.1.14 · 信息只剩 **4 个原生项**（其余一律自定义）+ 去掉「用户定义」区块（V3–V8）。
  *
  * 用户 2026-10-09 的两条原话（逐字）：
- * ① "只有 8 个原生项，角色卡 4 个，人格卡 4 个，其余都是属于自定一项，**没有标准这一说**，
+ * ① "只有 8 个原生项，角色卡 4 个，信息 4 个，其余都是属于自定一项，**没有标准这一说**，
  *    除了原生的 8 个外，**其余都一样待遇**，包括 dsh 新装一个 Humanity，也是显示 8 个原生项。"
  * ② "**用户自定义可以删了，它跟添加小节重复了。**"
  *
  * 本文件按项目书 §4 的 V3–V8 逐条钉住，并且**每条都要正反两面**（"删提示"不许变成"删校验"、
  * "能删能改名"不许变成"一律拒绝"）：
- * - V3 新装只有 8 个原生项（身份卡 4 + 人格卡 4，不再预置那 4 个空节）
+ * - V3 新装只有 8 个原生项（底色 4 + 信息 4，不再预置那 4 个空节）
  * - V4 降级为自定义项：**可删**（删后不再被补回）+ **可改名**（不产生"一节变两节"）
  * - V5 原生 4 项**仍锁定**：界面没入口 + 绕过界面直删直改被宿主拒（对照：非原生项照样能删能改）
  * - V6 "非标准"提示消失（且代码里无产出点）；**反例**：真正畸形的小节名仍被拦
@@ -50,18 +50,18 @@ async function bootClient(document = emptyPersona()) {
 
 /* ---------------------------------------------------------------- V3 新装只有 8 个原生项 */
 
-test('V3 正面：新装文档 = 身份卡 4 字段 + 人格卡**恰好 4** 个原生小节（不再预置那 4 个空节）', () => {
+test('V3 正面：新装文档 = 底色 4 字段 + 信息**恰好 4** 个原生小节（不再预置那 4 个空节）', () => {
   const persona = createDefaultPersona()
 
   assert.deepEqual(
     persona.identityCard.fields.map((field) => field.key),
     [...CORE_IDENTITY_KEYS],
-    '身份卡 4 个原生字段',
+    '底色 4 个原生字段',
   )
   assert.deepEqual(
     persona.mutableLayer.sections.map((section) => section.title),
     NATIVE,
-    '人格卡 4 个原生小节 —— 旧版那 4 个空节不再预置',
+    '信息 4 个原生小节 —— 旧版那 4 个空节不再预置',
   )
   assert.equal(NATIVE.length + CORE_IDENTITY_KEYS.length, 8, '合起来正好是用户说的"8 个原生项"')
   for (const title of DEMOTED) {
@@ -283,13 +283,13 @@ test('V6 反例（不许把"删提示"做成"删校验"）：畸形小节名照�
   assert.equal(dup.ok, false, '重复标题必须照旧被拒')
   assert.ok(dup.issues.some((issue) => issue.code === 'mutable.section-duplicate'))
 
-  // ③ 冒牌固定层字段名 ⇒ rejected（层次不许混）。
+  // ③ 冒牌底色字段名 ⇒ rejected（层次不许混）。
   const shadow = {
     ...prev,
     mutableLayer: { ...prev.mutableLayer, sections: [...prev.mutableLayer.sections, { title: '姓名', items: ['冒牌'] }] },
   }
   const shadowed = validatePersona(shadow, effectivePersona(prev), 'user')
-  assert.equal(shadowed.ok, false, '固定层字段名不得作为可变层小标题')
+  assert.equal(shadowed.ok, false, '底色字段名不得作为信息小标题')
   assert.ok(shadowed.issues.some((issue) => issue.code === 'mutable.core-key-shadowed'))
 })
 

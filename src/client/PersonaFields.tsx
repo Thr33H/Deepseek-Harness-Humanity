@@ -1,5 +1,5 @@
 /**
- * 工作台编辑器的**字段级组件**：身份卡行、可变层小节、兜底层、以及底部的添加入口。
+ * 工作台编辑器的**字段级组件**：底色行、信息小节、兜底层、以及底部的添加入口。
  *
  * ### 一行三段（0.1.13 追加 5：用户看过真机效果后的布局要求）
  *
@@ -308,7 +308,7 @@ function RenameIssueBandIfAny({
   return <RenameIssueBand t={t} itemId={itemId} issue={issue} />
 }
 
-/** 身份卡里的一行（三栏）：名称格 + 内容格（输入框）+ 动作格。 */
+/** 底色里的一行（三栏）：名称格 + 内容格（输入框）+ 动作格。 */
 function IdentityFieldCells({
   t,
   controller,
@@ -367,9 +367,9 @@ function IdentityFieldCells({
 }
 
 /**
- * 固定层身份卡编辑区：4 个锁定字段 + 自定义字段，底部是「添加字段」入口。
+ * 底色底色编辑区：4 个锁定字段 + 自定义字段，底部是「添加字段」入口。
  * @param props - 字典、控制器、可编辑性与当前快照。
- * @returns 身份卡编辑区。
+ * @returns 底色编辑区。
  */
 export function IdentityFields({ t, controller, disabled, state }: FieldProps) {
   const shared = { t, controller, disabled, state }
@@ -389,7 +389,7 @@ export function IdentityFields({ t, controller, disabled, state }: FieldProps) {
   )
 }
 
-/** 可变层的一个小节（三栏）：名称格 + 多行内容格 + 动作格。 */
+/** 信息的一个小节（三栏）：名称格 + 多行内容格 + 动作格。 */
 function MutableSectionCells({
   t,
   controller,
@@ -443,12 +443,12 @@ function MutableSectionCells({
 }
 
 /**
- * 可变层的小节列表 + 底部「添加小节」入口。
+ * 信息的小节列表 + 底部「添加小节」入口。
  *
  * 顺序由 `orderedSections` 决定：**文档里真实存在的小节**按标准顺序在前、自定义在后
  * （被删掉的小节不再补回，见 `persona-document.orderedSections`）。
  * @param props - 字典、控制器、可编辑性与当前快照。
- * @returns 可变层编辑区。
+ * @returns 信息编辑区。
  */
 export function MutableFields({ t, controller, disabled, state }: FieldProps) {
   const shared = { t, controller, disabled, state }

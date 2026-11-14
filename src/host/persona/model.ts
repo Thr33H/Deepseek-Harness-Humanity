@@ -46,7 +46,7 @@ const UserDefinedEntrySchema = Schema.object({
 })
 
 /**
- * 可变层 schema。
+ * 信息 schema。
  *
  * `sections` 的默认值是**由标准小标题生成**的，而不是把 8 项硬抄一遍——
  * 抄一遍意味着改 `STANDARD_SECTION_TITLES` 时忘改默认值，两处就会分叉。

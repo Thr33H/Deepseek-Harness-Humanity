@@ -5,7 +5,7 @@
  *
  * 三条设计约束（改动前先读）：
  * 1. **零硬依赖**（G-002）：`defineTool` 走 `loadOptional`，官方包缺失时只关掉"Agent 工具"；
- * 2. **封存在工具体之前拦**：`ctx.tools.guard()` 判掉已封存还想初始化与夹带固定层字段这类越权
+ * 2. **封存在工具体之前拦**：`ctx.tools.guard()` 判掉已封存还想初始化与夹带底色字段这类越权
  *    —— 不依赖参数 schema 是否写了这些字段；
  * 3. **审批可用性 fail-closed**：没有审批入口时"会丢内容的改动"一律拒绝、不写。
  * @module humanity/persona/tools
@@ -72,7 +72,7 @@ function registerAll(
     tools.guard((execution) => guardExecution(execution, persona)),
   ]
 
-  log.info('人格封存 guard 已注册（固定层对 Agent 的写入在函数体之前拦截）')
+  log.info('人格封存 guard 已注册（底色对 Agent 的写入在函数体之前拦截）')
   return () => {
     for (const dispose of disposers.splice(0)) dispose()
   }

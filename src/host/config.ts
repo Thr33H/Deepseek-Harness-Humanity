@@ -63,12 +63,12 @@ export interface HumanityConfig {
   enabled: boolean
   /**
    * 独立判断底层指令（用户 2026-09-23 定）：注入最前面的一句硬编码立场，
-   * 不受固定层/可变层覆盖。默认开；关掉后 AI 可能更倾向于讨好。
+   * 不受底色/信息覆盖。默认开；关掉后 AI 可能更倾向于讨好。
    * 它与 modules.persona.enabled 同级：都是"人格怎么被注入"的开关，而不是某个模块的内容。
    */
   independentJudgment: boolean
   modules: {
-    /** 人格：固定底色层 + 可变层，以及首次唤醒引导。 */
+    /** 人格：固定底色层 + 信息，以及首次唤醒引导。 */
     persona: {
       enabled: boolean
       /**

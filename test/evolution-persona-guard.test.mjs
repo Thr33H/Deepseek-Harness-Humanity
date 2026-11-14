@@ -1,5 +1,5 @@
 /**
- * 0.1.11 · A：人格卡护栏改「接近预算就刹 + 写入前预演」（V3/V4/V5/V6）。
+ * 0.1.11 · A：信息护栏改「接近预算就刹 + 写入前预演」（V3/V4/V5/V6）。
  *
  * 病根（0.1.10 的洞，真机实测 2026-10-09T03:20:47Z）：那轮台账逐字写着
  * `人格注入预算：已用 1880/2065 字符，预算内（注入 33 条）` —— 0.1.10 只在 `truncated`
@@ -45,7 +45,7 @@ const JUDGMENT = true
 /** 最小合法解析输出。 */
 const EMPTY_OUTPUT = { memories: [], personaSections: [], personaFixed: [], insights: [], narrative: '' }
 
-/** 4 个**原生**小节（0.1.14 起人格卡的默认集合）。 */
+/** 4 个**原生**小节（0.1.14 起信息的默认集合）。 */
 /** 夹具里最后一节（空的，用来接新条目）。 */
 const LAST_SECTION = '未结修正'
 const SECTION_TITLES = createDefaultPersona().mutableLayer.sections.map((section) => section.title)
@@ -271,7 +271,7 @@ test('V6 预演（单条超长）：当前未超、护栏未触发，但这一�
   const record = await runOnce(harnessed)
 
   assert.equal(harnessed.writes.length, 0, '预演判定会超 ⇒ 一次写回都不该发生')
-  assert.ok(!itemsOf(harnessed.view(), LAST_SECTION).includes(longItem), '这一条不许写进人格卡')
+  assert.ok(!itemsOf(harnessed.view(), LAST_SECTION).includes(longItem), '这一条不许写进信息')
   assert.match(record.error, /拦下拟新增 1 条/, '被预演拦下的条数要记账')
   assert.match(record.error, /预算充足/, '护栏确实没触发（这条是被预演拦的，不是被护栏拦的）')
 })

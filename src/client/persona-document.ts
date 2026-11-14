@@ -21,8 +21,8 @@ export type PersonaIssueView = PersonaIssue
 /**
  * 界面上"某一项"的两类（0.1.13 的项级交互都以它为单位）。
  *
- * - `identity`：身份卡的一个字段（固定层）；
- * - `section`：人格卡的一个小标题（可变层）。
+ * - `identity`：`identityCard` 里的一个字段（属于你的底色）；
+ * - `section`：`mutableLayer` 的一个小标题（属于你的信息）。
  *
  * ⚠️ 0.1.14：原来的第三类 `userDefined`（兜底层「用户定义」的一条键值对）**退出界面** ——
  * 用户 2026-10-09 原话"**用户自定义可以删了，它跟添加小节重复了**"。
@@ -32,7 +32,7 @@ export type PersonaIssueView = PersonaIssue
 export type PersonaItemKind = 'identity' | 'section'
 
 /**
- * 项引用：身份卡字段用**下标**（键名可编辑，用名字做引用会在改名时错位），小节用标题。
+ * 项引用：底色字段用**下标**（键名可编辑，用名字做引用会在改名时错位），小节用标题。
  */
 export interface PersonaItemRef {
   kind: PersonaItemKind
@@ -62,15 +62,15 @@ export interface PersonaRenameForm {
  */
 export interface PersonaAddForm {
   readonly kind: PersonaItemKind
-  /** 项名：身份卡字段名 / 小节名。 */
+  /** 项名：底色字段名 / 小节名。 */
   readonly name: string
   /** 内容：字段值 / 小节首条内容。 */
   readonly value: string
 }
 
-/** 项 id：身份卡字段。 */
+/** 项 id：底色字段。 */
 export const identityItemId = (index: number): string => `identity:${index}`
-/** 项 id：人格卡小节（标题里可能有冒号，解析时按**首个**冒号切）。 */
+/** 项 id：信息小节（标题里可能有冒号，解析时按**首个**冒号切）。 */
 export const sectionItemId = (title: string): string => `section:${title}`
 
 /**
@@ -90,7 +90,7 @@ export function parseItemId(itemId: string): PersonaItemRef | undefined {
 }
 
 /**
- * 固定层的 4 个核心字段是**锁定的**（默认 8 项 = 这 4 项 + 人格卡 4 个原生小节）。
+ * 底色的 4 个核心字段是**锁定的**（默认 8 项 = 这 4 项 + 信息 4 个原生小节）。
  *
  * 正常数据里它们是 `custom: false`；这里按键名再查一次，是为了挡住"键名是核心字段、却被标成自定义"
  * 的畸形数据 —— 那种数据上删一次，`normalizePersona` 的 `ensureCoreFields` 会把它补回来，
@@ -127,8 +127,8 @@ export function addFormReady(form: PersonaAddForm | undefined): boolean {
 /**
  * 这一项**能不能改名**（0.1.13 追加）。
  *
- * 只给**用户自己加的**项：自定义身份卡字段、自定义小节、「用户定义」的条目。
- * **锁定的 8 项（身份卡 4 + 人格卡 4 个原生小节）都不给** —— 原生小节的名字不是"名字"而是
+ * 只给**用户自己加的**项：自定义底色字段、自定义小节、「用户定义」的条目。
+ * **锁定的 8 项（底色 4 + 信息 4 个原生小节）都不给** —— 原生小节的名字不是"名字"而是
  * "插件认的标识"：
  * - `STANDARD_SECTION_TITLES` 是 P-020/P-022 的固定集合，`orderedSections`、`isStandardMutableLayer`
  *   与原生集合都按它判定；把自定义小节改成「对用户称呼」这类**原生名**，等于让它变成锁定项
@@ -171,13 +171,13 @@ export function itemName(doc: PersonaDocument, itemId: string): string | undefin
  * - `empty`：清空后的名字为空 —— 宿主对无名项一律拒绝（`identity.key-empty` /
  *   `mutable.user-defined-key-empty` / 无名小节不进提示词）；
  * - `unchanged`：和现在一样 —— 不是错误，只是没有可提交的改动（确认键禁用）；
- * - `reserved`：撞上**插件认的原生名**（4 个原生小节标题 / 4 个固定层核心字段名）——
+ * - `reserved`：撞上**插件认的原生名**（4 个原生小节标题 / 4 个底色核心字段名）——
  *   宿主那边分别是"语义变更"与 `mutable.core-key-shadowed`；
  * - `duplicate`：**另一个项已经在用**这个名字 —— 宿主会以 `identity.key-duplicate` /
  *   `mutable.section-duplicate` / `mutable.user-defined-duplicate` 拒绝；
  *   跨层撞名（字段 / 小节 /「用户定义」键之间）也归这里（见下面的说明，比宿主严一档）。
  *
- * **名字空间是整张人格卡**：字段名、小节标题、用户定义的键共用一个唯一性约束。这样"改名"这条
+ * **名字空间是整张信息**：字段名、小节标题、用户定义的键共用一个唯一性约束。这样"改名"这条
  * 规则一句话说得完，用户也不会造出"两个都叫咖啡的项"或"撞名之后加不回字段"的状态。
  *
  * **不静默覆盖**：这里只**读**文档、只回一个原因码；真正落草稿的 `renameItem` 会先复查
@@ -203,13 +203,13 @@ export function renameIssue(doc: PersonaDocument, itemId: string, nextName: stri
   const core = CORE_IDENTITY_KEYS as readonly string[]
   if (standard.includes(name) || core.includes(name)) return 'reserved'
 
-  // 名字必须在**整张人格卡**里唯一：身份卡字段名 / 小节标题共用一个名字空间
+  // 名字必须在**整张信息**里唯一：底色字段名 / 小节标题共用一个名字空间
   // （「用户定义」的键自 0.1.14 起不再出现在界面上，但**仍在文档里**，所以照旧计入唯一性 ——
   //  否则用户可以把小节改成「用户定义」里已有的键名，造出宿主那边看着矛盾的数据）。
   //
   // 与宿主的关系逐向说明（避免"界面放行、宿主拒绝"的那种不一致）：
-  // - **身份卡字段 → 可变层**：宿主本来就会拒（`identity.shadows-mutable`）⇒ 这里是对齐；
-  // - **小节 → 身份卡字段名**：宿主目前**不拦这一向**（`checkShadowsMutable` 只查固定层
+  // - **底色字段 → 信息**：宿主本来就会拒（`identity.shadows-mutable`）⇒ 这里是对齐；
+  // - **小节 → 底色字段名**：宿主目前**不拦这一向**（`checkShadowsMutable` 只查底色
   //   那一侧）。这里**故意比宿主严**，理由与那条规则自己的注释一致：撞名要在**源头**拦 ——
   //   否则用户之后删掉字段再加一个同名的，会被 `identity.shadows-mutable` 拒，
   //   而那句"请改其中一个名字"指向的正是他当初改出来的这个状态。
@@ -260,7 +260,7 @@ export interface PersonaWorkbenchState {
   /**
    * 改名表单；`undefined` = 名称以纯文字显示（默认态，**没有**输入框）。
    *
-   * 只有**自定义**的项会用它（见 {@link canRenameItem}）；锁定的 8 项（身份卡 4 + 原生小节 4）没有这个入口。
+   * 只有**自定义**的项会用它（见 {@link canRenameItem}）；锁定的 8 项（底色 4 + 原生小节 4）没有这个入口。
    */
   readonly renaming?: PersonaRenameForm
   /**

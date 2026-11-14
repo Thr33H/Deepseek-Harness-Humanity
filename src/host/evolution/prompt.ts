@@ -74,10 +74,10 @@ export interface PromptContext {
   mode: RunMode
   /** 当前工作区标签（会话 cwd；读不到为空串）。 */
   workspaceLabel: string
-  /** 人格可变层的当前小标题（约束 personaSections.section 的合法取值）。 */
+  /** 人格信息的当前小标题（约束 personaSections.section 的合法取值）。 */
   sectionTitles: readonly string[]
   /**
-   * 人格卡的**当前内容**（P-056）。
+   * 信息的**当前内容**（P-056）。
    *
    * 为什么必须给模型看：`sectionConsolidations` 要求它**逐字**指出要并掉哪几条，
    * 而"这条是不是已经写过""这两条是不是同义"都判不了 —— 只给标题清单，模型只能瞎猜。
@@ -87,7 +87,7 @@ export interface PromptContext {
   /**
    * 人格**注入预算**的当前读数（0.1.10 · A1/A2）。
    *
-   * 为什么必须给模型看：人格卡的注入预算是**写死的**（2400 字符），超了就是"写进去也不生效"。
+   * 为什么必须给模型看：信息的注入预算是**写死的**（2400 字符），超了就是"写进去也不生效"。
    * 模型看不见这件事时，它每轮都会很合理地"再补一条"，于是卡越长、进提示词的越少
    * （P-056 的"越整理越长"）。**只在 `truncated === true` 时**才追加"只合并、不追加"的硬约束：
    * 预算充足时加这条，会把一次正常的补充变成一次没有必要的压抑（V4 的阴性对照盯着这点）。
@@ -96,15 +96,15 @@ export interface PromptContext {
 }
 
 /**
- * 提示词里人格卡的字符上限（超出就整节截断并注明）。
+ * 提示词里信息的字符上限（超出就整节截断并注明）。
  *
  * 取值理由：这是**后台**调用（一轮整理 1–2 次），不是每轮对话都带的注入，所以可以比注入预算宽松；
- * 但也不能没有上限 —— 一张失控的人格卡会把对话摘要挤到看不见。
+ * 但也不能没有上限 —— 一张失控的信息会把对话摘要挤到看不见。
  */
 const PERSONA_CARD_PROMPT_CAP = 3000
 
 /**
- * 渲染人格卡的当前内容（带上限，超了如实标注）。
+ * 渲染信息的当前内容（带上限，超了如实标注）。
  * @param card - 各小节标题与条目。
  * @returns 提示词行（空卡返回空数组）。
  */
@@ -116,7 +116,7 @@ function renderPersonaCard(card: readonly PersonaCardSection[]): string[] {
     if (items.length === 0) continue
     const line = `- ${section.title}：${items.map((item) => item.trim().slice(0, 120)).join('；')}`
     if (used + line.length > PERSONA_CARD_PROMPT_CAP) {
-      lines.push('（人格卡过长，其余小节未列出）')
+      lines.push('（信息过长，其余小节未列出）')
       break
     }
     used += line.length
@@ -233,7 +233,7 @@ export function buildSystemPrompt(context: PromptContext): string {
     '  drop=要并掉的条目（原样抄写，必须与该小节现有条目逐字一致）；reason=为什么它们是同一件事。',
     '  只合并**确实同义**的条目：互相包含但各是一条规矩的（例如"不跳过指定情节"与"不跳过指定情节、不代替用户做选择"）',
     '  不是重复，不要提交。这一项合并的是措辞完全不同的同义句（字符串相似度判不出来的那些）。',
-    '- personaFixed：对 AI 身份卡（固定层）的修改建议。仅当用户明确陈述或纠正了 AI 的姓名、性别、',
+    '- personaFixed：对 AI 底色的修改建议。仅当用户明确陈述或纠正了 AI 的姓名、性别、',
     '  人格偏好、主语言或其自定义字段时提交。fieldKey=字段名；fieldValue=建议值（短文本）；reason=对话依据。',
     '- insights：跨对话的联想、模式与反思，每条一句话。梦境模式给 3 到 8 条；其余模式没有就给空数组。',
     '- narrative：仅梦境模式输出——以 AI 第一人称把这段时间的经历复述成一段短叙事（不超过 800 字）；',
@@ -244,7 +244,7 @@ export function buildSystemPrompt(context: PromptContext): string {
     `当前小标题清单（personaSections.section 的合法取值）：${titles}`,
     ...(card.length === 0
       ? []
-      : ['', '当前人格卡内容（可变层；判断"已存在"与"同义重复"以此为准，引用时必须逐字一致）：', ...card]),
+      : ['', '当前信息内容（信息；判断"已存在"与"同义重复"以此为准，引用时必须逐字一致）：', ...card]),
     // 超预算才追加（A2）：放在**最末尾**，因为它是这一轮对模型最硬的一条约束。
     ...personaBudgetRule(context.personaBudget),
   ].join('\n')

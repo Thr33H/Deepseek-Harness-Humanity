@@ -64,7 +64,7 @@ test('组合补丁：插入插件行 + 替换 system-prompt 身份行（身份�
 
   // 身份层替换行：关掉第一方身份声明，persona 前缀置空；suffix（工作目录事实）保留。
   assert.equal(identityLayer.id, 'system-prompt')
-  assert.equal(identityLayer.config.includeHarnessIdentity, false, '第一方身份声明必须在配置层关掉（人格卡是唯一自我认知）')
+  assert.equal(identityLayer.config.includeHarnessIdentity, false, '第一方身份声明必须在配置层关掉（信息是唯一自我认知）')
   assert.equal(identityLayer.config.personaPrefix, '', '全局 persona 前缀置空（各 preset 的前缀由宿主身份层在 waterfall 摘除）')
   assert.match(identityLayer.config.personaSuffix, /cwd/, '工作目录是事实不是身份，必须保留')
 })

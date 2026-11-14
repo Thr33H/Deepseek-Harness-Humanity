@@ -1,5 +1,5 @@
 /**
- * 人格"热读"的测试（2026-09-23 真机反馈第 5 条：在工作台改了固定层，对话里读不到）。
+ * 人格"热读"的测试（2026-09-23 真机反馈第 5 条：在工作台改了底色，对话里读不到）。
  *
  * 这条反馈指向一个**读取路径**的问题，不是渲染问题：
  * - `renderPersonaPrompt` 本身会把 `identityCard.fields` 里**所有**非空字段（含 `custom: true`）都渲出来；
@@ -13,7 +13,7 @@
  * 这里钉两条：
  * 1. **读不能信注册时捕获的 sink**：sink 过时也必须读到命名空间的当前值（用假设置服务精确复现）；
  * 2. **端到端热更新**（真实 `SettingsFile` + 真实 `SystemPrompt`）：像工作台那样写一次，
- *    下一次 assemble 就带上新字段 —— 固定层与可变层一视同仁。
+ *    下一次 assemble 就带上新字段 —— 底色与信息一视同仁。
  */
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -228,7 +228,7 @@ test('Bug A（接线）：已就绪且确实未初始化时才注入引导语', 
   await ctx.fiber.dispose()
 })
 
-test('⭐ 端到端热更新：像工作台那样写一次固定层，下一次 assemble 就带上新字段', async () => {
+test('⭐ 端到端热更新：像工作台那样写一次底色，下一次 assemble 就带上新字段', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'humanity-hot-'))
   const ctx = new Context()
   try {
@@ -256,7 +256,7 @@ test('⭐ 端到端热更新：像工作台那样写一次固定层，下一次 
     assert.match(beforeAnyWrite, /humanity_persona_init/)
     assert.doesNotMatch(beforeAnyWrite, /人格底色/)
 
-    // ① 用户在工作台保存第一版（含固定层核心字段）—— 走的就是 `settings.replace` 这条路。
+    // ① 用户在工作台保存第一版（含底色核心字段）—— 走的就是 `settings.replace` 这条路。
     const first = personaWithCustomFields()
     await ctx.get('settings').replace(PERSONA_NAMESPACE, first)
     assert.match(await assembled(), /姓名：小安/)
@@ -269,9 +269,9 @@ test('⭐ 端到端热更新：像工作台那样写一次固定层，下一次 
     await ctx.get('settings').replace(PERSONA_NAMESPACE, second)
 
     const text = await assembled()
-    assert.match(text, /自定义字段A（自定义）：示例值A/, '固定层的新字段必须在**下一轮**就出现')
+    assert.match(text, /自定义字段A（自定义）：示例值A/, '底色的新字段必须在**下一轮**就出现')
     assert.match(text, /自定义字段B（自定义）：示例值B/)
-    assert.match(text, /对用户称呼：先生/, '可变层同一轮写入也要生效（两层一视同仁）')
+    assert.match(text, /对用户称呼：先生/, '信息同一轮写入也要生效（两层一视同仁）')
 
     disposeInjection()
   } finally {
@@ -280,7 +280,7 @@ test('⭐ 端到端热更新：像工作台那样写一次固定层，下一次 
   }
 })
 
-test('⭐ 固定层自定义字段确实被渲染（含顺序：核心三段式在前，自定义在后）', () => {
+test('⭐ 底色自定义字段确实被渲染（含顺序：核心三段式在前，自定义在后）', () => {
   const persona = personaWithCustomFields()
   persona.identityCard.fields.push({ key: '自定义字段A', value: '示例值A', custom: true })
   persona.identityCard.fields.push({ key: '归属地', value: '示例城市', custom: true })
@@ -293,7 +293,7 @@ test('⭐ 固定层自定义字段确实被渲染（含顺序：核心三段式�
   assert.ok(lines.includes('- 归属地（自定义）：示例城市'))
   assert.ok(
     lines.indexOf('- 姓名：小安') < lines.indexOf('- 自定义字段A（自定义）：示例值A'),
-    '自定义字段跟随在身份卡字段列表之后（顺序来自文档本身，渲染不重排）',
+    '自定义字段跟随在底色字段列表之后（顺序来自文档本身，渲染不重排）',
   )
 })
 

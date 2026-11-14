@@ -77,7 +77,7 @@ async function seedProposal(state, kind, title) {
 test('有待确认批次：注入简短提醒（数量与分类都在），水位随之落盘', async () => {
   const harness = await boot()
   try {
-    await seedProposal(harness.state, 'persona', '身份卡字段')
+    await seedProposal(harness.state, 'persona', '底色字段')
     await seedProposal(harness.state, 'route', '夜间路由')
 
     const text = await harness.turn(harness.main)

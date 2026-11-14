@@ -316,7 +316,7 @@ test('工作台能渲染：总览四项（无通道时如实说读不到）+ 页
   for (const label of ['姓名', '当前策略摘要', '最近行为', '消耗']) {
     assert.ok(markup.includes(label), `总览区缺少指标：${label}`)
   }
-  // 姓名来自人格卡：测试里没设过 ⇒ 如实说"还没设置"，不编一个名字。
+  // 姓名来自信息：测试里没设过 ⇒ 如实说"还没设置"，不编一个名字。
   assert.match(markup, /还没设置/, '没设姓名时不许编')
   // 其余三项来自宿主投影（控制器未接通道 ⇒ 如实说读不到）。
   assert.equal(markup.split('暂时读不到').length - 1, 3, '三项指标无通道时如实说读不到')
@@ -371,7 +371,7 @@ test('总览四项：接上投影后显示真实策略 / 最近活动 / 预算�
   assert.match(markup, /data-tooltip="[^"]*余额查不到/, '消耗行的「?」要交代余额为什么查不到')
 })
 
-test('人格页在通道就绪时渲染出可编辑的身份卡与可变层（M2 步 6）', async () => {
+test('人格页在通道就绪时渲染出可编辑的底色与信息（M2 步 6）', async () => {
   const document = emptyPersona()
   document.identityCard.fields[0].value = '小安'
   document.identityCard.initializedAt = '2026-09-23T00:00:00.000Z'
@@ -393,14 +393,14 @@ test('人格页在通道就绪时渲染出可编辑的身份卡与可变层（M2
   await settle()
   const markup = render(nodeRequire('react').createElement(mainComponent(registrations), { t: translate }))
 
-  // 固定层与可变层是**两张独立卡片**（用户 2026-09-23 最终布局），各自有标题。
-  assert.match(markup, /身份卡/)
-  assert.match(markup, /人格卡/)
+  // 底色与信息是**两张独立卡片**（用户 2026-09-23 最终布局），各自有标题。
+  assert.match(markup, /底色/)
+  assert.match(markup, /信息/)
   assert.match(markup, /已封存/)
-  // 身份卡的值来自宿主文档（只读渲染也算证明"读到了"）。0.1.13：内容是**一直可编辑的输入框**，
+  // 底色的值来自宿主文档（只读渲染也算证明"读到了"）。0.1.13：内容是**一直可编辑的输入框**，
   // 名称才是纯文字 —— 值出现在 `value="…"` 里。
   assert.match(markup, /value="小安"/, '默认态就把内容放在输入框里')
-  // 可变层按小标题铺开，内容在**默认可编辑**的多行框里。
+  // 信息按小标题铺开，内容在**默认可编辑**的多行框里。
   assert.match(markup, /先给结论，再给依据/)
   assert.match(markup, /保存/)
   // 没有改动时保存按钮必须是禁用的：不给出"点了却什么都不发生"的按钮。
@@ -412,17 +412,17 @@ test('人格页在通道就绪时渲染出可编辑的身份卡与可变层（M2
   assert.match(markup, /以事实与证据为准，不迎合、不编造/, '说明文字必须渲染出来')
   assert.match(markup, /已开启/, '必须有显式状态文字')
 
-  // 位置：开关在**身份卡卡片内部、字段之前**，并用一条横线与字段分隔（用户 2026-09-23 最终决定）。
+  // 位置：开关在**底色卡片内部、字段之前**，并用一条横线与字段分隔（用户 2026-09-23 最终决定）。
   const switchAt = markup.indexOf('🧠 独立判断模式')
-  assert.ok(markup.indexOf('身份卡') < switchAt, '开关属于身份卡卡片')
+  assert.ok(markup.indexOf('底色') < switchAt, '开关属于底色卡片')
   // 从开关的位置往后找"姓名"：总览区也有一项叫"姓名"，不能撞它。
   assert.ok(switchAt < markup.indexOf('姓名', switchAt), '开关排在字段之前')
-  assert.ok(switchAt < markup.indexOf('人格卡'), '开关不在人格卡（可变层）那张卡片里')
+  assert.ok(switchAt < markup.indexOf('你的信息'), '开关不在「你的信息」那张卡片里')
   // 同样只在这个座位之后找（总览区的「姓名」在它前面，会把锚点带偏）。
   const fieldAt = markup.indexOf('姓名', switchAt)
   const ruleAt = markup.indexOf('<hr', switchAt)
   assert.ok(ruleAt > switchAt && ruleAt < fieldAt, '开关与字段之间必须有横线分隔')
-  assert.equal(markup.includes('固定层 · 身份卡'), false, '旧的内层小标题已删（标题即卡片标题）')
+  assert.equal(markup.includes('底色 · 底色'), false, '旧的内层小标题已删（标题即卡片标题）')
 })
 
 test('崩溃防线：属性兜底、控制器缺失、文档缺数组 —— 三种情形都不抛', async () => {
@@ -491,7 +491,7 @@ test('顶层配置命名空间在宿主与浏览器两侧必须一致（独立�
   assert.equal(client.HUMANITY_NAMESPACE, SETTINGS_NAMESPACE, '写错命名空间等于开关点了没反应')
 })
 
-test('人格卡：注入账目就写在卡上（装得下报条数，装不下如实警告到小节）', async () => {
+test('信息：注入账目就写在卡上（装得下报条数，装不下如实警告到小节）', async () => {
   /** 起一个装好插件的工作台，返回渲染结果。 */
   const renderWith = async (document) => {
     const descriptor = await loadBundle()
@@ -573,7 +573,7 @@ async function renderPersona(client, controller) {
   return render(nodeRequire('react').createElement(seat, { t: (key) => key }))
 }
 
-/** 数一数标记里的**文本输入控件**（复选框不算：身份卡顶部那个独立判断开关是 checkbox，不是输入框）。 */
+/** 数一数标记里的**文本输入控件**（复选框不算：底色顶部那个独立判断开关是 checkbox，不是输入框）。 */
 const textInputCount = (markup) => (markup.split('<input').length - 1) - (markup.split('type="checkbox"').length - 1)
 
 /** 找一个标记片段的**位置**；找不到直接断言失败（免得 indexOf 的 -1 让顺序断言静默通过）。 */
@@ -730,7 +730,7 @@ test('V14 正面：同一项的「改名」「删除」在**同一行**（动作
   }
 })
 
-test('V15 正面：身份卡的输入框**会被拉满整列**（长值可读，不再只剩前半）', async () => {
+test('V15 正面：底色的输入框**会被拉满整列**（长值可读，不再只剩前半）', async () => {
   // 夹具用长值形态：姓名「本名：「示例」；别名…」与人格偏好那句（要测的是长度与可读性）。
   const document = uiPersona()
   document.identityCard.fields[0].value = '本名：「示例」；别名：「例子」或「例」'
@@ -742,7 +742,7 @@ test('V15 正面：身份卡的输入框**会被拉满整列**（长值可读，
   assert.match(markup, /value="本名：「示例」；别名：「例子」或「例」"/, '姓名长值完整在 value 里')
   assert.match(markup, /value="示例偏好项；示例标注！"/, '人格偏好长值完整在 value 里')
 
-  // ② 控件会被拉满：身份卡值 / 用户定义值都走 `editorCell`，人格卡多行框自带 width:100%。
+  // ② 控件会被拉满：底色值 / 用户定义值都走 `editorCell`，信息多行框自带 width:100%。
   for (const id of ['identity:0', 'identity:2', 'identity:4', 'section:决定权', 'section:经验教训']) {
     assert.equal(contentStretchesControl(markup, id), true, `${id} 的控件应当被包装层拉满整列`)
   }
@@ -915,7 +915,7 @@ test('V18 正面：内容栏弹性吃满且下限 240px；控件确实落在这�
   const { client, controller } = await bootUiPersona()
   const markup = await renderPersona(client, controller)
 
-  // ① 两道栅格（身份卡 / 人格卡）都必须满足"弹性 + 下限"。
+  // ① 两道栅格（底色 / 信息）都必须满足"弹性 + 下限"。
   //    （0.1.14：「用户定义」列表随区块下线，不再渲染，因此不再有第三道。）
   for (const kind of ['identity', 'section']) {
     const tracks = tracksOf(markup, kind)
@@ -981,7 +981,7 @@ test('V5 阴性对照：名称区**不**是可编辑控件，内容区才是 —
   const { client, controller } = await bootUiPersona()
   const markup = await renderPersona(client, controller)
 
-  // 身份卡第一项：名称「姓名」是纯文字（`<span>`），内容「小安」在 `<input value>` 里。
+  // 底色第一项：名称「姓名」是纯文字（`<span>`），内容「小安」在 `<input value>` 里。
   const name = nameRegion(markup, 'identity:0')
   assert.match(name, />姓名</, '名称以一串纯文字出现')
   assert.equal(name.includes('data-persona-editor'), false, '名称区没有编辑控件')
@@ -1066,7 +1066,7 @@ test('V6 添加走底部入口：默认只有一个按钮，点开才出现输�
   const closed = await renderPersona(client, controller)
   assert.equal(closed.includes('data-persona-add="'), false, '默认态没有展开的输入区')
   assert.match(closed, /data-persona-action="add-open"/, '底部要有添加入口')
-  // 两个入口：身份卡加字段 / 人格卡加小节（0.1.14：「用户定义」加一条已随区块下线）。
+  // 两个入口：底色加字段 / 信息加小节（0.1.14：「用户定义」加一条已随区块下线）。
   assert.equal(closed.split('data-persona-action="add-open"').length - 1, 2)
 
   controller.openAdd('identity')
@@ -1147,7 +1147,7 @@ test('V10 界面：自定义项有「改名」入口，点了名称那一格才�
   const { client, controller } = await bootUiPersona()
   const closed = await renderPersona(client, controller)
 
-  // 两个自定义项各一个入口：自定义身份卡字段 / 非原生小节（含原来的「经验教训」）。
+  // 两个自定义项各一个入口：自定义底色字段 / 非原生小节（含原来的「经验教训」）。
   for (const id of ['identity:4', 'section:决定权', 'section:经验教训']) {
     assert.equal(hasAction(closed, 'rename', id), true, `${id} 应当有「改名」入口`)
   }
@@ -1166,7 +1166,7 @@ test('V11 反面：**锁定的 8 项**都没有「改名」入口（名字是插
   const { client, controller } = await bootUiPersona()
   const markup = await renderPersona(client, controller)
 
-  // 0.1.14：只有锁定的 8 项（身份卡 4 + 原生小节 4）没有改名入口；
+  // 0.1.14：只有锁定的 8 项（底色 4 + 原生小节 4）没有改名入口；
   // 非原生小节（`STANDARD_UNLOCKED_IDS`，即原来的「经验教训」）**有**入口 —— 见上面 V10。
   for (const id of LOCKED_IDS) {
     assert.equal(hasAction(markup, 'rename', id), false, `${id} 不该有「改名」入口`)
@@ -1211,7 +1211,7 @@ test('V12 不破新口径：默认态名称区仍无输入框；改名态只动�
   // ③ 内容区仍可编辑（改的是名字，不是内容）。
   assert.match(contentRegion(during, 'section:经验教训'), /[^>]*><textarea/, '小节内容区照旧是多行框')
   assert.match(contentRegion(during, 'section:决定权'), /[^>]*><textarea/, '小节内容区照旧是多行框')
-  assert.match(contentRegion(during, 'identity:0'), /[^>]*><input/, '身份卡字段内容区照旧是单行框')
+  assert.match(contentRegion(during, 'identity:0'), /[^>]*><input/, '底色字段内容区照旧是单行框')
 })
 
 test('V13 界面：空名 / 没改动 / 重名 / 撞标准名都有明确提示，且确定键禁用', async () => {
@@ -1238,7 +1238,7 @@ test('V13 界面：空名 / 没改动 / 重名 / 撞标准名都有明确提示�
   assert.equal(await issueOf(), 'empty', '空名（连空格也算空）')
   assert.equal(await confirmDisabled(), true)
 
-  // 0.1.14：保留名只剩"锁定的 8 项"（4 个固定层字段名 + 4 个原生小节标题）。
+  // 0.1.14：保留名只剩"锁定的 8 项"（4 个底色字段名 + 4 个原生小节标题）。
   // 原来的「经验教训」不再是保留名 —— 改成它是**合法**的（只要不撞已有项），见下一条用例。
   controller.setRenameName('对用户称呼')
   assert.equal(await issueOf(), 'reserved', '撞原生锁定小节名 ⇒ 保留名，不给自定义项用')

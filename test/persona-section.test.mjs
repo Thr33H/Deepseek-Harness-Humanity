@@ -87,7 +87,7 @@ test('⭐ 旧数据缺核心字段（如新增的「主语言」）不会让命�
   const dir = await mkdtemp(path.join(tmpdir(), 'humanity-legacy-'))
   const ctx = new Context()
   try {
-    // 造一份与真机同形的旧数据：三字段身份卡 + 旧小节名「当前状态」，**直接写进设置文件** ——
+    // 造一份与真机同形的旧数据：三字段底色 + 旧小节名「当前状态」，**直接写进设置文件** ——
     // 这样它就是在"注册那一刻"被校验的那一份（复现真实事故的时序）。
     const legacy = filled()
     legacy.identityCard.fields = legacy.identityCard.fields.filter((field) => field.key !== '主语言')
@@ -137,7 +137,7 @@ test('核心字段缺失规则本身仍在：不经规范化的调用方仍会�
   )
 })
 
-test('Agent 改固定层被拒，且拒绝是结构化的（P-011）', async () => {
+test('Agent 改底色被拒，且拒绝是结构化的（P-011）', async () => {
   const harness = await boot()
   try {
     await harness.persona.write(filled(), 'user')

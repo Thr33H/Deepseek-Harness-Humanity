@@ -18,7 +18,7 @@ export interface FitSection {
   items: readonly string[]
 }
 
-/** 拟合输入：头部原子行（标题 / 固定层）、小节、尾部原子行（用户定义）。 */
+/** 拟合输入：头部原子行（标题 / 底色）、小节、尾部原子行（用户定义）。 */
 export interface FitInput {
   head: readonly string[]
   sections: readonly FitSection[]
@@ -47,7 +47,7 @@ export interface FitStats {
   budget: number
   /** 实际用掉多少字符。 */
   used: number
-  /** 进提示词的条目数（不含固定层字段）。 */
+  /** 进提示词的条目数（不含底色字段）。 */
   injected: number
   /** 没进提示词的条目数。 */
   dropped: number
@@ -136,7 +136,7 @@ function fillSections(sections: readonly FitSection[], cursor: FitCursor, limit:
 /**
  * 把内容拟进预算。
  *
- * 顺序即优先级：头部原子行（谁、什么底色）→ 可变层小节 → 尾部原子行（兜底条目）。
+ * 顺序即优先级：头部原子行（谁、什么底色）→ 信息小节 → 尾部原子行（兜底条目）。
  * `taken === 0` 的小节整节省略，但它在账目里如实记为 dropped（不会静默消失）。
  * @param input - 头部行、小节与尾部行。
  * @param budget - 可用字符数。
@@ -150,7 +150,7 @@ export function fitPersonaContent(input: FitInput, budget: number): FitResult {
     if (!pushAtomic(cursor, line, limit)) break
   }
 
-  // 尾部（用户定义）先占位：它是用户亲手写的兜底内容，不该被可变层挤掉。
+  // 尾部（用户定义）先占位：它是用户亲手写的兜底内容，不该被信息挤掉。
   const tailCost = costOf(input.tail)
   const reservedTail = cursor.used + tailCost <= limit ? tailCost : 0
   if (reservedTail === 0 && input.tail.length > 0) cursor.truncated = true

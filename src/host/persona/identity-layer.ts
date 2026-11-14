@@ -1,9 +1,9 @@
 /**
- * 身份层：把第一方身份前缀从装配结果里摘掉，让人格卡成为唯一自我认知。
+ * 身份层：把第一方身份前缀从装配结果里摘掉，让信息成为唯一自我认知。
  *
  * 为什么（2026-09-25 真机取证 + 用户视频反馈）：系统提示词开头同时出现
  * "You are an AI agent powered by DeepSeek Harness." / "You are a coding agent powered by …"
- * 与人格卡——两个互相矛盾的身份声明并存时，模型调和矛盾的唯一方式是把人格卡降格成
+ * 与信息——两个互相矛盾的身份声明并存时，模型调和矛盾的唯一方式是把信息降格成
  * 「我（agent）在扮演的角色」。修分两层：
  * - 全局 `harness:identity` 与全局 persona 前缀在**配置层**关掉（见 `cordis.patch.yml` 的 system-prompt 行）；
  * - 各 preset 的 persona 前缀（`deployment:persona-prefix`）注册在 **agent 作用域**，配置够不着，
@@ -28,7 +28,7 @@ import { createMainAgentJudge, subjectOf } from '../agent-scope.js'
  *
  * 名字本身是公开契约，出处在编译产物里逐字可查：
  * `dsh-system-prompt/lib/types/index.d.ts:157` ⇒ `export declare const PERSONA_PREFIX_SECTION = "deployment:persona-prefix"`。
- * 万一将来改名，最坏结果是"前缀没被摘掉"（人格卡照常注入，只是多一句第一方身份声明），不会崩。
+ * 万一将来改名，最坏结果是"前缀没被摘掉"（信息照常注入，只是多一句第一方身份声明），不会崩。
  */
 const PERSONA_PREFIX_SECTION = 'deployment:persona-prefix'
 

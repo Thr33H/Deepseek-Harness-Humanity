@@ -2,7 +2,7 @@
  * 人格校验与规范化的测试。
  *
  * 这里钉的是**判定边界**，尤其是两条最容易写错的：
- * 1. 同一个改法，"用户"与"Agent"的结论必须不同——用户在工作台里改固定层是权威输入，
+ * 1. 同一个改法，"用户"与"Agent"的结论必须不同——用户在工作台里改底色是权威输入，
  *    Agent 改则触发封存拒绝（P-013/P-023）；
  * 2. 低风险（去空白、去重）自动做，高风险（删核心字段、整节删除）一律拒绝，
  *    长文本只警告不拒绝（P-010/P-015）。
@@ -99,7 +99,7 @@ test('超长值只警告、不阻断保存', () => {
   assert.equal(validation.issues[0].severity, 'warning')
 })
 
-test('用户改固定层是允许的（只有用户能改）', () => {
+test('用户改底色是允许的（只有用户能改）', () => {
   const next = filledPersona()
   next.identityCard.fields[2].value = '沉稳、克制'
 
@@ -109,7 +109,7 @@ test('用户改固定层是允许的（只有用户能改）', () => {
   assert.deepEqual(validation.issues, [])
 })
 
-test('Agent 改固定层被拒绝（封存）', () => {
+test('Agent 改底色被拒绝（封存）', () => {
   const next = filledPersona()
   next.identityCard.fields[2].value = 'Agent 自己想改的'
 
@@ -138,8 +138,8 @@ test('Agent 把有内容的小标题整节删掉会被拒绝', () => {
 })
 
 test('默认 8 项：锁定小节整节删除被拒绝（用户与 Agent 两侧都拒）', () => {
-  // 用户 2026-10-09：默认 8 项（固定层 4 项 + 人格卡前 4 个小节）不可删。
-  // 固定层那一半由 `identity.core-missing` 管，可变层这一半由 `mutable.section-locked-missing` 管。
+  // 用户 2026-10-09：默认 8 项（底色 4 项 + 信息前 4 个小节）不可删。
+  // 底色那一半由 `identity.core-missing` 管，信息这一半由 `mutable.section-locked-missing` 管。
   const prev = filledPersona()
   for (const title of ['对用户称呼', '说话风格', '交付格式', '行为边界']) {
     const next = filledPersona()
@@ -278,7 +278,7 @@ test('首次初始化没有 prev 时不触发封存判定（Agent 要能写第�
 test('prev 是"没人写过的默认文档"时，Agent 也能写第一次（`section.write()` 的 prev 永远有值）', () => {
   // 这条钉的是一个真实缺陷：`PersonaSection.write()` 里的 prev 是**当前生效文档**，
   // 未初始化时那份中性默认文档也算一份。只看 `prev !== undefined`，聊天初始化就永远走不通。
-  // 这里的样子与聊天初始化一致：只写身份卡，可变层原样不动。
+  // 这里的样子与聊天初始化一致：只写底色，信息原样不动。
   const next = createDefaultPersona()
   next.identityCard.fields[0].value = '小安'
   next.identityCard.fields[1].value = '女'
@@ -327,7 +327,7 @@ test('ok 为假当且仅当存在 rejected 级问题', () => {
 /* ---------------------------------------------------------------------------
  * 2026-09-23 真机反馈的四个数据校验/语义缺陷（逐条钉住）
  * ① userDefined 同名键被静默丢弃 → 必须拒绝
- * ② 固定层字段名混进可变层 → 必须拒绝（不是警告）
+ * ② 底色字段名混进信息 → 必须拒绝（不是警告）
  * ④ 控制字符原样落盘 → 写之前剥掉
  * ⑤ "漏传一节" 与 "传空数组" 语义混淆 → 漏传=不动，只有显式 [] 才走删内容确认
  * Bug B（同日追加）：非标准节 + items: [] 曾经变成删不掉的僵尸空壳 → 现在等于删除该节
@@ -462,7 +462,7 @@ test('① 规范化不再对「用户定义」按键去重 —— 数据必须�
   assert.equal(normalized.mutableLayer.userDefined.length, 2, '静默去重就是静默丢数据')
 })
 
-test('① 身份卡字段同样不再被静默去重：重复字段名报 identity.key-duplicate', () => {
+test('① 底色字段同样不再被静默去重：重复字段名报 identity.key-duplicate', () => {
   const next = filledPersona()
   next.identityCard.fields.push({ key: '姓名', value: '另一个名字', custom: true })
 
@@ -474,8 +474,8 @@ test('① 身份卡字段同样不再被静默去重：重复字段名报 identi
   assert.ok(codesOf(validation).includes('identity.key-duplicate'))
 })
 
-// ② —— 固定层是"只有用户能改、对 Agent 封存"的那一层；冒牌同名条目会绕过封存。
-test('② 固定层字段名作为可变层小标题必须被拒绝（不是警告）', () => {
+// ② —— 底色是"只有用户能改、对 Agent 封存"的那一层；冒牌同名条目会绕过封存。
+test('② 底色字段名作为信息小标题必须被拒绝（不是警告）', () => {
   const next = filledPersona()
   next.mutableLayer.sections.push({ title: CORE_IDENTITY_KEYS[0], items: ['冒牌姓名'] })
 
@@ -489,7 +489,7 @@ test('② 固定层字段名作为可变层小标题必须被拒绝（不是警�
   )
 })
 
-test('② 固定层字段名作为「用户定义」的键同样被拒绝', () => {
+test('② 底色字段名作为「用户定义」的键同样被拒绝', () => {
   const next = filledPersona()
   next.mutableLayer.userDefined = [{ key: CORE_IDENTITY_KEYS[2], value: '天真烂漫' }]
 
@@ -609,7 +609,7 @@ test('⑤ 空节被清空不报 section-cleared（没有内容可删）', () => 
 })
 
 /* ---------------------------------------------------------------------------
- * 2026-09-23 数据模型调整：①「当前状态」→「情绪」；② 固定层加「主语言」
+ * 2026-09-23 数据模型调整：①「当前状态」→「情绪」；② 底色加「主语言」
  * ------------------------------------------------------------------------- */
 
 test('迁移：「当前状态」节自动改名为「情绪」，内容一字不丢，且可反复执行', () => {
@@ -671,12 +671,12 @@ test('主语言：默认文档里就有这个字段（schema 默认值跟着 COR
   assert.equal(persona.identityCard.fields.at(-1).custom, false, '它是核心字段，不是自定义字段')
 })
 
-test('反向查重：固定层新增字段与可变层小标题撞名被拒；存量同名字段祖父化放行（round 48）', () => {
+test('反向查重：底色新增字段与信息小标题撞名被拒；存量同名字段祖父化放行（round 48）', () => {
   const persona = createDefaultPersona()
   persona.identityCard.fields.push({ key: '对用户称呼', value: '公主', custom: true })
 
   const validation = validatePersona(normalizePersona(persona), createDefaultPersona(), 'user')
-  assert.equal(validation.ok, false, '撞名必须在源头被拒，而不是留给每次可变层写入去报')
+  assert.equal(validation.ok, false, '撞名必须在源头被拒，而不是留给每次信息写入去报')
   assert.ok(codesOf(validation).includes('identity.shadows-mutable'))
 
   // 祖父化：prev 里已存在同名字段 ⇒ 不拦后续保存（否则旧撞名文档会卡死一切修改）。

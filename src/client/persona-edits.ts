@@ -5,8 +5,8 @@
  * 这些函数是**纯的**（改传入的草稿、返回 void，不碰状态与网络），因此可以被单独读懂、单独测；
  * 混在控制器里时，每个 setter 都要先理解 subscribe/update 的一套生命周期才看得清在做什么。
  *
- * 0.1.13 起"删一项"是**整项删除**（用户明确否掉条目级删除）：身份卡删一个字段、人格卡删一个小节。
- * 锁定的 8 项（固定层 4 项 + {@link LOCKED_SECTION_TITLES} 4 个原生小节）在客户端就没有删除动作，
+ * 0.1.13 起"删一项"是**整项删除**（用户明确否掉条目级删除）：底色删一个字段、信息删一个小节。
+ * 锁定的 8 项（底色 4 项 + {@link LOCKED_SECTION_TITLES} 4 个原生小节）在客户端就没有删除动作，
  * ⚠️ 0.1.14：兜底层「用户定义」退出界面（用户："用户自定义可以删了，它跟添加小节重复了"），
  * 因此这里不再有它的增删改；**数据仍在文档里**（`mutableLayer.userDefined`），只是没人再动它。
  * 宿主校验还会独立拦一次（见 `validate-mutable.ts` 的 `checkLockedSections`）。
@@ -17,7 +17,7 @@ import { isUntouchedIdentityCard } from '../host/persona/predicates.js'
 import type { PersonaDocument } from '../host/persona/types.js'
 import { addFormReady, canDeleteItem, parseItemId, renameIssue, type PersonaAddForm } from './persona-document.js'
 
-/** 改一个身份卡字段的值。 */
+/** 改一个底色字段的值。 */
 export function setIdentityValue(draft: PersonaDocument, index: number, value: string): void {
   const field = draft.identityCard.fields[index]
   if (field !== undefined) field.value = value
@@ -45,7 +45,7 @@ export function removeIdentityField(draft: PersonaDocument, index: number): void
 }
 
 /**
- * **整项删除**一个人格卡小节（0.1.13）。
+ * **整项删除**一个信息小节（0.1.13）。
  *
  * 锁定小节（对用户称呼 / 说话风格 / 交付格式 / 行为边界）在这里就不动：客户端不提供这个动作，
  * 宿主校验也会拒绝缺锁定小节的文档（V3 的两面）。非锁定小节直接从小节数组里摘掉 ——
@@ -108,7 +108,7 @@ export function renameItem(draft: PersonaDocument, itemId: string, nextName: str
 /**
  * 把底部的「添加」表单落进草稿（0.1.13 的添加入口）。
  *
- * 两种形态共用一套表单：身份卡加字段、人格卡加小节（名字撞上已有小节就往那一节追加一条）。
+ * 两种形态共用一套表单：底色加字段、信息加小节（名字撞上已有小节就往那一节追加一条）。
  * **名字与内容都非空**才落得下去（空输入由界面把保存按钮禁用，
  * 这里再守一道，保证"点了没反应"与"按钮是灰的"说的是同一件事）。
  * @param draft - 当前草稿。
@@ -140,7 +140,7 @@ export function setSectionText(draft: PersonaDocument, title: string, text: stri
  * 为什么必须做：P-002 要求"是否首次唤醒"由**独立标记**判断，而工作台是三条初始化路径之一。
  * 用户在卡片里填完内容却不落标记，等于这条路没有留下任何痕迹 —— 聊天侧的
  * `humanity_persona_init` 只能靠"内容非空"间接推断，P-002 的标记就永远停在空串。
- * 落标记之后封存语义才完整：固定层对 Agent 封存，但用户仍可在此修改（P-013）。
+ * 落标记之后封存语义才完整：底色对 Agent 封存，但用户仍可在此修改（P-013）。
  * @param draft - 已规范化的草稿。
  * @param stored - 当前生效文档（判断"是否还没人写过"）。
  * @returns 需要落标记时返回带标记的副本，否则原样返回。
@@ -152,7 +152,7 @@ export function stampInitialization(draft: PersonaDocument, stored: PersonaDocum
 }
 
 /**
- * 手动封存固定层（工作台「封存」按钮）。
+ * 手动封存底色（工作台「封存」按钮）。
  *
  * 为什么需要它（2026-09-26 真机暴露的缺口）：封存原本**只有**一条路径 —— 首次保存时由
  * {@link stampInitialization} 自动落下。于是两种卡会卡死：① 初始化标记已存在、封存标记为空

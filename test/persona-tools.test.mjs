@@ -92,7 +92,7 @@ function itemsOf(persona, title) {
   return persona.mutableLayer.sections.find((section) => section.title === title)?.items
 }
 
-/** 一份完整的可变层快照（4 个原生小节都在）+ 显式点名的自定义小节。 */
+/** 一份完整的信息快照（4 个原生小节都在）+ 显式点名的自定义小节。 */
 function mutableSnapshot(overrides = {}) {
   const native = STANDARD_SECTION_TITLES.map((title) => ({
     title,
@@ -124,7 +124,7 @@ test('两个工具都注册进了真实工具表，且参数契约对模型可�
 
     assert.ok(init, 'humanity_persona_init 没有注册')
     assert.ok(update, 'humanity_persona_update 没有注册')
-    // 参数 schema 是模型可见的部分，必须真的带上身份卡字段定义。
+    // 参数 schema 是模型可见的部分，必须真的带上底色字段定义。
     assert.ok(JSON.stringify(init.parameters).includes('人格偏好'))
     assert.ok(JSON.stringify(update.parameters).includes('用户定义'))
   } finally {
@@ -132,7 +132,7 @@ test('两个工具都注册进了真实工具表，且参数契约对模型可�
   }
 })
 
-test('聊天初始化：写入固定层、升起 initializedAt/sealedAt，并把封存说明给到模型', async () => {
+test('聊天初始化：写入底色、升起 initializedAt/sealedAt，并把封存说明给到模型', async () => {
   const harness = await boot()
   try {
     const result = await harness.call(PERSONA_INIT_TOOL, initArgs)
@@ -197,7 +197,7 @@ test('未初始化时 update 被拒，提示先走聊天初始化', async () => 
   }
 })
 
-test('update 只改可变层：固定层原样保留，快照会被补齐标准小标题', async () => {
+test('update 只改信息：底色原样保留，快照会被补齐标准小标题', async () => {
   const harness = await boot()
   try {
     await harness.call(PERSONA_INIT_TOOL, initArgs)
@@ -216,7 +216,7 @@ test('update 只改可变层：固定层原样保留，快照会被补齐标准�
     assert.deepEqual(doc.mutableLayer.userDefined, [{ key: '时区', value: 'CST' }])
 
     const text = harness.textOf(result)
-    assert.match(text, /固定层保持不变/)
+    assert.match(text, /底色保持不变/)
   } finally {
     await harness.dispose()
   }
@@ -324,7 +324,7 @@ test('① 「用户定义」同名键被拒，且一个字都没写进去（不�
   }
 })
 
-test('② 固定层字段名当小标题 / 当「用户定义」的键都会被工具拒绝', async () => {
+test('② 底色字段名当小标题 / 当「用户定义」的键都会被工具拒绝', async () => {
   const harness = await boot()
   try {
     await harness.call(PERSONA_INIT_TOOL, initArgs)
@@ -343,7 +343,7 @@ test('② 固定层字段名当小标题 / 当「用户定义」的键都会被�
     assert.equal(shadowKey.value.ok, false)
     assert.ok(shadowKey.value.issues.some((issue) => issue.code === 'mutable.core-key-shadowed'))
 
-    // 固定层本身没被这些失败尝试动过。
+    // 底色本身没被这些失败尝试动过。
     assert.equal(harness.persona.read().identityCard.fields[0].value, '小安')
   } finally {
     await harness.dispose()
@@ -731,7 +731,7 @@ test('⑤ 清空一个本来就没内容的节不需要确认，直接成功（�
   }
 })
 
-test('夹带固定层字段的 update 被 guard 拦下（不依赖参数 schema 是否写了它）', async () => {
+test('夹带底色字段的 update 被 guard 拦下（不依赖参数 schema 是否写了它）', async () => {
   const harness = await boot()
   try {
     await harness.call(PERSONA_INIT_TOOL, initArgs)
@@ -801,7 +801,7 @@ test('开关关掉后工具从模型可见集合里消失，再打开能恢复�
   }
 })
 
-test('固定层封存后，设置文档里也确实带着封存标记（写的是真存储）', async () => {
+test('底色封存后，设置文档里也确实带着封存标记（写的是真存储）', async () => {
   const harness = await boot()
   try {
     await harness.call(PERSONA_INIT_TOOL, initArgs)

@@ -1,9 +1,9 @@
 /**
- * 人格卡**整合**的测试（2026-09-26 新增，P-056 的回归钉）。
+ * 信息**整合**的测试（2026-09-26 新增，P-056 的回归钉）。
  *
  * 缘起：用户「自进化系统应该也要有整合这些的能力，而不是靠用户发现，然后用户调整」。
- * 真机背景：可变层是**追加式**写回（只跳过逐字相同的），模型每次换个说法就多一条 ——
- * 某实例的「对用户称呼」攒到 7 条、其中 5 条同义，把人格卡顶到注入预算上限。
+ * 真机背景：信息是**追加式**写回（只跳过逐字相同的），模型每次换个说法就多一条 ——
+ * 某实例的「对用户称呼」攒到 7 条、其中 5 条同义，把信息顶到注入预算上限。
  *
  * 这个文件钉四件事：
  * 1. **该并的并**：措辞几乎相同的（真机 Dice 0.87–1.00）并成一条，留信息量更大的那条；
@@ -234,16 +234,16 @@ test('整合失败绝不冒泡：写入被拒只记一条警告（不许影响�
   assert.equal(warned.length, 1, '如实记一条警告')
 })
 
-test('提示词必须把人格卡原文交给模型（否则它没法逐字指出要并掉哪几条）', async () => {
+test('提示词必须把信息原文交给模型（否则它没法逐字指出要并掉哪几条）', async () => {
   const { buildSystemPrompt } = await import('../lib/evolution/prompt.js')
   const card = [{ title: '对用户称呼', items: ['「主人」', '在该角色扮演设定中，以「主人」称呼用户'] }]
 
   const withCard = buildSystemPrompt({ mode: 'incremental', workspaceLabel: 'TEST', sectionTitles: ['对用户称呼'], personaCard: card })
-  assert.match(withCard, /当前人格卡内容/, '要有一段"当前内容"')
+  assert.match(withCard, /当前信息内容/, '要有一段"当前内容"')
   assert.match(withCard, /在该角色扮演设定中，以「主人」称呼用户/, '条目要逐字给出来')
   assert.match(withCard, /sectionConsolidations/, '要有整合字段的规则')
   assert.match(withCard, /逐字一致/, '要说明引用必须逐字一致（否则写不进去）')
 
   const withoutCard = buildSystemPrompt({ mode: 'incremental', workspaceLabel: 'TEST', sectionTitles: [] })
-  assert.doesNotMatch(withoutCard, /当前人格卡内容/, '没有卡就不该出现这一段')
+  assert.doesNotMatch(withoutCard, /当前信息内容/, '没有卡就不该出现这一段')
 })

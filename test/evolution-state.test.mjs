@@ -49,8 +49,8 @@ test(`运行记录：超过 ${MAX_RUN_RECORDS} 条裁掉最旧`, async () => {
 
 test('提案：按状态过滤、分类计数只算 pending', async () => {
   const { state } = fakeEvolutionState()
-  const persona = proposal('persona', '固定层补自定义字段A', { createdAt: '2026-09-02T00:00:00.000Z' })
-  const second = proposal('persona', '可变层补说话风格', { createdAt: '2026-09-03T00:00:00.000Z' })
+  const persona = proposal('persona', '底色补自定义字段A', { createdAt: '2026-09-02T00:00:00.000Z' })
+  const second = proposal('persona', '信息补说话风格', { createdAt: '2026-09-03T00:00:00.000Z' })
   const route = proposal('route', '夜间便宜模型', { createdAt: '2026-09-01T00:00:00.000Z' })
   await state.putProposal(persona)
   await state.putProposal(second)
@@ -59,7 +59,7 @@ test('提案：按状态过滤、分类计数只算 pending', async () => {
   assert.equal(state.listProposals().length, 3)
   assert.deepEqual(
     state.listProposals('pending').map((record) => record.title),
-    ['可变层补说话风格', '固定层补自定义字段A'],
+    ['信息补说话风格', '底色补自定义字段A'],
   )
   assert.deepEqual(state.countPending(), { persona: 2, route: 0, total: 2 })
 })

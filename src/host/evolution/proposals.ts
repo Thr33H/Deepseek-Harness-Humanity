@@ -3,7 +3,7 @@
  *
  * ### 权限语义（这一节决定封存是否成立）
  * - **approve 只能由工作台命令触发**（用户真源）：人格写入用 `source: 'user'`——
- *   用户点了批准，就是用户的决定（P-023：固定层只有用户能改）。**没有**任何 Agent 工具
+ *   用户点了批准，就是用户的决定（P-023：底色只有用户能改）。**没有**任何 Agent 工具
  *   能走到这里，所以"模型自己批准自己的提案"在结构上不可能发生。
  * - reject/delete 只动提案表，不触碰人格/记忆。
  * - 应用失败（校验拒绝、服务缺席）：提案**保持 pending**，原因原样进通知——
@@ -46,7 +46,7 @@ function parsePayload(proposal: ProposalRecord): Record<string, unknown> | undef
   }
 }
 
-/** 应用固定层字段提案：改现有字段或追加自定义字段，以 user 身份整份写回。 */
+/** 应用底色字段提案：改现有字段或追加自定义字段，以 user 身份整份写回。 */
 async function applyIdentityProposal(persona: PersonaSection, payload: Record<string, unknown>): Promise<void> {
   const fieldKey = payload.fieldKey
   const fieldValue = payload.fieldValue
@@ -62,12 +62,12 @@ async function applyIdentityProposal(persona: PersonaSection, payload: Record<st
   await persona.write(next, 'user')
 }
 
-/** 应用可变层提案：把存档的小节更新重新合并进当前文档（文档可能已经变了，合并而不是覆盖）。 */
+/** 应用信息提案：把存档的小节更新重新合并进当前文档（文档可能已经变了，合并而不是覆盖）。 */
 async function applyMutableProposal(persona: PersonaSection, payload: Record<string, unknown>): Promise<void> {
   const sections = payload.sections
   if (!Array.isArray(sections)) throw new Error('提案数据缺少小节更新')
   // 提案里可能**只带整合建议**（把几条同义条目并成一条）：那就没有 sections 可加。
-  // 漏掉这一项时，用户点了「批准」、提案被标成 applied，人格卡却一个字没变（2026-09-26 审计）。
+  // 漏掉这一项时，用户点了「批准」、提案被标成 applied，信息却一个字没变（2026-09-26 审计）。
   const consolidations = Array.isArray(payload.consolidations) ? payload.consolidations : []
   const current = persona.read()
   const { next, added, merged } = mergePersonaSections(
@@ -79,7 +79,7 @@ async function applyMutableProposal(persona: PersonaSection, payload: Record<str
   await persona.write(next, 'user')
 }
 
-/** 应用一条人格提案（固定层或可变层，按 payload.type 分流）。 */
+/** 应用一条人格提案（底色或信息，按 payload.type 分流）。 */
 async function applyPersonaProposal(deps: ProposalActionDeps, proposal: ProposalRecord): Promise<string> {
   const persona = deps.persona()
   if (persona === undefined) return '人格模块当前不可用（已关闭或未就绪），提案保持待确认。'

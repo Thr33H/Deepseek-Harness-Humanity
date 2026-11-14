@@ -57,8 +57,8 @@ function sampleDoc(overrides = {}) {
       },
     ],
     proposals: [
-      { id: 'p1', kind: 'persona', title: '身份卡字段：归属地 → 示例城市', reason: '用户明确说过', diff: '', status: 'pending', createdAt: '2026-09-25T03:01:00.000Z', decidedAt: '' },
-      { id: 'p2', kind: 'persona', title: '可变层：补说话风格', reason: '重复出现', diff: '', status: 'applied', createdAt: '2026-09-24T03:01:00.000Z', decidedAt: '2026-09-24T09:00:00.000Z' },
+      { id: 'p1', kind: 'persona', title: '底色字段：归属地 → 示例城市', reason: '用户明确说过', diff: '', status: 'pending', createdAt: '2026-09-25T03:01:00.000Z', decidedAt: '' },
+      { id: 'p2', kind: 'persona', title: '信息：补说话风格', reason: '重复出现', diff: '', status: 'applied', createdAt: '2026-09-24T03:01:00.000Z', decidedAt: '2026-09-24T09:00:00.000Z' },
     ],
     pendingCounts: { memory: 1, persona: 1, route: 0, total: 2 },
     status: { enabled: true, storeReady: true, scanReady: true, modelReady: false },
@@ -261,7 +261,7 @@ test('待确认页：记忆与提案两个区都在，计数徽标如实', async
   // 标题与计数徽标归 `PendingCard`（常驻顶部那张卡），明细只管"有哪些待办"。
   assert.doesNotMatch(markup, /evolution\.pending\.title/, '明细不自带标题（避免与卡片重复）')
   assert.match(markup, /用户的门禁密码/, '记忆待确认条目必须出现在统一待确认页')
-  assert.match(markup, /身份卡字段：归属地 → 示例城市/, 'pending 提案在列')
+  assert.match(markup, /底色字段：归属地 → 示例城市/, 'pending 提案在列')
   assert.doesNotMatch(markup, /weekly-report/, '已处理提案不出现在待确认页')
 })
 
@@ -312,7 +312,7 @@ test('提案列表：待确认摊开理由、已处理压成一行（点箭头�
 
   // 已处理：压成一行 —— 理由默认**不渲染**（历史备查，不该占满屏幕）。
   assert.equal(markup.includes('重复出现'), false, '已处理提案的理由默认收起')
-  assert.match(markup, /可变层：补说话风格/, '标题仍然看得见（一行摘要）')
+  assert.match(markup, /信息：补说话风格/, '标题仍然看得见（一行摘要）')
   assert.match(markup, /aria-expanded="false"/, '展开控件要如实标注状态')
   assert.match(markup, /evolution\.proposal\.details/, '展开控件要有无障碍名')
 

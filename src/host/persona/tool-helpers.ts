@@ -9,7 +9,7 @@ import { CORE_IDENTITY_KEYS, STANDARD_SECTION_TITLES } from './constants.js'
 import type { IdentityField, MutableSection, PersonaDocument } from './types.js'
 
 /**
- * 把工具参数里的身份卡字段整理成完整固定层。
+ * 把工具参数里的底色字段整理成完整底色。
  *
  * 两条规则：
  * - **核心三段式永远存在**（P-012），顺序固定在最前，未提供就是空串；
@@ -45,7 +45,7 @@ export function mergeIdentityFields(raw: readonly { key: string; value: string }
 }
 
 /**
- * 把模型给的快照整理成可落盘的完整可变层。
+ * 把模型给的快照整理成可落盘的完整信息。
  *
  * **语义（2026-09-23 真机反馈缺陷 ⑤ 之后：刻意区分"漏传"与"传空"）**
  *
@@ -66,7 +66,7 @@ export function mergeIdentityFields(raw: readonly { key: string; value: string }
  * 3. 同名小标题**不在这里去重**：重复标题是 P-010 的高风险项，该由校验器拒绝。
  * @param raw - 模型给出的快照。
  * @param current - 当前生效文档（"漏传 = 保留原值"要用它）。
- * @returns 补齐、排序后的完整可变层。
+ * @returns 补齐、排序后的完整信息。
  */
 export function completeSections(raw: readonly MutableSection[], current: PersonaDocument): MutableSection[] {
   const standard = new Set<string>(STANDARD_SECTION_TITLES)
@@ -97,7 +97,7 @@ export function completeSections(raw: readonly MutableSection[], current: Person
 }
 
 /**
- * 参数里是否夹带了会写固定层的字段。
+ * 参数里是否夹带了会写底色的字段。
  *
  * 参数 schema 里没有这些字段，但工具边界**不该依赖"schema 里没写"**——schema 日后改了，
  * 这条 guard 仍然拦得住。
@@ -113,10 +113,10 @@ export function carriesIdentityWrite(name: string, args: unknown): boolean {
   return name === 'humanity_persona_update' && keys.has('fields')
 }
 
-/** 还没初始化就想整理可变层时给 Agent 的指引。 */
+/** 还没初始化就想整理信息时给 Agent 的指引。 */
 export const NOT_INITIALIZED_REASON =
-  '人格固定层还没有初始化。请先在对话里了解用户，调用 humanity_persona_init 写入固定层，再来整理可变层。'
+  '人格底色还没有初始化。请先在对话里了解用户，调用 humanity_persona_init 写入底色，再来整理信息。'
 
-/** 固定层已封存时给 Agent 的指引。 */
+/** 底色已封存时给 Agent 的指引。 */
 export const SEALED_REASON =
-  '人格底色已封存：Agent 不能修改固定层。如需变更，请用户在 Humanity 工作台修改。'
+  '人格底色已封存：Agent 不能修改底色。如需变更，请用户在 Humanity 工作台修改。'

@@ -1,5 +1,5 @@
 /**
- * 分类写回测试：P-038 权限分层（记忆自动/敏感待确认、可变层自动、固定层只提案）、
+ * 分类写回测试：P-038 权限分层（记忆自动/敏感待确认、信息自动、底色只提案）、
  * 跨轮提案去重、模块关闭时不越权写数据。
  *
  * 记忆写入用**真管线**（`remember()` + 真策略解析）：classify 的命题是"权限分层被遵守"，
@@ -50,7 +50,7 @@ function deps(overrides = {}) {
   }
 }
 
-/** 造一份"已初始化"的人格文档（固定层写过并封存）。 */
+/** 造一份"已初始化"的人格文档（底色写过并封存）。 */
 function initializedPersona() {
   return {
     schemaVersion: 1,
@@ -123,7 +123,7 @@ test('策略关闭自动写入（off 模式）：管线拒绝，计数为 0', as
   assert.equal(result.memoriesWritten, 0)
 })
 
-test('可变层：合并进完整快照、以 agent 身份写入；重复条目不再追加', async () => {
+test('信息：合并进完整快照、以 agent 身份写入；重复条目不再追加', async () => {
   const document = initializedPersona()
   document.mutableLayer.sections[1].items.push('简短直接') // 说话风格已有一条
   const persona = fakePersona(document)
@@ -143,7 +143,7 @@ test('可变层：合并进完整快照、以 agent 身份写入；重复条目�
   assert.deepEqual(style.items, ['简短直接', '先结论后依据'], '已有条目不重复追加')
 })
 
-test('可变层：人格未初始化时跳过（人格还不存在，不谈整理）', async () => {
+test('信息：人格未初始化时跳过（人格还不存在，不谈整理）', async () => {
   const untouched = fakePersona({
     schemaVersion: 1,
     identityCard: { fields: CORE_IDENTITY_KEYS.map((key) => ({ key, value: '', custom: false })), initializedAt: '', sealedAt: '' },
@@ -157,9 +157,9 @@ test('可变层：人格未初始化时跳过（人格还不存在，不谈整�
   assert.equal(untouched.writes.length, 0)
 })
 
-test('可变层写入被校验拒绝：转成 persona 提案（P-010 高风险不静默）', async () => {
+test('信息写入被校验拒绝：转成 persona 提案（P-010 高风险不静默）', async () => {
   const persona = fakePersona(initializedPersona(), {
-    reject: [{ code: 'mutable.conflict', path: '说话风格', severity: 'rejected', message: '与固定层冲突' }],
+    reject: [{ code: 'mutable.conflict', path: '说话风格', severity: 'rejected', message: '与底色冲突' }],
   })
   const { deps: dependencies, state } = deps({ persona: () => persona })
   const result = await applyAnalysis(dependencies, CONTEXT, output({
@@ -174,7 +174,7 @@ test('可变层写入被校验拒绝：转成 persona 提案（P-010 高风险�
   assert.ok(proposals[0].reason.includes('mutable.conflict'))
 })
 
-test('固定层字段：只生成提案，绝不直接写（P-023/P-038）', async () => {
+test('底色字段：只生成提案，绝不直接写（P-023/P-038）', async () => {
   const persona = fakePersona(initializedPersona())
   const { deps: dependencies, state } = deps({ persona: () => persona })
   const result = await applyAnalysis(dependencies, CONTEXT, output({
@@ -182,7 +182,7 @@ test('固定层字段：只生成提案，绝不直接写（P-023/P-038）', asy
   }))
 
   assert.equal(result.proposalsCreated, 1)
-  assert.equal(persona.writes.length, 0, '固定层提案不许触碰写入路径')
+  assert.equal(persona.writes.length, 0, '底色提案不许触碰写入路径')
   const proposal = state.listProposals('pending')[0]
   assert.equal(proposal.kind, 'persona')
   assert.deepEqual(JSON.parse(proposal.payload), { type: 'identity', fieldKey: '归属地', fieldValue: '示例城市' })

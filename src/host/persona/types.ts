@@ -6,23 +6,23 @@
  */
 import type { ConfirmableIssueCode, PersonaIssueCode } from './constants.js'
 
-/** 身份卡的一个字段。`custom` 区分默认三段式与用户自行添加的字段。 */
+/** 底色的一个字段。`custom` 区分默认三段式与用户自行添加的字段。 */
 export interface IdentityField {
   key: string
   value: string
   custom: boolean
 }
 
-/** 固定层：自然语言身份卡。 */
+/** 底色：自然语言底色。 */
 export interface IdentityCard {
   fields: IdentityField[]
   /** 首次初始化时刻（ISO 8601）。空串 = 未初始化——P-002 要求用独立标记，不比对内容。 */
   initializedAt: string
-  /** 封存时刻。空串 = 未封存。封存后 Agent 不可再写固定层。 */
+  /** 封存时刻。空串 = 未封存。封存后 Agent 不可再写底色。 */
   sealedAt: string
 }
 
-/** 可变层的一个标准小标题及其内容（自然语言短文本，每项一行）。 */
+/** 信息的一个标准小标题及其内容（自然语言短文本，每项一行）。 */
 export interface MutableSection {
   title: string
   items: string[]
@@ -34,7 +34,7 @@ export interface UserDefinedEntry {
   value: string
 }
 
-/** 可变层：意识与经验层。 */
+/** 信息：意识与经验层。 */
 export interface MutableLayer {
   sections: MutableSection[]
   /** 兜底层。能归类的项由 Agent 移入标准小标题，剩下的留在这里（P-018/P-019）。 */

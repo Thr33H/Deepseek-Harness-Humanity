@@ -39,7 +39,7 @@ export interface RunnerDeps {
   sessionQuery(): SessionQueryLike | undefined
   llm: LlmAccess
   classify(): ClassifyDeps
-  /** 人格可变层的当前内容（提示词合同用：标题清单 + 现有条目；人格未就绪时给空数组）。 */
+  /** 人格信息的当前内容（提示词合同用：标题清单 + 现有条目；人格未就绪时给空数组）。 */
   personaCard?(): readonly PersonaCardSection[]
   /**
    * 人格**注入预算**的当前读数（0.1.10 · A1；人格未就绪时 undefined）。
@@ -50,10 +50,10 @@ export interface RunnerDeps {
    */
   personaFit?(): PersonaBudgetState | undefined
   /**
-   * 免费的**人格卡整合**：合并近重复条目，返回合并了几条。
+   * 免费的**信息整合**：合并近重复条目，返回合并了几条。
    *
    * 为什么挂在运行时开头：它是纯本地计算（不调模型），而且**越早做越好** ——
-   * 重复条目会把人格卡顶到注入预算上限，真正的新内容反而进不了提示词（P-056）。
+   * 重复条目会把信息顶到注入预算上限，真正的新内容反而进不了提示词（P-056）。
    * 缺席（人格未接上）就是不整合。
    */
   consolidatePersona?(): Promise<number>
@@ -165,9 +165,9 @@ export function createRunner(deps: RunnerDeps): Runner {
     await deps.state.putRun(accumulator.record)
 
     try {
-      // 免费步骤先做：人格卡的重复条目在扫描前就并掉（不花模型调用，也让提示词立刻变干净）。
+      // 免费步骤先做：信息的重复条目在扫描前就并掉（不花模型调用，也让提示词立刻变干净）。
       const mergedPersona = (await deps.consolidatePersona?.()) ?? 0
-      if (mergedPersona > 0) accumulator.notes.push(`人格卡合并了 ${mergedPersona} 条重复条目`)
+      if (mergedPersona > 0) accumulator.notes.push(`信息合并了 ${mergedPersona} 条重复条目`)
       // A1：本轮**只读一次**人格注入预算（并掉重复条目之后读，读数才是这一轮真正生效的那个）。
       accumulator.personaBudget = deps.personaFit?.()
       // A（0.1.11）：同一份读数上判护栏（已超 or 接近上限）—— 提示词与写回层共用这一个结论。

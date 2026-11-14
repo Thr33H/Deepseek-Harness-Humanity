@@ -145,7 +145,7 @@ const MemoryCandidateSchema = z.object({
   sensitive: z.boolean().default(false),
 })
 
-/** 解析输出里的可变层小节更新（合并进完整快照后走人格校验，P-017）。 */
+/** 解析输出里的信息小节更新（合并进完整快照后走人格校验，P-017）。 */
 const PersonaSectionUpdateSchema = z.object({
   section: z.string().min(1).max(60),
   items: z.array(z.string().min(1).max(500)).max(50),
@@ -165,7 +165,7 @@ const PersonaConsolidationSchema = z.object({
   reason: z.string().max(300).default(''),
 })
 
-/** 解析输出里的固定层提案（只提案不写入，P-038）。 */
+/** 解析输出里的底色提案（只提案不写入，P-038）。 */
 const PersonaFixedProposalSchema = z.object({
   fieldKey: z.string().min(1).max(60),
   fieldValue: z.string().min(1).max(300),

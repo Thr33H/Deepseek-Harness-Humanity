@@ -111,7 +111,7 @@ async function digestOneSession(deps: RunnerDeps, accumulator: RunAccumulator, t
     return undefined
   }
 
-  // 人格卡缺席（人格未接上 / 测试替身）就是空数组：提示词少一段，不影响这一轮整理。
+  // 信息缺席（人格未接上 / 测试替身）就是空数组：提示词少一段，不影响这一轮整理。
   const card = deps.personaCard?.() ?? []
   const outcome = await analyzeDigest(
     { llm: deps.llm },

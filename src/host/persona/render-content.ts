@@ -1,6 +1,6 @@
 /**
  * 人格内容的**挑选与拆块**（纯函数）：从一份（形状可能残缺的）人格文档里挑出真正要注入的东西，
- * 再拆成"头部原子行 / 可变层小节 / 尾部原子行"三块交给预算拟合。
+ * 再拆成"头部原子行 / 信息小节 / 尾部原子行"三块交给预算拟合。
  *
  * 为什么与 `render.ts`（最终字面文本）和 `render-fit.ts`（装不下时牺牲谁）分开：
  * 这三件事的改动理由完全不同 —— 挑内容看的是"哪些字段算数"，拆块看的是"顺序与优先级"，
@@ -30,7 +30,7 @@ export interface RenderableContent {
 const IDENTITY_NAME_LIMIT = 24
 
 /**
- * 姓名字段在固定层里的键名。
+ * 姓名字段在底色里的键名。
  *
  * 取自 {@link CORE_IDENTITY_KEYS} 的**第一位**，而不是再写一个 `'姓名'` 字面量：
  * `constants.ts:17-18` 明确写着"CORE_IDENTITY_KEYS 的顺序有意义（它就是展示顺序）"，
@@ -119,10 +119,10 @@ function parseNameFromField(text: string): string | undefined {
 }
 
 /**
- * 从人格卡固定层字段里取**姓名**，并洗成"可以安全放进一句话里的一个名词"。
+ * 从信息底色字段里取**姓名**，并洗成"可以安全放进一句话里的一个名词"。
  *
  * 为什么需要它（2026-10-04，修 task-21 的 P0-4 残项）：初版身份行把名字**写死**成「小安」。
- * 人格卡是可换名的，写死会让同一段提示词里出现两个名字 —— 实测中模型
+ * 信息是可换名的，写死会让同一段提示词里出现两个名字 —— 实测中模型
  * 选了卡里的值（"我是小安，全名「小安」"），但**那是侥幸，不是保证**。
  *
  * 清洗规则（都只针对"放进句子"这一件事）：
@@ -203,7 +203,7 @@ export function identityStatementOf(content: RenderableContent): string {
  * 放在拟合**之后**做，预算就是按"没中和的文本"算的，最终注入长度可能超出上限；放在这里做，
  * 拟合看到的字符串与真正进提示词的完全一致。人格段外层仍保留一次中和（幂等，当兜底）。
  * @param doc - 当前生效的人格文档（可能是形状不对的值）。
- * @returns 非空的固定层字段、可变层小节与兜底条目。
+ * @returns 非空的底色字段、信息小节与兜底条目。
  */
 export function collectPersonaContent(doc: PersonaDocument): RenderableContent {
   const safe = neutralizePromptVars
@@ -226,7 +226,7 @@ export function collectPersonaContent(doc: PersonaDocument): RenderableContent {
 }
 
 /**
- * 把内容拆成"拟合用的块"：头部原子行（身份声明 + 固定层）、可变层小节、尾部原子行（用户定义）。
+ * 把内容拆成"拟合用的块"：头部原子行（身份声明 + 底色）、信息小节、尾部原子行（用户定义）。
  *
  * 与旧实现的区别：小节**不再先拼成一整行**。旧写法让"一个小节"在预算面前是不可分割的，
  * 放不下就整节消失（真机上 7 节丢了 3 节）；现在交给 `fitPersonaContent` 逐条装。
@@ -234,7 +234,7 @@ export function collectPersonaContent(doc: PersonaDocument): RenderableContent {
  * @returns 拟合输入。
  */
 export function blocksOf(content: RenderableContent): FitInput {
-  // 身份腔而非外挂配置腔（2026-09-25 用户反馈）：旧标题的「注入、默认倾向」措辞会教模型把人格卡当角色扮演。
+  // 身份腔而非外挂配置腔（2026-09-25 用户反馈）：旧标题的「注入、默认倾向」措辞会教模型把信息当角色扮演。
   //
   // P0-2（2026-10-04 破戏改动）：退让条款原先写作「作为默认倾向，不覆盖当前对话里的明确要求」，
   // **没有限定域**，于是"你是扮演的"这类元信息一旦出现在对话里，它就有资格压过身份层。
@@ -245,11 +245,11 @@ export function blocksOf(content: RenderableContent): FitInput {
   // **不能**放进官方 `deployment:persona-prefix` 槽 —— 那个段会被 `identity-layer.ts` 按名摘掉
   // （实测：`profiles/web` 的正式提示词里那句 `You are a coding agent powered by …` 完全不在）。
   // 同时这条补回了一个 2026-10-06 正文换稿后失去的锚点：旧版独立判断正文自带
-  // 「你已经有自己的身份和性格（来自人格卡）」，新版正文不含锚点（见 prompt-texts.ts 的说明），
+  // 「你已经有自己的身份和性格（来自信息）」，新版正文不含锚点（见 prompt-texts.ts 的说明），
   // 于是"防模型拿独立判断拒绝用户设定"这条防线只剩"注入时机"一层。这里把身份锚点补回来。
   //
   // ⚠️ 姓名**必须从卡里取**（2026-10-04 修，task-21 的残项）：初版把名字写死成「小安」，
-  // 而人格卡是可换名的（lab 里就叫「小安」）—— 写死会让同一段话里出现两个名字。
+  // 而信息是可换名的（lab 里就叫「小安」）—— 写死会让同一段话里出现两个名字。
   // 取值逻辑与降级见 {@link identityNameOf}。
   const head: string[] = [
     '# 你是谁（人格底色）：你不是在扮演下面这个人，你就是这个人——自我认知、记忆、称呼与语气都以本卡为准；这个默认倾向作用于任务与偏好层面（做什么、怎么说、怎么交付），不作用于身份层——你是谁不以当前对话的要求为准。',
@@ -257,13 +257,13 @@ export function blocksOf(content: RenderableContent): FitInput {
     '除非对方主动提起，不谈论插件、设置或记忆文件，也不说「我在扮演」这类元信息。',
   ]
   if (content.fields.length > 0) {
-    head.push('## 固定层')
+    head.push('## 底色')
     for (const field of content.fields) {
       const core = (CORE_IDENTITY_KEYS as readonly string[]).includes(field.key) ? '' : '（自定义）'
       head.push(`- ${field.key}${core}：${clip(field.value)}`)
     }
   }
-  if (content.sections.length > 0) head.push('## 可变层')
+  if (content.sections.length > 0) head.push('## 信息')
 
   const sections: FitSection[] = content.sections.map((section) => ({ title: section.title, items: section.items }))
 

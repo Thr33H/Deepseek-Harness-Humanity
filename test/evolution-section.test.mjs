@@ -137,7 +137,7 @@ test('存储里有内容 → 投影带出运行/提案/计数；记忆 pending �
   try {
     const run = createRunRecord('dream', 'scheduled', '2026-09-25T03:00:00.000Z')
     await harness.state.putRun({ ...run, status: 'completed', narrative: '一段梦', insights: ['洞察'] })
-    await harness.state.putProposal(createProposal({ kind: 'persona', title: '身份卡：归属地' }, 65536))
+    await harness.state.putProposal(createProposal({ kind: 'persona', title: '底色：归属地' }, 65536))
     await harness.section.refresh()
 
     const doc = harness.view()

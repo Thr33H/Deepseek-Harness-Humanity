@@ -9,7 +9,7 @@ import type { CSSProperties } from 'react'
 
 /* ── 人格编辑区（M2 步 6）──────────────────────────────────────────────── */
 
-/** 编辑区分组标题（固定层 / 可变层 / 用户定义）。 */
+/** 编辑区分组标题（底色 / 信息 / 用户定义）。 */
 export const groupTitle: CSSProperties = {
   margin: '20px 0 6px',
   fontSize: 13,
@@ -88,8 +88,8 @@ export const renameIssueText: CSSProperties = {
 /**
  * 内容控件的包装层（`Content`）：**撑满内容列，并且把里面的控件也撑满**。
  *
- * ⚠️ **真机缺陷的根因就在这一行**（2026-10-09 用户截图："身份卡的输入框内容被截断得厉害、
- * 人格卡的多行框正常"）：原语 `Input` 的真实结构是
+ * ⚠️ **真机缺陷的根因就在这一行**（2026-10-09 用户截图："底色的输入框内容被截断得厉害、
+ * 信息的多行框正常"）：原语 `Input` 的真实结构是
  * `<span class="wrap" style="display:inline-flex">` + 内层 `<input style="flex:1">`
  * （见 `@deepseek-ai/dsh-client-ui-primitives/lib/Input.module.css`）——
  * 外层是 **inline-flex（收缩到内容宽）**。0.1.12 时 `Input` 是**grid 的直接子项**，
@@ -99,7 +99,7 @@ export const renameIssueText: CSSProperties = {
  * 长值就被"框"截住了。`<textarea>` 没事，是因为它自带 `width: 100%`（见 {@link textarea}）。
  *
  * 修法：包装层改成**纵向 flex**（`align-items: stretch` 默认就会把子项在横向上拉满）——
- * 一处修好所有走这个包装的控件（身份卡值 / 用户定义值 / 改名输入框 / 底部添加表单的两个输入框）。
+ * 一处修好所有走这个包装的控件（底色值 / 用户定义值 / 改名输入框 / 底部添加表单的两个输入框）。
  * `width: 100%` 只是把意图写明；**真正起作用的是 flex 列拉伸**（只加 `width:100%` 而不改 flex
  * 仍然是坏的 —— 判据 V15 的阴性对照就钉这一点）。
  */
@@ -214,7 +214,7 @@ export const issuePath: CSSProperties = {
 }
 
 /**
- * 卡片内部的横向分隔线（身份卡里"开关 / 字段"之间那条）。
+ * 卡片内部的横向分隔线（底色里"开关 / 字段"之间那条）。
  *
  * 用 `hr` + 主题边框色，而不是给某一块加 `border-bottom`：分隔线属于"两块内容之间"，
  * 不属于任何一块；这样两块各自怎么改都不会把线弄丢或重复。
@@ -226,7 +226,7 @@ export const divider: CSSProperties = {
 }
 
 /**
- * 人格卡的**注入预算警告**（超出预算、有条目进不了提示词）。
+ * 信息的**注入预算警告**（超出预算、有条目进不了提示词）。
  *
  * 用警示色而不是错误色：这不是故障 —— 卡片写多了而已，合并重复条目就能装回去。
  * 与记忆页的降级条同一个口径：**如实说、但不吓人**。

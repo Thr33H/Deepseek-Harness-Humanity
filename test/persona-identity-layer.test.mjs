@@ -34,7 +34,7 @@ test('身份层开启：第一方身份前缀被摘除，suffix（工作目录�
   const ctx = await boot(() => true)
   try {
     const names = await sectionNames(ctx)
-    assert.equal(names.includes(PERSONA_PREFIX_SECTION), false, '身份前缀必须被摘除（双重身份声明会把人格卡降格成角色扮演）')
+    assert.equal(names.includes(PERSONA_PREFIX_SECTION), false, '身份前缀必须被摘除（双重身份声明会把信息降格成角色扮演）')
     assert.ok(names.includes(PERSONA_SUFFIX_SECTION), '工作目录是事实不是身份，必须保留')
   } finally {
     await ctx.fiber.dispose()

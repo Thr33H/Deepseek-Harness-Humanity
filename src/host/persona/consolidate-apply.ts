@@ -14,7 +14,7 @@ import type { PersonaSection } from './section.js'
 import { isUntouchedIdentityCard } from './predicates.js'
 
 /**
- * 合并人格卡里的近重复条目并写回。
+ * 合并信息里的近重复条目并写回。
  * @param section - 人格读写入口。
  * @param log - 日志门面。
  * @returns 实际合并掉的条目数（0 = 没有可合并项，或没写成）。
@@ -27,11 +27,11 @@ export async function applyConsolidation(section: PersonaSection, log: Log): Pro
     const { document, merged } = consolidatePersona(current)
     if (merged.length === 0) return 0
     await section.write(document, 'agent')
-    log.info(`人格卡整合：合并了 ${merged.length} 条重复条目（${merged.map((item) => item.title).join('、')}）`)
+    log.info(`信息整合：合并了 ${merged.length} 条重复条目（${merged.map((item) => item.title).join('、')}）`)
     return merged.length
   } catch (error) {
     // 校验拒绝 / 存储未就绪都走这里：整理只是"顺手做的好事"，失败不该影响这一轮整理。
-    warnSafely(log, '人格卡整合失败（本轮跳过，不影响整理）', error)
+    warnSafely(log, '信息整合失败（本轮跳过，不影响整理）', error)
     return 0
   }
 }

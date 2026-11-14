@@ -26,11 +26,11 @@ const personaZh = {
   'persona.independentJudgmentOn': '已开启',
   'persona.independentJudgmentOff': '已关闭',
   'persona.independentJudgmentSaving': '正在保存…',
-  'persona.independentJudgmentPendingSeal': '（固定层封存后生效并可切换；当前未注入）',
-  'persona.identityCard': '身份卡',
-  'persona.mutableCard': '人格卡',
+  'persona.independentJudgmentPendingSeal': '（底色封存后生效并可切换；当前未注入）',
+  'persona.identityCard': '你的底色',
+  'persona.mutableCard': '你的信息',
   'persona.identityHint':
-    '固定层是底色，只有你能改。填完点「封存」：Agent 从此改不了固定层（你仍可在这里改），独立判断模式也才生效。'
+    '你的底色只有你能改。填完点「封存」：Agent 从此改不了底色（你仍可在这里改），独立判断模式也才生效。'
     + '每项的**名称是固定文字**（不可就地改），**内容随时可以在右边的输入框里改**；'
     + '项名下的「删除」删掉的是**整项**，姓名 / 性别 / 人格偏好 / 主语言 这 4 项删不掉。'
     + '要加一项走底部的入口。',
@@ -55,10 +55,10 @@ const personaZh = {
   'persona.renameConfirm': '确定',
   'persona.rename.empty': '名字不能为空',
   'persona.rename.unchanged': '和现在的名字一样，没有可提交的改动',
-  'persona.rename.reserved': '这是插件认的标准名（固定层字段名 / 标准小节名），自定义项不能占用',
+  'persona.rename.reserved': '这是插件认的标准名（底色字段名 / 标准小节名），自定义项不能占用',
   'persona.rename.duplicate': '已有别的项在用这个名字（不会覆盖它，请换一个）',
   'persona.mutableHint':
-    '固定层是底色，只有你能改；这一层是意识与经验，Agent 会在这里整理。'
+    '你的底色只有你能改；这一层是意识与经验，Agent 会在这里整理。'
     + '每个小标题一行一条；保存时整层替换为这份完整快照（不是追加），被取代的旧内容会进历史。'
     + '每项的**名称是固定文字**（不可就地改），**内容随时可以在右边的框里改**；'
     + '项名下的「删除」删掉的是**整项**（文档里与提示词里都不再有它，默认的前 4 个小节删不掉）；'
@@ -66,7 +66,7 @@ const personaZh = {
   // 注入账目（用户 2026-09-26 发现提示词被截断后加的）：卡上写的东西到底进去多少，必须看得见。
   'persona.budget.tag': '进提示词 {injected}/{total} 条',
   'persona.budget.hint':
-    '人格卡按字符预算注入（当前上限 {budget} 字符，其中还包含永不截断的操作约定段）。'
+    '信息按字符预算注入（当前上限 {budget} 字符，其中还包含永不截断的操作约定段）。'
     + '一次装不下时，每个小标题先保底一条，再按轮次分配；没进去的条目会在提示词里如实标注。'
     + '把重复的条目合并、把长条目写短，就能让它们全部进去。',
   'persona.budget.dropped':
@@ -95,14 +95,14 @@ const personaZh = {
   'persona.issue.identity.key-duplicate': '有重复的字段名',
   'persona.issue.identity.core-missing': '缺少核心字段（姓名 / 性别 / 人格偏好）',
   'persona.issue.identity.value-too-long': '字段内容超过 120 字，会明显增加注入成本',
-  'persona.issue.identity.sealed': '固定层已对 Agent 封存（你仍然可以在这里修改）',
-  'persona.issue.identity.shadows-mutable': '字段名与可变层的小标题或用户定义键撞名，请改其中一个名字',
+  'persona.issue.identity.sealed': '底色已对 Agent 封存（你仍然可以在这里修改）',
+  'persona.issue.identity.shadows-mutable': '字段名与信息的小标题或用户定义键撞名，请改其中一个名字',
   'persona.issue.mutable.section-duplicate': '有重复的小标题',
   'persona.issue.mutable.section-title-empty': '有一节没有小标题（没有名字的小节不会进提示词，请给它取名或并入别的小节）',
   'persona.issue.mutable.section-dropped': '有内容的小标题整节不见了（要保留请显式传入原内容）',
   'persona.issue.mutable.section-cleared': '有内容的小标题被显式清空（删除用户内容需在对话里确认）',
   'persona.issue.mutable.section-locked-missing': '默认锁定的 8 项不能整项删除（要保留节，只清空里面的条目）',
-  'persona.issue.mutable.core-key-shadowed': '固定层字段名不能作为可变层的小标题或「用户定义」的键',
+  'persona.issue.mutable.core-key-shadowed': '底色字段名不能作为信息的小标题或「用户定义」的键',
   'persona.issue.mutable.user-defined-duplicate': '「用户定义」出现重复键（没有内容被写入）',
   'persona.issue.mutable.user-defined-key-empty': '「用户定义」有一项只填了内容、没填名字（请补上键名）',
   'persona.issue.mutable.item-too-long': '有条目超过 120 字，建议拆成多条',

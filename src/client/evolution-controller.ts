@@ -100,7 +100,7 @@ export class EvolutionWorkbenchController extends EvolutionStateBase {
     })
   }
 
-  /** 批准一条提案（P-038：固定层/路由都只能由用户在这里放行）。 */
+  /** 批准一条提案（P-038：底色/路由都只能由用户在这里放行）。 */
   approve(id: string): Promise<boolean> {
     return this.dispatch('op:approve', { op: 'approve', id, mode: '', rescanKind: '', rescanValue: '' })
   }

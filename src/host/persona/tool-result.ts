@@ -45,7 +45,7 @@ export const RESULT_SCHEMA = {
     identityCard: {
       type: 'array',
       required: true,
-      description: '写入后生效的固定层字段',
+      description: '写入后生效的底色字段',
       items: {
         type: 'object',
         additionalProperties: false,
@@ -55,7 +55,7 @@ export const RESULT_SCHEMA = {
     mutableLayer: {
       type: 'array',
       required: true,
-      description: '写入后生效的可变层（标准小标题；兜底层见 userDefined）',
+      description: '写入后生效的信息（标准小标题；兜底层见 userDefined）',
       items: {
         type: 'object',
         additionalProperties: false,
@@ -156,12 +156,12 @@ export function renderValue(value: PersonaToolValue): string {
   const lines = [value.ok ? '已写入生效人格。' : `没有写入（${value.action}）：${value.message}`]
 
   if (value.ok) {
-    lines.push('', '固定层：')
+    lines.push('', '底色：')
     for (const field of value.identityCard) lines.push(`- ${field.key}：${field.value}`)
 
     const filled = value.mutableLayer.filter((section) => section.items.length > 0)
     if (filled.length > 0) {
-      lines.push('', '可变层：')
+      lines.push('', '信息：')
       for (const section of filled) lines.push(`- ${section.title}：${section.items.join('；')}`)
     }
     if (value.userDefined.length > 0) {
@@ -173,8 +173,8 @@ export function renderValue(value: PersonaToolValue): string {
     lines.push(
       '',
       value.action === 'init'
-        ? '已对 Agent 封存：Agent 无法再次修改固定层。如需修改，请前往 Humanity 工作台。'
-        : '固定层保持不变（已封存）；被取代的旧内容已进入历史，不再参与人格注入。',
+        ? '已对 Agent 封存：Agent 无法再次修改底色。如需修改，请前往 Humanity 工作台。'
+        : '底色保持不变（已封存）；被取代的旧内容已进入历史，不再参与人格注入。',
     )
   }
 

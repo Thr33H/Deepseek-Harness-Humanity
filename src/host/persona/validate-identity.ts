@@ -1,7 +1,7 @@
 /**
- * 固定层的判定：字段名、长度、核心字段、以及"对 Agent 封存"。
+ * 底色的判定：字段名、长度、核心字段、以及"对 Agent 封存"。
  *
- * 从 `validate.ts` 拆出来的原因：固定层与可变层的判定没有任何共同状态，
+ * 从 `validate.ts` 拆出来的原因：底色与信息的判定没有任何共同状态，
  * 分开放之后每一处都能一眼看完（函数 ≤40 行是硬要求，不是审美偏好）。
  * @module humanity/persona/validate-identity
  */
@@ -10,7 +10,7 @@ import { isUntouchedIdentityCard } from './predicates.js'
 import type { IdentityField, PersonaDocument, PersonaIssue, WriteSource } from './types.js'
 
 /**
- * 固定层的全部判定（编排）。
+ * 底色的全部判定（编排）。
  * @param next - 规范化之后的候选文档。
  * @param prev - 当前生效文档；首次初始化时传 `undefined`。
  * @param source - 写入来源（只有 Agent 受封存约束）。
@@ -31,10 +31,10 @@ export function checkIdentity(
 }
 
 /**
- * 反向查重：固定层字段名不得与可变层小标题 / 用户定义键撞名。
+ * 反向查重：底色字段名不得与信息小标题 / 用户定义键撞名。
  *
- * 为什么需要反向（2026-09-25 真机反馈）：`core-key-shadowed` 只查「写可变层」方向，用户在固定层
- * 加一个「对用户称呼」字段能无任何提示地保存成功 —— 此后每次写可变层都会被 shadow 拒绝，
+ * 为什么需要反向（2026-09-25 真机反馈）：`core-key-shadowed` 只查「写信息」方向，用户在底色
+ * 加一个「对用户称呼」字段能无任何提示地保存成功 —— 此后每次写信息都会被 shadow 拒绝，
  * 而用户看不懂为什么。在撞名的源头拦，比在每次受害者侧拦便宜且可解释。
  * 祖父化：prev 里已同名的字段不查 —— 否则一份已经撞名的旧文档会拒掉之后**所有**保存，用户无从修复。
  */
@@ -51,7 +51,7 @@ function checkShadowsMutable(next: PersonaDocument, prev: PersonaDocument | unde
       code: 'identity.shadows-mutable',
       path: `identityCard.fields[${index}].key`,
       severity: 'rejected',
-      message: `字段名「${field.key}」与可变层的小标题或用户定义键撞名，请改其中一个名字。`,
+      message: `字段名「${field.key}」与信息的小标题或用户定义键撞名，请改其中一个名字。`,
     })
   }
 }
@@ -64,7 +64,7 @@ function checkFieldRows(fields: readonly IdentityField[], issues: PersonaIssue[]
         code: 'identity.key-empty',
         path: `identityCard.fields[${index}].key`,
         severity: 'rejected',
-        message: '身份卡存在没有名字的字段，无法保存。',
+        message: '底色存在没有名字的字段，无法保存。',
       })
     }
     if (field.value.length > VALUE_SOFT_LIMIT) {
@@ -92,7 +92,7 @@ function checkKeyDuplicates(fields: readonly IdentityField[], issues: PersonaIss
         code: 'identity.key-duplicate',
         path: `identityCard.fields[${index}].key`,
         severity: 'rejected',
-        message: `身份卡出现重复字段「${field.key}」，同一事实只能有一个当前值。`,
+        message: `底色出现重复字段「${field.key}」，同一事实只能有一个当前值。`,
       })
     }
     seen.add(field.key)
@@ -100,7 +100,7 @@ function checkKeyDuplicates(fields: readonly IdentityField[], issues: PersonaIss
 }
 
 /**
- * P-012 的核心字段是固定层的最小集合；缺任何一个都意味着"用户明确设定的核心事实没了"（P-010 高风险）。
+ * P-012 的核心字段是底色的最小集合；缺任何一个都意味着"用户明确设定的核心事实没了"（P-010 高风险）。
  *
  * ⚠️ **这条规则只对"不经规范化的调用方"生效**：`normalizePersona` 的 `ensureCoreFields` 会把缺的核心字段
  * 补成空值（旧数据 + 新 schema 的兼容点，2026-09-23 真机事故），所以正常路径下这里永远为真。
@@ -113,17 +113,17 @@ function checkCoreFields(fields: readonly IdentityField[], issues: PersonaIssue[
         code: 'identity.core-missing',
         path: 'identityCard.fields',
         severity: 'rejected',
-        message: `身份卡缺少核心字段「${key}」，不能通过删除来绕开它。`,
+        message: `底色缺少核心字段「${key}」，不能通过删除来绕开它。`,
       })
     }
   }
 }
 
 /**
- * 封存：Agent 不能改固定层（P-013/P-023）。用户在工作台里改是允许的——只有用户能改。
+ * 封存：Agent 不能改底色（P-013/P-023）。用户在工作台里改是允许的——只有用户能改。
  *
- * **唯一的例外是首次初始化**（P-003：Agent 引导 → 写入固定层 → 封存）。封存是"初始化完成
- * 之后"才成立的状态，所以判据必须是「当前固定层是否已经有人写过」，而不是「调用方有没有传 prev」：
+ * **唯一的例外是首次初始化**（P-003：Agent 引导 → 写入底色 → 封存）。封存是"初始化完成
+ * 之后"才成立的状态，所以判据必须是「当前底色是否已经有人写过」，而不是「调用方有没有传 prev」：
  * `section.write()` 里的 prev 永远是当前生效文档（未初始化时那份默认文档也算一份），
  * 把"默认文档"读成"已封存"会让聊天初始化这条路径永远走不通。
  */

@@ -36,7 +36,7 @@ export const workbenchZh = {
   'workbench.metric.usageValue': '今日 {calls} / {cap} 次调用 · {tokens} tokens',
   'workbench.overviewHint':
     '这几项读的是当前真实状态；读不到时如实说明，不填推测的数字。'
-    + '高风险改动（例如整节删除人格可变层里仍有内容的小标题）在对话里确认。',
+    + '高风险改动（例如整节删除人格信息里仍有内容的小标题）在对话里确认。',
 } as const
 
 /** 英文。键集合必须与中文完全一致，否则 `satisfies` 会在编译期报错。 */

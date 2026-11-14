@@ -1,5 +1,5 @@
 /**
- * 可变层写回（从 `classify.ts` 拆出）：合并完整快照 → 以 agent 身份写入 → 被拒转提案。
+ * 信息写回（从 `classify.ts` 拆出）：合并完整快照 → 以 agent 身份写入 → 被拒转提案。
  *
  * 权限依据：P-038「可变人格可自动整理」+ P-017「每次修改必须生成完整当前快照」——
  * 所以这里永远从 `persona.read()` 现读全文、合并、整份写回，绝不追加补丁；
@@ -94,7 +94,7 @@ export function mergePersonaSections(
 }
 
 /**
- * 可变层写回；被拒时转成提案。
+ * 信息写回；被拒时转成提案。
  *
  * ### 两道闸（0.1.10 起第一道，0.1.11 扩第二道）
  *
@@ -153,7 +153,7 @@ export async function writePersonaSections(
     if (!(error instanceof PersonaWriteRejected)) throw error
     const created = addProposal(context, {
       kind: 'persona',
-      title: `可变层整理被校验拒绝（${added.length} 项待确认）`,
+      title: `信息整理被校验拒绝（${added.length} 项待确认）`,
       reason: error.issues.map((issue) => `${issue.code}: ${issue.message}`).join('；').slice(0, MAX_PROPOSAL_TEXT_CHARS),
       payload: { type: 'mutable', sections: requested, consolidations },
       diff: added.join('\n').slice(0, 4000),
@@ -167,7 +167,7 @@ export async function writePersonaSections(
  *
  * ⚠️ 这里的"会超"就是产品口径的 `truncated`（提示词末尾那句「已截断」、工作台那句"有几条没进去"
  * 用的都是它），因此它包含两种情形：**装不下**（有条目被弃）与**装下了但被裁**（单条超过
- * `VALUE_SOFT_LIMIT = 120` ⇒ 注入时尾巴被切掉）。后者一并拦下是有意的：人格卡最坏的结果是
+ * `VALUE_SOFT_LIMIT = 120` ⇒ 注入时尾巴被切掉）。后者一并拦下是有意的：信息最坏的结果是
  * "写进去了却不生效"，一条只进得去前半截的条目正属此类 —— 宁可这一轮不写、并如实记一笔
  * "拦下拟新增 N 条"（运行记录里看得见），也不要静默收下半条。
  * 若用户更希望"长条目照收、注入时裁"，把判据收窄成 `fit.dropped > 0` 即可（改这一处）。

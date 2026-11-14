@@ -61,7 +61,7 @@ async function seed(state, kind, payload, overrides = {}) {
   return record
 }
 
-test('approve 固定层提案：以 user 身份写入（字段更新 + 新字段追加 custom），状态转 applied', async () => {
+test('approve 底色提案：以 user 身份写入（字段更新 + 新字段追加 custom），状态转 applied', async () => {
   const { state, persona, actions } = harness()
   const proposal = await seed(state, 'persona', { type: 'identity', fieldKey: '姓名', fieldValue: '新名' })
   const other = await seed(state, 'persona', { type: 'identity', fieldKey: '归属地', fieldValue: '示例城市' }, { title: '归属地提案' })
@@ -87,7 +87,7 @@ test('approve 时人格模块不可用：如实说明，提案保持 pending', a
   assert.equal(state.getProposal(proposal.id).status, 'pending')
 })
 
-test('approve 可变层提案：合并进当前文档（不整份覆盖）', async () => {
+test('approve 信息提案：合并进当前文档（不整份覆盖）', async () => {
   const document = initializedPersona()
   document.mutableLayer.sections[1].items = ['已有的风格'] // 说话风格
   const { state, persona, actions } = harness({ document })
@@ -102,9 +102,9 @@ test('approve 可变层提案：合并进当前文档（不整份覆盖）', asy
   assert.equal(state.getProposal(proposal.id).status, 'applied')
 })
 
-test('approve 只带整合建议的可变层提案：人格卡真的变了（不是标个 applied 就完事）', async () => {
+test('approve 只带整合建议的信息提案：信息真的变了（不是标个 applied 就完事）', async () => {
   // 2026-09-26 审计：这类提案没有 `sections` 可加，只有 `consolidations`（把几条同义条目并成一条）。
-  // 旧实现只读 sections ⇒ 用户点了「批准」、提案被标成 applied，人格卡却一个字没变。
+  // 旧实现只读 sections ⇒ 用户点了「批准」、提案被标成 applied，信息却一个字没变。
   const document = initializedPersona()
   document.mutableLayer.sections[1].items = ['台词不加括号，直接写', '台词不加括号、直接写'] // 说话风格
   const { state, persona, actions } = harness({ document })

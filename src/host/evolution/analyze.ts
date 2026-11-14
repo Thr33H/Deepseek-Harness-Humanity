@@ -42,9 +42,9 @@ export interface AnalyzeInput {
   digest: string
   mode: RunMode
   workspaceLabel: string
-  /** 人格可变层当前小标题（约束 personaSections 的 section 取值）。 */
+  /** 人格信息当前小标题（约束 personaSections 的 section 取值）。 */
   sectionTitles: readonly string[]
-  /** 人格卡当前内容（判断「已存在/同义」用；见 PromptContext.personaCard）。 */
+  /** 信息当前内容（判断「已存在/同义」用；见 PromptContext.personaCard）。 */
   personaCard?: readonly PersonaCardSection[]
   /** 人格**注入预算**读数（见 PromptContext.personaBudget）：超预算时提示词追加"只合并"约束。 */
   personaBudget?: PersonaBudgetState
