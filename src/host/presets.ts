@@ -1,17 +1,22 @@
 /**
- * Humanity 自己的 agent 预设：**未封存只有"取内容"的能力，封存后换成完整体**。
+ * Humanity 自己的 agent 预设。封存前只有一个（极简），封存后有两个（沉浸 / 功能）。
  *
  * ### 为什么用代码注册，而不是写进 `cordis.patch.yml`
- * 预设要随"人格是否已封存"变化：同一个 id `humanity` 在封存前后是两套插件清单。
- * YAML 补丁是静态的，写死就只能二选一；注册表本身提供了
- * `register(definition) → unregister`，于是切换是纯内存动作，不动任何配置文件。
+ * 预设要随"人格是否已封存"出现：封存前只该有 `humanity`（极简内容），封存后才该出现
+ * `humanity-functional`。YAML 补丁是静态的；注册表提供 `register → unregister`，
+ * 于是这件事是纯内存动作，不动任何配置文件。
  *
- * ### 为什么 id 不变、只换内容
+ * ### 为什么 `humanity` 的 id 不变、只换内容
  * `agent-preset-registry` 只允许**首轮之前**换预设（`select()` 在会话开过一轮后抛
  * `agent-preset/locked`）。而"第一次见面"这件事本身就发生在对话里 —— 所以正在进行的那个
  * 会话**永远**留在它开始时的清单上，这恰好是我们想要的：见面那次只需要读文件与搜索。
  * 新会话会绑定到新内容：旧 generation 只要还有会话用着就不会被回收（`users > 0`），
  * 所以换内容不会打断任何人。
+ *
+ * ### 两个预设的分工（用户 2026-11-14 定）
+ * - **Humanity 沉浸**：能读能搜，封存后再加写文件 / 时间 / 定时提醒。工具清单锁死。
+ * - **Humanity 功能**：带着人设去干活 —— 命令、代码、技能、Office、子代理之外的工作类工具全开。
+ *   它只在**封存之后**注册：没有身份之前不该能干活。
  *
  * ### 插件清单从哪来
  * 包名与配置**逐个核对自** DSH 0.2.2-rc.3 的实际合成配置（`dsh --profile web --dump-config`），
@@ -23,8 +28,15 @@ import type { Context } from '@deepseek-ai/cordis'
 
 import { describeError, reportBootFailure, type Log } from './log.js'
 
-/** 我们注册的预设 id（静态默认值也指向它）。 */
+/** 沉浸式预设的 id（静态默认值也指向它）。 */
 export const HUMANITY_PRESET_ID = 'humanity'
+
+/** 功能预设的 id（封存后才注册）。 */
+export const HUMANITY_FUNCTIONAL_ID = 'humanity-functional'
+
+/** 工作台里显示的名字。 */
+export const HUMANITY_PRESET_NAME = 'Humanity 沉浸'
+export const HUMANITY_FUNCTIONAL_NAME = 'Humanity 功能'
 
 /**
  * 工具闸的教训（2026-11-14，真机）：**闸不能装在预设作用域**。
@@ -90,6 +102,37 @@ export function immersivePlugins(): Entry[] {
     ...contentOnly(false),
     { id: 'time-context', name: '@deepseek-ai/dsh-time-context' },
     { id: 'tool-schedule', name: '@deepseek-ai/dsh-tool-schedule' },
+    { id: 'present', name: '@deepseek-ai/dsh-tool-present' },
+    COMPACTION_GROUP,
+  ]
+}
+
+/**
+ * 功能预设：带着人设去干活。
+ *
+ * 与沉浸式的差别只在"多出来的工作类工具"：命令、后台任务、目标、待办、技能、Office、
+ * 插件开发（tool-cordis）。**不含**子代理/工作流/计划模式 —— 那些是多人协作与项目管理的语言，
+ * 与"陪伴"相冲；需要时再单独加。
+ */
+export function functionalPlugins(): Entry[] {
+  return [
+    { id: 'persona', name: '@deepseek-ai/dsh-persona', config: { prefix: '' } },
+    { id: 'agent-instructions', name: '@deepseek-ai/dsh-agent-instructions', config: { maxBytes: 65536 } },
+    { id: 'time-context', name: '@deepseek-ai/dsh-time-context' },
+    { id: 'tool-bash', name: '@deepseek-ai/dsh-tool-bash' },
+    { id: 'tool-fs', name: '@deepseek-ai/dsh-tool-fs', config: { applyPatch: false } },
+    { id: 'tool-fs-search', name: '@deepseek-ai/dsh-tool-fs-search', config: { sampleOverCapGlobResults: false } },
+    { id: 'tool-jobs', name: '@deepseek-ai/dsh-tool-jobs' },
+    { id: 'tool-schedule', name: '@deepseek-ai/dsh-tool-schedule' },
+    { id: 'command-goal', name: '@deepseek-ai/dsh-command-goal' },
+    { id: 'tool-goal', name: '@deepseek-ai/dsh-tool-goal' },
+    { id: 'tool-ask-user', name: '@deepseek-ai/dsh-tool-ask-user' },
+    { id: 'tool-todo', name: '@deepseek-ai/dsh-tool-todo' },
+    { id: 'tool-web', name: '@deepseek-ai/dsh-tool-web', config: { fetch: true } },
+    { id: 'tool-cordis', name: '@deepseek-ai/dsh-tool-cordis' },
+    { id: 'skill-filesystem', name: '@deepseek-ai/dsh-skill-filesystem' },
+    { id: 'tool-skill', name: '@deepseek-ai/dsh-tool-skill' },
+    { id: 'tool-office', name: '@deepseek-ai/dsh-tool-office' },
     { id: 'present', name: '@deepseek-ai/dsh-tool-present' },
     COMPACTION_GROUP,
   ]
@@ -164,46 +207,77 @@ export function installPresets(ctx: Context, log: Log, sealed: () => boolean): P
  * @param sealed - 人格是否已封存（现读）。
  */
 function createSwitcher(log: Log, registry: PresetRegistry, sealed: () => boolean): PresetHandle {
-  let current: Mode | undefined
-  let unregister: (() => Promise<void>) | undefined
+  let content: Mode | undefined
+  let functional = false
+  let unregisterMain: (() => Promise<void>) | undefined
+  let unregisterFunctional: (() => Promise<void>) | undefined
   let disposed = false
   let queue: Promise<void> = Promise.resolve()
 
-  const apply = async (mode: Mode): Promise<void> => {
+  /** 注册（或换内容）`humanity` 这一个预设。 */
+  const applyMain = async (mode: Mode): Promise<void> => {
     // 先注销旧的：同一 id 重复注册会被注册表直接拒绝（Duplicate agent preset）。
-    if (unregister !== undefined) {
-      const stop = unregister
-      unregister = undefined
+    if (unregisterMain !== undefined) {
+      const stop = unregisterMain
+      unregisterMain = undefined
       await stop()
     }
     if (disposed) return
-    try {
-      unregister = await registry.register({
-        id: HUMANITY_PRESET_ID,
-        description:
-          mode === 'minimal'
-            ? '第一次见面：只能读文件、搜索与提问。给出名字与性格之前，做不了别的事。'
-            : '沉浸式陪伴：能读能写、能联网、能定时提醒。工具闸只放行 Humanity 自己的工具。',
-        order: 0,
-        plugins: mode === 'minimal' ? minimalPlugins() : immersivePlugins(),
-      })
-    } catch (error) {
-      reportBootFailure(log, `humanity 预设注册失败（${mode}）：${describeError(error)}`, error)
-      current = undefined
+    unregisterMain = await registry.register({
+      id: HUMANITY_PRESET_ID,
+      name: HUMANITY_PRESET_NAME,
+      description:
+        mode === 'minimal'
+          ? '第一次见面：只能读文件、搜索与提问。给出名字与性格之前，做不了别的事。'
+          : '沉浸式陪伴：能读能写、能联网、能定时提醒。',
+      order: 0,
+      plugins: mode === 'minimal' ? minimalPlugins() : immersivePlugins(),
+    })
+    content = mode
+    log.info(`预设已注册：${HUMANITY_PRESET_NAME}（${mode === 'minimal' ? '极简' : '沉浸'}）`)
+  }
+
+  /** 封存后才有功能预设：没有身份之前不该能干活。 */
+  const applyFunctional = async (present: boolean): Promise<void> => {
+    if (present === functional) return
+    if (!present) {
+      const stop = unregisterFunctional
+      unregisterFunctional = undefined
+      functional = false
+      await stop?.()
+      log.info(`预设已注销：${HUMANITY_FUNCTIONAL_NAME}（人格未封存）`)
       return
     }
-    current = mode
-    log.info(`humanity 预设已注册：${mode === 'minimal' ? '极简（未封存）' : '沉浸式（已封存）'}`)
+    if (disposed) return
+    unregisterFunctional = await registry.register({
+      id: HUMANITY_FUNCTIONAL_ID,
+      name: HUMANITY_FUNCTIONAL_NAME,
+      description: '带着人设去干活：命令、代码、技能、Office、插件开发。工具全开。',
+      order: 1,
+      plugins: functionalPlugins(),
+    })
+    functional = true
+    log.info(`预设已注册：${HUMANITY_FUNCTIONAL_NAME}`)
+  }
+
+  const applyState = async (wantSealed: boolean): Promise<void> => {
+    const want: Mode = wantSealed ? 'immersive' : 'minimal'
+    if (want !== content) await applyMain(want)
+    await applyFunctional(wantSealed)
   }
 
   const sync = (): void => {
     if (disposed) return
-    const want: Mode = sealed() ? 'immersive' : 'minimal'
-    if (want === current) return
+    const wantSealed = sealed()
+    // ⚠️ 必须显式比"想要的内容形态"，不能拿 `content === 'immersive'` 当代理：
+    // 首次启动时 `content` 还是 undefined，那样写会判成"已经是未封存态"而直接返回,
+    // 结果一个预设都不注册（2026-11-14 真机：列表里只剩内置四套，且没有任何报错）。
+    const want: Mode = wantSealed ? 'immersive' : 'minimal'
+    if (want === content && wantSealed === functional) return
     queue = queue
-      .then(() => apply(want))
+      .then(() => applyState(wantSealed))
       .catch((error: unknown) =>
-        reportBootFailure(log, `humanity 预设切换失败（保持上一套清单）：${describeError(error)}`, error),
+        reportBootFailure(log, `预设切换失败（保持上一套清单）：${describeError(error)}`, error),
       )
   }
 
@@ -214,9 +288,10 @@ function createSwitcher(log: Log, registry: PresetRegistry, sealed: () => boolea
     sync,
     dispose: () => {
       disposed = true
-      const stop = unregister
-      unregister = undefined
-      if (stop !== undefined) void stop().catch(() => {})
+      const stops = [unregisterMain, unregisterFunctional]
+      unregisterMain = undefined
+      unregisterFunctional = undefined
+      for (const stop of stops) if (stop !== undefined) void stop().catch(() => {})
     },
   }
 }
