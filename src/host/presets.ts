@@ -21,7 +21,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 
-import type { Log } from './log.js'
+import { describeError, reportBootFailure, type Log } from './log.js'
 
 /** 我们注册的预设 id（静态默认值也指向它）。 */
 export const HUMANITY_PRESET_ID = 'humanity'
@@ -80,7 +80,7 @@ function contentOnly(readOnly: boolean): Entry[] {
       name: '@deepseek-ai/dsh-tool-fs',
       config: readOnly ? { write: false, edit: false, applyPatch: false } : {},
     },
-    { id: 'tool-fs-search', name: '@deepseek-ai/dsh-tool-fs-search' },
+    { id: 'tool-fs-search', name: '@deepseek-ai/dsh-tool-fs-search', config: { sampleOverCapGlobResults: false } },
     { id: 'tool-web', name: '@deepseek-ai/dsh-tool-web', config: { fetch: true } },
     { id: 'tool-ask-user', name: '@deepseek-ai/dsh-tool-ask-user' },
   ]
@@ -132,12 +132,46 @@ type Mode = 'minimal' | 'immersive'
  * @returns 句柄；注册表缺席时是空实现（插件其余功能照常）。
  */
 export function installPresets(ctx: Context, log: Log, sealed: () => boolean): PresetHandle {
-  const registry = ctx.get('agentPresets') as PresetRegistry | undefined
-  if (registry === undefined || typeof registry.register !== 'function') {
-    log.warn('agentPresets 服务缺席：humanity 预设未注册（人格与工具照常，只是少了预设切换）')
-    return { sync: () => {}, dispose: () => {} }
-  }
+  /**
+   * ⚠️ **必须走 `ctx.inject` 等它就绪**（2026-11-14 真机实测）：
+   * `agentPresets` 是 `TypertRemoteService`，它在自己的 `[Service.init]` 里才对外可用；
+   * humanity 的 `apply()` 跑得更早，此时 `ctx.get('agentPresets')` 拿到的是 `undefined` ——
+   * 症状就是"设置页的自定义里根本没有 humanity 预设"，而且没有任何可见报错。
+   * `ctx.inject` 是**软**依赖：服务一直不来就只是这段能力不生效，不会让插件停在 waiting。
+   */
+  let handle: PresetHandle | undefined
 
+  // 注入回调的返回值是"服务消失时"的清理动作；插件整体卸载由调用方的 ctx.effect 负责。
+  ctx.inject(['agentPresets'], (sctx) => {
+    const registry = (sctx as unknown as { agentPresets?: PresetRegistry }).agentPresets
+    if (registry === undefined || typeof registry.register !== 'function') {
+      reportBootFailure(
+        log,
+        'humanity 预设未注册：agentPresets 已就绪但缺 register 方法（接口变了？）',
+        new Error('agentPresets.register unavailable'),
+      )
+      return
+    }
+    handle = createSwitcher(log, registry, sealed)
+    return () => handle?.dispose()
+  })
+
+  return {
+    sync: () => handle?.sync(),
+    dispose: () => {
+      handle?.dispose()
+      handle = undefined
+    },
+  }
+}
+
+/**
+ * 真正干活的那一半：拿到注册表之后才创建。
+ * @param log - 日志门面。
+ * @param registry - 已就绪的预设注册表。
+ * @param sealed - 人格是否已封存（现读）。
+ */
+function createSwitcher(log: Log, registry: PresetRegistry, sealed: () => boolean): PresetHandle {
   let current: Mode | undefined
   let unregister: (() => Promise<void>) | undefined
   let disposed = false
@@ -151,15 +185,21 @@ export function installPresets(ctx: Context, log: Log, sealed: () => boolean): P
       await stop()
     }
     if (disposed) return
-    unregister = await registry.register({
-      id: HUMANITY_PRESET_ID,
-      description:
-        mode === 'minimal'
-          ? '第一次见面：只能读文件、搜索与提问。给出名字与性格之前，做不了别的事。'
-          : '沉浸式陪伴：能读能写、能联网、能定时提醒。工具闸只放行 Humanity 自己的工具。',
-      order: 0,
-      plugins: mode === 'minimal' ? minimalPlugins() : immersivePlugins(),
-    })
+    try {
+      unregister = await registry.register({
+        id: HUMANITY_PRESET_ID,
+        description:
+          mode === 'minimal'
+            ? '第一次见面：只能读文件、搜索与提问。给出名字与性格之前，做不了别的事。'
+            : '沉浸式陪伴：能读能写、能联网、能定时提醒。工具闸只放行 Humanity 自己的工具。',
+        order: 0,
+        plugins: mode === 'minimal' ? minimalPlugins() : immersivePlugins(),
+      })
+    } catch (error) {
+      reportBootFailure(log, `humanity 预设注册失败（${mode}）：${describeError(error)}`, error)
+      current = undefined
+      return
+    }
     current = mode
     log.info(`humanity 预设已注册：${mode === 'minimal' ? '极简（未封存）' : '沉浸式（已封存）'}`)
   }
@@ -170,7 +210,9 @@ export function installPresets(ctx: Context, log: Log, sealed: () => boolean): P
     if (want === current) return
     queue = queue
       .then(() => apply(want))
-      .catch((error: unknown) => log.warn(`humanity 预设切换失败（保持上一套清单）`, error))
+      .catch((error: unknown) =>
+        reportBootFailure(log, `humanity 预设切换失败（保持上一套清单）：${describeError(error)}`, error),
+      )
   }
 
   // 注册是异步的：先排进队列，避免与首次同步竞争。

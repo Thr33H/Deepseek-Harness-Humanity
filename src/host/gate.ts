@@ -23,8 +23,15 @@ import type { Context } from '@deepseek-ai/cordis'
 /** Cordis 插件名（诊断用）。 */
 export const name = 'humanity-gate'
 
-/** 闸只依赖工具表，不声明硬依赖：缺席就静默不生效。 */
-export const inject: string[] = []
+/**
+ * 闸依赖工具表。
+ *
+ * ⚠️ 必须**声明** `inject: ['tools']`（2026-11-14 真机实测）：cordis 不允许在没有注入声明时
+ * 读 `ctx.tools`，报错是 `cannot get property "tools" without inject` —— 而那一行在注册表里
+ * 表现为整个预设 `broken`，界面上只会看到"预设不可用"。
+ * 这是预设内的插件，工具表一定存在；真的缺席时 cordis 会让它停在 waiting，不拖累别人。
+ */
+export const inject = ['tools']
 
 /** 配置：与 `dsh-tools` 的 `ToolRestriction` 同形。 */
 export interface GateConfig {
