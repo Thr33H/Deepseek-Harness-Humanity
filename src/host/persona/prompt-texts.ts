@@ -58,7 +58,6 @@ export function uninitializedPrompt(today: string): string {
     '- 读对方给你的文件和图片（read / read_image）',
     '- 在这个目录里找东西（glob / grep）',
     '- 上网查资料（web_search / web_fetch）',
-    '- 需要对方做决定时问他（ask_user_question）',
     '',
     '除此之外你做不了别的 —— 你还不知道自己是谁，也就还没有别的本事。',
     '不要承诺任何你现在做不到的事。',

@@ -25,6 +25,7 @@ import { createModuleRegistry, describeModules, MODULES, type Disposer, type Mod
 import { migrateLegacyDocuments } from './migrate.js'
 import { createPlaneSettings, installPlaneSettings } from './plane-settings.js'
 import { installPresets, type PresetHandle } from './presets.js'
+import { installPromptFilter } from './prompt-filter.js'
 import { createCompatState } from './preset-compat.js'
 import { installSettings, SETTINGS_NAMESPACE } from './settings.js'
 import { installMemory } from './memory/index.js'
@@ -192,6 +193,8 @@ export function apply(ctx: Context, config: HumanityConfig): void {
 
   // 净室排除：极简会话拒绝 Humanity 工具（complete 吞 prompt 不吞工具目录，工具层由 guard 兜底）。
   installExclusionGuard(ctx, log)
+  // 工具使用说明（`tool:*` 段）从提示词里整体去掉：它们是英文操作指南，对陪伴是噪音。
+  installPromptFilter(ctx, log)
 
   // 人格模块：**一个入口**装配它的全部子件（设置命名空间 / Agent 工具 / 系统提示词注入）。
   // ⛔ 注入模块内部**只**声明 `systemPrompt` 依赖 —— 声明 `agents` 会让每个会话都创建失败

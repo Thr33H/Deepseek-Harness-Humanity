@@ -87,7 +87,8 @@ function contentOnly(readOnly: boolean): Entry[] {
     },
     { id: 'tool-fs-search', name: '@deepseek-ai/dsh-tool-fs-search', config: { sampleOverCapGlobResults: false } },
     { id: 'tool-web', name: '@deepseek-ai/dsh-tool-web', config: { fetch: true } },
-    { id: 'tool-ask-user', name: '@deepseek-ai/dsh-tool-ask-user' },
+    // 不用 tool-ask-user（2026-11-15 用户裁定）：「弹出一个提问框」会把对话切成办手续，
+    // 破坏沉浸感。要问就直接在话里问。
   ]
 }
 
