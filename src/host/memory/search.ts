@@ -1,11 +1,11 @@
 /**
- * 本地检索引擎：给定当前用户发话，从活跃记忆里挑出最相关的 0–N 条。
+ * 本地检索引擎：给定当前对方发话，从活跃记忆里挑出最相关的 0–N 条。
  *
- * 单一方向：`用户发话` → {@link tokenize} → {@link scoreEntry} 打分 → 阈值筛 → 取前 N
+ * 单一方向：`对方发话` → {@link tokenize} → {@link scoreEntry} 打分 → 阈值筛 → 取前 N
  * → `MemoryStore.markUsed`（为 P-026 的衰减提供"最近有没有用过"）。
  *
  * 四条硬约束（改动前先读）：
- * 1. **不调用模型做查询改写**（P-029）：查询就是用户那句话本身，分词是本地规则；
+ * 1. **不调用模型做查询改写**（P-029）：查询就是对方那句话本身，分词是本地规则；
  * 2. **只查 `active`**（P-026）：归档记忆默认不参与检索，要看得去工作台手动调回；
  * 3. **会话记忆不跨会话**（§4.2.1）：别的会话的会话记忆一律不参与，哪怕关键词全中；
  * 4. **作用域开关即时生效**（P-030）：被关掉的层不参与，和"模式 off"是同一套策略对象。
@@ -22,7 +22,7 @@ import type { MemoryEntry, MemoryPolicy } from './types.js'
 
 /** 一次检索的输入。 */
 export interface SearchQuery {
-  /** 当前用户发话（原样，不做改写）。 */
+  /** 当前对方发话（原样，不做改写）。 */
   message: string
   /** 当前会话 id。 */
   sessionId: string
@@ -64,7 +64,7 @@ function isEligible(entry: MemoryEntry, query: SearchQuery, policy: MemoryPolicy
 
 /**
  * 排序：分数降序，然后重要度、更新时间降序，最后指纹升序 —— 同分时结果也必须稳定，
- * 否则同一句话两轮注入的顺序会不一样（提示词缓存与用户观感都会抖）。
+ * 否则同一句话两轮注入的顺序会不一样（提示词缓存与对方观感都会抖）。
  */
 function compareScored(
   left: { entry: MemoryEntry; score: number },

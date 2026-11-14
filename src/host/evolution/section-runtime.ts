@@ -4,9 +4,9 @@
  * 队列存在的理由与记忆相同：投影本身也会触发 `onChange`；不串行的话，"客户端发第二条命令"
  * 与"宿主投影第一条的结果"会交叉，谁最后写 `request`，另一方的命令就被吃掉。
  *
- * 投影里有一条刻意的取舍：提案**不裁剪 pending**（用户的待办一条都不能少），
+ * 投影里有一条刻意的取舍：提案**不裁剪 pending**（对方的待办一条都不能少），
  * 已处理（approved/rejected/applied）的只带最近 {@link DECIDED_VIEW_CAP} 条——
- * 提案是用户资产不自动删（存储里全量保留），但设置文档不该无限膨胀。
+ * 提案是对方资产不自动删（存储里全量保留），但设置文档不该无限膨胀。
  * @module humanity/evolution/section-runtime
  */
 import type { SettingsProvider } from '@deepseek-ai/dsh-settings'
@@ -77,7 +77,7 @@ export function shouldClearRequest(live: EvolutionRequest | undefined, consumed:
   if (live.op === '') return true
   if (consumed === undefined) return false
   // **逐字段**比对（2026-09-26 审计抓到的静默丢命令）：原先只比少数几个键，于是"第一条命令的
-  // 投影"会把窗口内提交的第二条命令一起清掉，用户按了保存却什么都没发生。
+  // 投影"会把窗口内提交的第二条命令一起清掉，对方按了保存却什么都没发生。
   // 写法上不写死字段名：任一侧多出的键都参与比较，以后加字段不会再漏。
   const keys = new Set([...Object.keys(live), ...Object.keys(consumed)])
   return [...keys].every(

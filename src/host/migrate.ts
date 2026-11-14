@@ -7,7 +7,7 @@
  * 我们的四个命名空间（`humanity-*` 与 `humanity`）在新版本里**没有同名 Loader 条目**，
  * 于是被判为"无归属段落"，内容**只留在改名后的文件里**。
  * 其中最要紧的是 `humanity-persona`：人格文档本体就在那儿，插件自己的存储域里只有历史表。
- * 不迁移 = 信息回落到默认值 = 用户眼里的数据丢失。
+ * 不迁移 = 信息回落到默认值 = 对方眼里的数据丢失。
  *
  * ### 纪律
  *
@@ -108,7 +108,7 @@ export async function migrateLegacyDocuments(
       continue
     }
     if (documents.read(ns) !== undefined) {
-      // 幂等：已经搬过就不再动（也绝不覆盖用户在新版本里改过的内容）。
+      // 幂等：已经搬过就不再动（也绝不覆盖对方在新版本里改过的内容）。
       skipped.push(ns)
       continue
     }

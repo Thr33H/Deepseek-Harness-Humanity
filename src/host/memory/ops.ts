@@ -45,7 +45,7 @@ export const MEMORY_OPS: readonly MemoryOp[] = [
   // 手动维护：工作台的"清理重复条目"按钮（判据与写入路径同一套，见 similar.ts）。
   'dedupe',
   'undo-dedupe',
-  // 改归属：用户在工作台上把一条记忆在「长期」与「区域」之间改（用户 2026-09-26 令）。
+  // 改归属：对方在工作台上把一条记忆在「长期」与「区域」之间改（对方 2026-09-26 令）。
   'rescope',
 ]
 
@@ -62,7 +62,7 @@ export interface MemoryRequest {
 /** 没有待执行命令时的取值。 */
 export const EMPTY_REQUEST: MemoryRequest = { op: '', fingerprint: '', scope: '', ownerId: '' }
 
-/** 固定/取消固定：`pinned` 是用户标记，标记过的条目不参与衰减（P-026）。 */
+/** 固定/取消固定：`pinned` 是对方标记，标记过的条目不参与衰减（P-026）。 */
 async function setPinned(store: MemoryStore, fingerprint: string, pinned: boolean): Promise<string> {
   const current = store.get(fingerprint)
   if (current === undefined) return '这条记忆已经不存在了（可能刚被删除）。'
@@ -143,7 +143,7 @@ async function decayOnce(store: MemoryStore, policy: MemoryPolicy): Promise<stri
 }
 
 /**
- * 改一条记忆的**归属**（用户 2026-09-26：作用域判断不能只由模型说了算）。
+ * 改一条记忆的**归属**（对方 2026-09-26：作用域判断不能只由模型说了算）。
  *
  * 三件事必须一起做对，缺一个就会留下脏数据：
  * - **指纹随作用域变**（\`dedupeKey = scope:正文\`）⇒ 先删旧键、再写新键；
@@ -153,7 +153,7 @@ async function decayOnce(store: MemoryStore, policy: MemoryPolicy): Promise<stri
  * @param fingerprint - 目标条目的当前指纹。
  * @param scope - 目标作用域（只接受 long-term / workspace）。
  * @param ownerId - 目标区域 id（改成区域时必填）。
- * @returns 面向用户的结论。
+ * @returns 面向对方的结论。
  */
 async function rescopeOne(
   store: MemoryStore,
@@ -187,7 +187,7 @@ async function rescopeOne(
  * @param policy - 当前生效策略（"整理"要不要跑由它决定）。
  * @param request - 工作台发来的命令。
  * @param undo - 合并的撤销槽（宿主持有；缺省时合并仍可用，只是撤不回来）。
- * @returns 面向用户的结论（成功与失败都返回一句话，由工作台原样展示）。
+ * @returns 面向对方的结论（成功与失败都返回一句话，由工作台原样展示）。
  */
 export async function applyMemoryRequest(
   store: MemoryStore,

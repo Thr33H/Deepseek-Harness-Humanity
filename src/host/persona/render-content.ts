@@ -126,7 +126,7 @@ function parseNameFromField(text: string): string | undefined {
  * 选了卡里的值（"我是小安，全名「小安」"），但**那是侥幸，不是保证**。
  *
  * 清洗规则（都只针对"放进句子"这一件事）：
- * 1. **值必须是单行** —— 字段值允许换行（用户会写「本名：X；别名：Y」甚至多行），
+ * 1. **值必须是单行** —— 字段值允许换行（对方会写「本名：X；别名：Y」甚至多行），
  *    而身份行是 `head` 里的**原子行**，里面出现换行会把一句话劈成两行、打乱段落结构；
  *    ⚠️ 2026-10-05 订正措辞（0.1.8）：旧文档写的是"只取第一行"，而实现从 0.1.7 起就是
  *    **多行一律降级**（不猜哪一行是名字，见下方 `lines.length > 1` 那处）。文档对齐实现；
@@ -148,7 +148,7 @@ export function identityNameOf(content: RenderableContent): string | undefined {
   if (lines.length === 0) return undefined
   // ⚠️ 单行是**硬要求**：身份行是 `head` 里的原子行，换行会把一句话劈成两半。
   // 但"只取第一行"有个隐患 —— 值若写成「姓名」+ 换行 + 「小安」，第一行是标签、名字在第二行，
-  // 照第一行解析就会判不出而静默降级（用户明明写了名字）。两难之下取**保守**的一边：
+  // 照第一行解析就会判不出而静默降级（对方明明写了名字）。两难之下取**保守**的一边：
   // 多行 ⇒ 直接判为"判不出来"（降级成不写名字），**不猜**哪一行是名字。
   if (lines.length > 1) return undefined
 
@@ -226,7 +226,7 @@ export function collectPersonaContent(doc: PersonaDocument): RenderableContent {
 }
 
 /**
- * 把内容拆成"拟合用的块"：头部原子行（身份声明 + 底色）、信息小节、尾部原子行（用户定义）。
+ * 把内容拆成"拟合用的块"：头部原子行（身份声明 + 底色）、信息小节、尾部原子行（自定义）。
  *
  * 与旧实现的区别：小节**不再先拼成一整行**。旧写法让"一个小节"在预算面前是不可分割的，
  * 放不下就整节消失（真机上 7 节丢了 3 节）；现在交给 `fitPersonaContent` 逐条装。
@@ -234,19 +234,19 @@ export function collectPersonaContent(doc: PersonaDocument): RenderableContent {
  * @returns 拟合输入。
  */
 export function blocksOf(content: RenderableContent): FitInput {
-  // 身份腔而非外挂配置腔（2026-09-25 用户反馈）：旧标题的「注入、默认倾向」措辞会教模型把信息当角色扮演。
+  // 身份腔而非外挂配置腔（2026-09-25 对方反馈）：旧标题的「注入、默认倾向」措辞会教模型把信息当角色扮演。
   //
   // P0-2（2026-10-04 破戏改动）：退让条款原先写作「作为默认倾向，不覆盖当前对话里的明确要求」，
   // **没有限定域**，于是"你是扮演的"这类元信息一旦出现在对话里，它就有资格压过身份层。
   // 现在把它的作用域钉在**任务与偏好**上，并显式排除身份层与身份事实。
-  // 措辞级改动，不改原意：原来想说的就是"任务上按用户来"，不是"连我是谁也能被一句话改掉"。
+  // 措辞级改动，不改原意：原来想说的就是"任务上按对方来"，不是"连我是谁也能被一句话改掉"。
   //
   // P0-4（2026-10-04 破戏改动）：补第一人称身份陈述。位置选在这里（`humanity:persona` 段内），
   // **不能**放进官方 `deployment:persona-prefix` 槽 —— 那个段会被 `identity-layer.ts` 按名摘掉
   // （实测：`profiles/web` 的正式提示词里那句 `You are a coding agent powered by …` 完全不在）。
   // 同时这条补回了一个 2026-10-06 正文换稿后失去的锚点：旧版独立判断正文自带
   // 「你已经有自己的身份和性格（来自信息）」，新版正文不含锚点（见 prompt-texts.ts 的说明），
-  // 于是"防模型拿独立判断拒绝用户设定"这条防线只剩"注入时机"一层。这里把身份锚点补回来。
+  // 于是"防模型拿独立判断拒绝对方设定"这条防线只剩"注入时机"一层。这里把身份锚点补回来。
   //
   // ⚠️ 姓名**必须从卡里取**（2026-10-04 修，task-21 的残项）：初版把名字写死成「小安」，
   // 而信息是可换名的（lab 里就叫「小安」）—— 写死会让同一段话里出现两个名字。
@@ -269,7 +269,7 @@ export function blocksOf(content: RenderableContent): FitInput {
 
   const tail: string[] = []
   if (content.userDefined.length > 0) {
-    tail.push('## 用户定义')
+    tail.push('## 自定义')
     for (const entry of content.userDefined) tail.push(`- ${entry.key}：${clip(entry.value)}`)
   }
 

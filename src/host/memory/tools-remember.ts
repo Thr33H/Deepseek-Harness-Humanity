@@ -5,7 +5,7 @@
  * 这里写的是**记忆条目**（多条、按指纹去重、参与检索与注入）。两者共用"失败也返回结构化结果"的契约。
  *
  * 参数里最重要的一条：`sensitivity: 'sensitive'` 的内容**只进待确认**（P-033），
- * 用户确认之前不参与检索与注入；`origin` 区分"用户明确说的"（置信度记满）与"Agent 推断的"。
+ * 对方确认之前不参与检索与注入；`origin` 区分"对方明确说的"（置信度记满）与"Agent 推断的"。
  * @module humanity/memory/tools-remember
  */
 import type { defineTool as defineToolType } from '@deepseek-ai/dsh-tools'
@@ -28,12 +28,12 @@ export const MEMORY_REMEMBER_TOOL = 'humanity_remember'
  * 既贵又不透明。让 Agent 在识别到信号时显式调用，写入就有一个可审计的动作与一条工具结果。
  */
 const REMEMBER_DESCRIPTION =
-  '把值得长期记住的信息写进记忆。**主动调用**：当你识别到用户的长期偏好、对用户的称呼、' +
+  '把值得长期记住的信息写进记忆。**主动调用**：当你识别到对方的长期偏好、对TA的称呼、' +
   '稳定事实（职业、项目名）、长期目标或固定约定时，直接调用本工具记录，不要为此再问一次。' +
   '不要记录一次性内容、寒暄、临时状态或整段对话原文（记忆只存摘要与事实）。' +
-  '敏感信息（密码、密钥、财务、健康、隐私地址、身份号码等）只有用户明确说"记住"时才调用，' +
-  '并把 sensitivity 设为 sensitive —— 它会进入待确认，用户确认前不会生效。' +
-  'origin 用 user-stated 表示"用户明确说过的"（置信度记满），用 agent-derived 表示你自己推断的（默认）。' +
+  '敏感信息（密码、密钥、财务、健康、隐私地址、身份号码等）只有对方明确说"记住"时才调用，' +
+  '并把 sensitivity 设为 sensitive —— 它会进入待确认，对方确认前不会生效。' +
+  'origin 用 user-stated 表示"对方明确说过的"（置信度记满），用 agent-derived 表示你自己推断的（默认）。' +
   '若当前会话的系统提示词里没有任何 Humanity 人格段落（例如极简模式），不要调用本工具。'
 
 /**
@@ -61,12 +61,12 @@ const REMEMBER_PARAMETERS = {
   sensitivity: {
     type: 'string',
     enum: MEMORY_SENSITIVITIES,
-    description: 'normal 普通（默认）/ sensitive 敏感（进待确认，用户确认前不生效）',
+    description: 'normal 普通（默认）/ sensitive 敏感（进待确认，对方确认前不生效）',
   },
   origin: {
     type: 'string',
     enum: MEMORY_ORIGINS,
-    description: 'user-stated 用户明确说过 / agent-derived 你自己推断（默认）',
+    description: 'user-stated 对方明确说过 / agent-derived 你自己推断（默认）',
   },
 } as const
 

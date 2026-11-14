@@ -14,7 +14,7 @@
  * | 重要度 | 0.10 | `importance / IMPORTANCE_MAX`（P-026 把重要度当稳定信号用） |
  * | 新鲜度 | 0.10 | 距最近一次使用/更新越近越高，线性衰减到 `DECAY_UNUSED_DAYS` 归零 |
  * | 使用频率 | 0.05 | P-031：只影响排序，**不因为高频就注入** |
- * | 置信度 | 0.05 | 用户明确说出的（=1）比 Agent 推断的（<1）略优先 |
+ * | 置信度 | 0.05 | 对方明确说出的（=1）比 Agent 推断的（<1）略优先 |
  *
  * 权重刻意都为正、且不设"一票否决"：任何单一信号都不该单独决定注入。
  * @module humanity/memory/scoring
@@ -89,7 +89,7 @@ function tagScore(input: ScoreInput): number {
 /**
  * 作用域信号（§4.2.1：会话 > 工作 > 长期）。
  *
- * 长期记忆在**没有工作区上下文**时给 0.5：那种场合下用户要的正是"稳定偏好"，
+ * 长期记忆在**没有工作区上下文**时给 0.5：那种场合下对方要的正是"稳定偏好"，
  * 而工作记忆连归属都对不上，给 0。
  */
 function scopeScore(entry: MemoryEntry, context: SearchContext): number {

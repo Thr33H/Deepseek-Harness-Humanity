@@ -30,13 +30,13 @@ export interface ApprovalSeam {
 /**
  * 确认请求被拒 / 取消 / 不可用时，分别对 Agent 说的一句话。
  *
- * 三句话都**不**指向任何页面：真机踩过"把用户指向一个不存在的确认入口"的死结，
+ * 三句话都**不**指向任何页面：真机踩过"把对方指向一个不存在的确认入口"的死结，
  * 这里只说清事实（谁拒绝的、为什么没写），让 Agent 用它自己的语气转达。
  */
 export const OUTCOME_REASON: Record<Exclude<ApprovalOutcome, 'allowed-once'>, string> = {
-  rejected: '用户拒绝了这次改动，没有写入。',
+  rejected: '对方拒绝了这次改动，没有写入。',
   cancelled: '这次改动被取消，没有写入。',
-  unavailable: '当前环境没有可用的确认入口，所以没有写入。请告诉用户这一改动需要他确认。',
+  unavailable: '当前环境没有可用的确认入口，所以没有写入。请告诉对方这一改动需要他确认。',
 }
 
 /**
@@ -48,7 +48,7 @@ export const OUTCOME_REASON: Record<Exclude<ApprovalOutcome, 'allowed-once'>, st
  * @param exec - 工具执行上下文（带上 agent 与 callId 才能问对人和对话）。
  * @param toolName - 发起确认的工具名。
  * @param log - 日志门面。
- * @param reason - 给用户看的一句话理由。
+ * @param reason - 给对方看的一句话理由。
  * @returns 审批结论。
  */
 export async function requestApproval(

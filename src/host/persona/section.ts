@@ -2,7 +2,7 @@
  * 人格文档的设置命名空间接线（裁决 3：复用 settings RPC，不新建 gateway）。
  *
  * 为什么用**独立的**命名空间 `humanity-persona` 而不是塞进 `humanity`：一个是开关（schema 化的配置），
- * 一个是内容（用户长期持有的数据）。混在一起会让设置文档里出现一大块内容、也让"改开关"与"改人格"
+ * 一个是内容（对方长期持有的数据）。混在一起会让设置文档里出现一大块内容、也让"改开关"与"改人格"
  * 共用一份写入校验。
  *
  * 为什么写入用 `replace` 而不是 `update`：P-017 要求信息的修改是**重新生成完整当前快照**，
@@ -43,7 +43,7 @@ export interface PersonaSection {
    * 写入一份完整快照。
    * @param next - 待写入的文档（会被规范化）。
    * @param source - 写入来源，决定校验强度。
-   * @param options - `confirmed`：用户已在对话里确认放行的问题代码（白名单见 `constants.ts`）。
+   * @param options - `confirmed`：对方已在对话里确认放行的问题代码（白名单见 `constants.ts`）。
    * @throws PersonaWriteRejected 当校验出现 rejected 级问题时。
    */
   write(next: PersonaDocument, source: WriteSource, options?: ValidateOptions): Promise<void>

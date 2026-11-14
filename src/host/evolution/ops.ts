@@ -5,7 +5,7 @@
  * 结论如实返回（一句话通知），不抛异常；所有操作幂等（重复到达不产生第二次副作用）。
  *
  * `run`/`rescan` 是**发射后不管**：整理运行可能持续几分钟，命令消费队列不能被它占住
- * （否则这期间用户点"批准提案"都没响应）。启动结果立刻回通知；运行结局进时间线，
+ * （否则这期间对方点"批准提案"都没响应）。启动结果立刻回通知；运行结局进时间线，
  * 失败由 runner 记账、投影刷新带出去。批准/拒绝/删除是快操作，照常等待结果。
  * @module humanity/evolution/ops
  */
@@ -63,7 +63,7 @@ function rescanRangeOf(request: EvolutionRequest): RescanRange | undefined {
 
 /** 发射一次运行：立即回通知，结局异步进时间线（失败也要刷投影，让原因可见）。 */
 function launchRun(ops: EvolutionOps, mode: 'incremental' | 'dream', rescan?: RescanRange): string {
-  // 互斥预检：runner 的闸仍然是最终裁决，这里只是让"已经在跑"立刻回到用户眼前，
+  // 互斥预检：runner 的闸仍然是最终裁决，这里只是让"已经在跑"立刻回到对方眼前，
   // 而不是被发射后不管的 catch 吞掉。
   if (ops.runner.current() !== undefined) return '已有一次整理在运行，等它结束再试（时间线可看进度）。'
   const label = rescan === undefined ? (mode === 'dream' ? '梦境整理' : '增量整理') : '回扫整理'
@@ -75,7 +75,7 @@ function launchRun(ops: EvolutionOps, mode: 'incremental' | 'dream', rescan?: Re
 }
 
 /**
- * 执行一条命令并返回给用户看的结论。
+ * 执行一条命令并返回给对方看的结论。
  * @param ops - 动作面。
  * @param request - 命令。
  */

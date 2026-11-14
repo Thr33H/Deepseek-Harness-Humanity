@@ -5,7 +5,7 @@
  *
  * 1. **`section.text` 是同步函数**（`PromptSection.text`），所以检索必须在回调里**同步**完成
  *    —— 这就是 `search.ts` 把"选条目"（{@link rankMemories}）与"记使用"（异步写盘）拆开的原因。
- * 2. **当前用户消息从 `agent/inbox/claimed` 事件里拿**：装配上下文（`AssembleContext`）只有
+ * 2. **当前对方消息从 `agent/inbox/claimed` 事件里拿**：装配上下文（`AssembleContext`）只有
  *    `scope`/`signal`，**没有消息**；而 agent loop 的 `preStep` 是**先 claim（同步 emit 该事件）、
  *    再 assemble**（`dsh-agent-loop/lib/index.js:888-890`）。所以监听事件缓存"这句话"，
  *    紧接着的这次装配就能读到它 —— 不需要读会话日志，也不会有"晚一轮"的错位。
@@ -48,7 +48,7 @@ export const MEMORY_SECTION_ORDER = 20
  * 比在提示词里写一堆规则更可靠（写死了它就会照着规则硬套）。
  *
  * ### 召回义务子句的来由（真机事故，不是防御性补充）
- * 2026-09-25 TEST 会话取证：用户问"回忆一下我住哪（剧情里）"，模型把**自动注入的那一两条
+ * 2026-09-25 TEST 会话取证：对方问"回忆一下我住哪（剧情里）"，模型把**自动注入的那一两条
  * 记忆当成记忆库全部**，在此之上即兴补细节并以"我记得"的口吻陈述（会话日志 turn5/turn6，
  * 模型自述："我拿系统塞给我的那两条当成了全部，没想到底下还有几条"）。
  * 工具描述里的触发条件（"当前上下文里没有时才查"）恰好被注入块满足，于是永不触发。
@@ -56,11 +56,11 @@ export const MEMORY_SECTION_ORDER = 20
  * 查无即未定，即兴内容不得冒充记忆。规则抽象表述（G-003），不举单点例子。
  */
 export const MEMORY_GUIDANCE =
-  '【记忆】识别到用户的长期偏好、对用户的称呼、稳定事实（职业、项目名）、长期目标或固定约定时，' +
+  '【记忆】识别到对方的长期偏好、对TA的称呼、稳定事实（职业、项目名）、长期目标或固定约定时，' +
   `主动调用 ${MEMORY_REMEMBER_TOOL} 记下来，不要为此再问一次，也不要记录寒暄、一次性内容或整段对话原文。` +
-  '敏感信息（密码、密钥、财务、健康、隐私地址、身份号码）只有用户明确说"记住"时才记，' +
-  '并标记为敏感 —— 它会进入待确认，用户确认之前不生效。' +
-  `自动注入的记忆块只是与本轮最相关的少数线索，**不是记忆库全部**：当用户要你回忆、核对或补充` +
+  '敏感信息（密码、密钥、财务、健康、隐私地址、身份号码）只有对方明确说"记住"时才记，' +
+  '并标记为敏感 —— 它会进入待确认，对方确认之前不生效。' +
+  `自动注入的记忆块只是与本轮最相关的少数线索，**不是记忆库全部**：当对方要你回忆、核对或补充` +
   `过去定过的设定、约定或事实，或你准备以"我记得/上次/之前我们定过"的口吻断言时，` +
   `先调用 ${MEMORY_RECALL_TOOL} 检索再回答；检索没有的就是没有——明说尚未定过，` +
   '不得把即兴发挥、推测或本会话临时铺陈的内容当作记忆陈述。'
@@ -88,7 +88,7 @@ export interface MemoryInjectionDeps {
 export function installMemoryInjection(ctx: Context, log: Log, deps: MemoryInjectionDeps): () => void {
   let disposeAll: (() => void) | undefined
   const isMainAgent = createMainAgentJudge(ctx, log)
-  /** 每个 agent 最近一次"被 claim 的用户消息"。用 WeakMap：会话结束即随之释放。 */
+  /** 每个 agent 最近一次"被 claim 的对方消息"。用 WeakMap：会话结束即随之释放。 */
   const latestMessage = new WeakMap<object, string>()
 
   // 事件声明在 `dsh-agent` 的类型里，而本插件不依赖那个包（G-002），所以按结构监听：
@@ -152,7 +152,7 @@ function renderSectionText(context: unknown, runtime: SectionRuntime): string {
 
     const guidance = canRemember(policy) ? MEMORY_GUIDANCE : ''
     const block = renderBlock(subject, latestMessage.get(subject) ?? '', deps, policy, log)
-    // 中和 `{{`：记忆正文由模型/用户写入，可能是代码片段或模板语法；DSH 的变量插值遇到
+    // 中和 `{{`：记忆正文由模型/对方写入，可能是代码片段或模板语法；DSH 的变量插值遇到
     // 解析不了的 `{{…}}` 会抛错，而装配路径没有兜底（审计 S1-3）。
     return neutralizePromptVars([guidance, block].filter((part) => part !== '').join('\n\n'))
   } catch (error) {

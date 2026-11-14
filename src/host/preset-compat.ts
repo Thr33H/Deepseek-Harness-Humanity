@@ -46,7 +46,7 @@ interface AssembleProbe {
  * 探测自己的 section 在**给定作用域**下是否被 `complete` 替换掉。
  *
  * 失败（服务形状不对、装配抛错）一律当"没探测到"：**宁可少提示，也不要误报**
- * —— 误报会让用户去改一个本来正常的配置。
+ * —— 误报会让对方去改一个本来正常的配置。
  * @param systemPrompt - 系统提示词服务（结构读取）。
  * @param name - 自己刚注册的 section 名。
  * @param state - 写入探测结果的共享状态。

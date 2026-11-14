@@ -36,7 +36,7 @@ export interface StreamTextInput {
   route: ModelRoute
   /** 系统提示（解析规则在这，正文在 text）。 */
   system: string
-  /** 用户消息正文（会话摘要）。 */
+  /** 对方消息正文（会话摘要）。 */
   text: string
   maxTokens: number
   /** 单次调用的墙钟上限（毫秒）。 */
@@ -49,7 +49,7 @@ export interface StreamTextInput {
 export interface LlmAccess {
   /**
    * 解析当前可用的调用路由；不可用（服务缺席/未配置/provider 未注册）返回 `undefined`。
-   * 每次现读：用户改了默认模型，下一次运行就用新路由。
+   * 每次现读：对方改了默认模型，下一次运行就用新路由。
    */
   route(): ModelRoute | undefined
   /** 发起一次流式调用并收集完整结果；任何失败都抛（调用方负责记账）。 */

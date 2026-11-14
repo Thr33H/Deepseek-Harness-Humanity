@@ -1,7 +1,7 @@
 /**
  * `humanity_persona_update`：重新生成信息的完整快照（P-017）。
  *
- * 唯一会"先问再写"的工具：这次快照若会删掉用户已有的内容，必须先在**当前对话**里确认。
+ * 唯一会"先问再写"的工具：这次快照若会删掉对方已有的内容，必须先在**当前对话**里确认。
  * 语义表（漏传 vs 传空）见工具描述与 `tool-helpers.ts` 的 `completeSections`。
  * @module humanity/persona/update
  */
@@ -25,16 +25,16 @@ export const PERSONA_UPDATE_TOOL = 'humanity_persona_update'
 const UPDATE_DESCRIPTION =
   '更新人格信息（意识与经验层）。参数是快照，语义如下（**漏传与传空是两件不同的事**）：' +
   '① 某个小标题**完全不传** = **不动它**（保留当前内容，不需要回传原值）；' +
-  '② 传 `items: []` = **显式清空这一节**——这会删掉用户内容，本工具会在**当前对话**里弹确认框，' +
-  '用户点确认后才落盘；用户拒绝、或当前环境没有确认入口时，一律不删；' +
+  '② 传 `items: []` = **显式清空这一节**——这会删掉对方内容，本工具会在**当前对话**里弹确认框，' +
+  '对方点确认后才落盘；对方拒绝、或当前环境没有确认入口时，一律不删；' +
   '③ 传了条目 = 用这份条目替换该节。' +
   '标准小标题（对TA的称呼、说话风格、交付格式、行为边界、习惯与偏好、经验教训、情绪、未结修正）' +
-  '+ 兜底层「用户定义」；不支持追加补丁（给的是每节的完整条目列表，不是增量）；' +
+  '+ 兜底层「自定义」；不支持追加补丁（给的是每节的完整条目列表，不是增量）；' +
   '漏传的小标题原样保留，不会被清空。' +
   '底色已封存，参数里没有它，也不会被本工具修改；「姓名 / 性别 / 人格偏好」等底色字段名' +
-  '**不得**作为小标题或「用户定义」的键（会被拒绝）。' +
+  '**不得**作为小标题或「自定义」的键（会被拒绝）。' +
   '改变对TA的称呼是**普通改动**（一个人可以有多个称呼），直接写即可，不需要任何额外确认。' +
-  '「用户定义」里同名键会被拒绝（不静默覆盖）；被取代的旧内容会进入历史，历史不参与人格注入。' +
+  '「自定义」里同名键会被拒绝（不静默覆盖）；被取代的旧内容会进入历史，历史不参与人格注入。' +
   '若当前会话的系统提示词里没有任何 Humanity 人格段落（例如极简模式），不要调用本工具。'
 
 /** 一次调用用到的外部能力：人格读写入口 + 在当前对话里请求确认。 */
@@ -79,7 +79,7 @@ const UPDATE_PARAMETERS = {
   userDefined: {
     type: 'array',
     required: true,
-    description: '兜底层「用户定义」的完整键值对列表；能归类进标准小标题的项不要留在这里，没有就传空数组。',
+    description: '兜底层「自定义」的完整键值对列表；能归类进标准小标题的项不要留在这里，没有就传空数组。',
     items: {
       type: 'object',
       additionalProperties: false,
@@ -153,10 +153,10 @@ async function update(
 }
 
 /**
- * 被拒之后：只有"会删用户内容"这一类可确认项才去问，其余直接返回拒绝。
+ * 被拒之后：只有"会删对方内容"这一类可确认项才去问，其余直接返回拒绝。
  *
  * 为什么要比对"全部 rejected 都是可确认项"：混着结构错误时先让 Agent 把文档改对，
- * 否则用户点完确认仍然写不进去 —— 那是一次无意义的打扰。
+ * 否则对方点完确认仍然写不进去 —— 那是一次无意义的打扰。
  */
 async function confirmThenWrite(
   context: UpdateContext,
@@ -175,7 +175,7 @@ async function confirmThenWrite(
 
   const outcome = await context.confirm(
     exec,
-    `这次整理会删掉用户已有的内容：${confirmable.map((issue) => issue.path).join('、')}。是否继续？`,
+    `这次整理会删掉对方已有的内容：${confirmable.map((issue) => issue.path).join('、')}。是否继续？`,
   )
   if (outcome !== 'allowed-once') return refusal('update', current, OUTCOME_REASON[outcome], issues)
 
@@ -190,5 +190,5 @@ async function confirmThenWrite(
   }
 
   const written = context.persona.read()
-  return success('update', written, '已按用户在对话里的确认，删除了那一节的内容。', warningsOf(written))
+  return success('update', written, '已按对方在对话里的确认，删除了那一节的内容。', warningsOf(written))
 }

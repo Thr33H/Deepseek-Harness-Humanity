@@ -2,7 +2,7 @@
  * 分类写回的**提案生成助手**（从 `classify.ts` 拆出）：底色字段 → 提案。
  * 只提案、不落生效数据（P-038），生成动作都经 `ProposalFactory`（跨轮去重 + 落表）。
  *
- * 路由建议已随 M4 裁撤一并删除（用户 2026-09-26）：不再产出，也就不再为它花模型 token。
+ * 路由建议已随 M4 裁撤一并删除（对方 2026-09-26）：不再产出，也就不再为它花模型 token。
  * @module humanity/evolution/classify-proposals
  */
 import type { ClassifyContext, ProposalFactory } from './classify.js'
@@ -19,7 +19,7 @@ export function addFixedProposals(context: ClassifyContext, output: AnalysisOutp
       title: `底色字段：${fixed.fieldKey} → ${fixed.fieldValue}`,
       reason: fixed.reason,
       payload: { type: 'identity', fieldKey: fixed.fieldKey, fieldValue: fixed.fieldValue },
-      diff: `建议把「${fixed.fieldKey}」设为「${fixed.fieldValue}」（底色只能由用户确认后修改）`,
+      diff: `建议把「${fixed.fieldKey}」设为「${fixed.fieldValue}」（底色只能由对方确认后修改）`,
     })
     if (ok) created += 1
     else skipped += 1

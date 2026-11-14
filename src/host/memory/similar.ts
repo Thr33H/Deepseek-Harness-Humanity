@@ -78,7 +78,7 @@ export function findNearDuplicate(
  *   同一条理由；这里显式保留是为了让本函数**脱离 `put` 也自洽**）；
  * - 正文取**更长**的那条（信息量不倒退；等长时保留已有的）；
  * - `importance` / `confidence` 取较大值：合并只该让一条事实更硬，不该更软；
- * - `tags` 取并集（检索信号只会更全）；`pinned` 沿用已有的（用户钉过就一直钉着）。
+ * - `tags` 取并集（检索信号只会更全）；`pinned` 沿用已有的（对方钉过就一直钉着）。
  *
  * 2026-09-25 真机教训：`createdAt` 原先没列进来 —— 在线写入路径被 `store.put` 兜住了看不出问题，
  * 但**数据级清理**（`mergeDuplicates` 直接改存档、不经过 `put`）会让幸存者的创建时间漂成后来那条的。
@@ -92,8 +92,8 @@ export function findNearDuplicate(
 export function adoptExisting(target: MemoryEntry, candidate: MemoryEntry): MemoryEntry {
   // ⚠️ 安全字段**只收紧、不放宽**（P-033 红线，2026-09-26 审计抓到的真缺陷）：
   // 这里原来是 `...candidate` 一路覆盖，于是一条**待确认的敏感记忆**被同义的 active 条目并掉之后，
-  // 直接变成"生效 + 不敏感"—— 用户从没点过确认，敏感标记也没了。合并是存量清理，
-  // 它没有权力放行任何用户没点头的东西。
+  // 直接变成"生效 + 不敏感"—— 对方从没点过确认，敏感标记也没了。合并是存量清理，
+  // 它没有权力放行任何对方没点头的东西。
   const status = target.status === 'pending' || candidate.status === 'pending' ? 'pending' : candidate.status
   return {
     ...candidate,
@@ -113,7 +113,7 @@ export function adoptExisting(target: MemoryEntry, candidate: MemoryEntry): Memo
     status,
     sensitive: target.sensitive || candidate.sensitive,
     confirmedVia: status === 'pending' ? '' : target.confirmedVia || candidate.confirmedVia,
-    // 冲突标记**取并集**：被并掉那条身上的标记不该无声消失（消失 = 用户看不到那处矛盾）。
+    // 冲突标记**取并集**：被并掉那条身上的标记不该无声消失（消失 = 对方看不到那处矛盾）。
     conflictWith: [...new Set([...target.conflictWith, ...candidate.conflictWith])],
   }
 }

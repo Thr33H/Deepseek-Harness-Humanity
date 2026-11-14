@@ -41,7 +41,7 @@ export const RESULT_SCHEMA = {
   properties: {
     ok: { type: 'boolean', required: true, description: '是否真的写入成功' },
     action: { type: 'string', required: true, description: 'init | update' },
-    message: { type: 'string', required: true, description: '面向 Agent/用户的一句话结论；失败时说明为什么没写入' },
+    message: { type: 'string', required: true, description: '一句话结论（给对方看）；失败时说明为什么没写入' },
     identityCard: {
       type: 'array',
       required: true,
@@ -68,7 +68,7 @@ export const RESULT_SCHEMA = {
     userDefined: {
       type: 'array',
       required: true,
-      description: '写入后生效的「用户定义」兜底层',
+      description: '写入后生效的「自定义」兜底层',
       items: {
         type: 'object',
         additionalProperties: false,
@@ -126,7 +126,7 @@ export function success(
  * 一次被拒绝的写入结果。
  *
  * 失败**不抛异常**而是返回结构化结果：这条路径的读者是模型，"为什么没写入"必须和成功结果
- * 走同一条渲染通道；否则模型只会看到一句无上下文的工具错误，然后照旧向用户宣布写好了。
+ * 走同一条渲染通道；否则模型只会看到一句无上下文的工具错误，然后照旧向对方宣布写好了。
  */
 export function refusal(
   action: 'init' | 'update',
@@ -165,7 +165,7 @@ export function renderValue(value: PersonaToolValue): string {
       for (const section of filled) lines.push(`- ${section.title}：${section.items.join('；')}`)
     }
     if (value.userDefined.length > 0) {
-      lines.push('', '用户定义：')
+      lines.push('', '自定义：')
       for (const entry of value.userDefined) lines.push(`- ${entry.key}：${entry.value}`)
     }
 

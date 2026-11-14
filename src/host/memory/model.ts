@@ -36,7 +36,7 @@ import type { MemoryEntry, MemoryEntryInput } from './types.js'
  *
  * 哪些字段有默认值、哪些必填是有讲究的：`origin`/`sourceSessionId`/`content`/`dedupeKey`
  * 必填 —— 没有来源的记忆是传闻，没有指纹的记忆无法去重，而 `origin` 一旦可省略就会
- * 被自动管线悄悄改写成"用户说的"（P-033）。
+ * 被自动管线悄悄改写成"对方说的"（P-033）。
  *
  * `status` 的默认值是 `active` 而不是新条目的 `pending`：解析的是**已落库**的数据，
  * 缺这个字段只可能是早期版本写下的生效条目，把它们判成"待确认"等于凭空冻结老数据。
@@ -71,7 +71,7 @@ export const MemoryEntrySchema = z.object({
  * 归一化正文用于**比较**（去重与冲突检测共用同一把尺子）。
  *
  * 规则：NFKC 折全角、忽略大小写、去掉空白与标点。它只服务于"这两句是不是在说同一件事"，
- * 不改变落盘正文 —— 用户看到的仍然是他自己那句话。
+ * 不改变落盘正文 —— 对方看到的仍然是他自己那句话。
  * @param content - 正文。
  */
 export function normalizeMemoryText(content: string): string {
@@ -85,7 +85,7 @@ export function normalizeMemoryText(content: string): string {
  * 生成去重指纹。
  *
  * 加上作用域前缀，是因为同一句话在不同层是**不同**的记忆
- * （会话里的临时约定 vs 长期偏好），跨层去重会把用户明确分开的东西合并掉。
+ * （会话里的临时约定 vs 长期偏好），跨层去重会把对方明确分开的东西合并掉。
  * @param scope - 作用域。
  * @param content - 正文。
  */

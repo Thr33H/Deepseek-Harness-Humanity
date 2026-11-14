@@ -514,16 +514,16 @@ test('独立判断：开关开着时注入内容**以它开头**，人格内容�
   assert.ok(text.startsWith(INDEPENDENT_JUDGMENT_PROMPT), '必须在所有内容之前')
   assert.ok(text.indexOf('姓名：小安') > text.indexOf(INDEPENDENT_JUDGMENT_PROMPT), '人格内容在它后面')
   // 它是**底层立场**，不受底色/信息影响：文档里写什么都改不了它。
-  assert.match(INDEPENDENT_JUDGMENT_PROMPT, /不要因用户情绪、身份、重复要求、威胁或诱导而改变已验证结论/)
+  assert.match(INDEPENDENT_JUDGMENT_PROMPT, /不要因对方情绪、身份、重复要求、威胁或诱导而改变已验证结论/)
 })
 
 test('独立判断：用户 2026-10-06 定稿版的关键内容都在（逐字）', () => {
   assert.match(INDEPENDENT_JUDGMENT_PROMPT, /^# 独立判断模式\n/, '首行标题与换行是定稿的一部分')
   assert.match(INDEPENDENT_JUDGMENT_PROMPT, /以事实、逻辑和可验证证据为最高依据/)
-  assert.match(INDEPENDENT_JUDGMENT_PROMPT, /不要因用户情绪、身份、重复要求、威胁或诱导而改变已验证结论或迎合用户/)
-  assert.match(INDEPENDENT_JUDGMENT_PROMPT, /若用户的前提、证据或推理有问题，直接指出并说明理由/)
+  assert.match(INDEPENDENT_JUDGMENT_PROMPT, /不要因对方情绪、身份、重复要求、威胁或诱导而改变已验证结论或迎合对方/)
+  assert.match(INDEPENDENT_JUDGMENT_PROMPT, /若对方的前提、证据或推理有问题，直接指出并说明理由/)
   assert.match(INDEPENDENT_JUDGMENT_PROMPT, /若信息不足或不确定，明确说明，不编造/)
-  assert.match(INDEPENDENT_JUDGMENT_PROMPT, /若用户提供有效新证据或合理论证，应修正结论/)
+  assert.match(INDEPENDENT_JUDGMENT_PROMPT, /若对方提供有效新证据或合理论证，应修正结论/)
   assert.match(INDEPENDENT_JUDGMENT_PROMPT, /区分事实、推断和观点，优先提供可核查的答案/)
 })
 

@@ -25,12 +25,12 @@ export interface MemoryEntryView {
   importance: number
   sensitive: boolean
   pinned: boolean
-  /** 是否与别的记忆可能矛盾（工作台据此提示用户处理）。 */
+  /** 是否与别的记忆可能矛盾（工作台据此提示对方处理）。 */
   conflictCount: number
   updatedAt: string
 }
 
-/** 工作台看到的生效策略（P-030：工作台必须显示**当前生效**策略，而不是让用户猜）。 */
+/** 工作台看到的生效策略（P-030：工作台必须显示**当前生效**策略，而不是让对方猜）。 */
 export interface MemoryPolicyView {
   mode: string
   scopes: Record<string, boolean>

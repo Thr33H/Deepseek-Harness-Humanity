@@ -18,7 +18,7 @@ export interface MergeUndoSlot {
   entries?: readonly MemoryEntry[]
 }
 
-/** 报告里给用户看的是正文开头，不是指纹。 */
+/** 报告里给对方看的是正文开头，不是指纹。 */
 function brief(entry: MemoryEntry | undefined): string {
   if (entry === undefined) return '（已不存在）'
   const text = entry.content.replace(/\s+/g, ' ').trim()
@@ -41,7 +41,7 @@ function summarizePairs(
  * 清理全库的近似重复。
  * @param store - 记忆读写入口。
  * @param slot - 撤销槽（本次动过的条目写进这里）。
- * @returns 面向用户的结论。
+ * @returns 面向对方的结论。
  */
 export async function dedupeOnce(store: MemoryStore, slot: MergeUndoSlot): Promise<string> {
   const all = store.list()
@@ -70,7 +70,7 @@ export async function dedupeOnce(store: MemoryStore, slot: MergeUndoSlot): Promi
  * 撤销上一次合并：把动过的条目原样写回（不做整库覆盖）。
  * @param store - 记忆读写入口。
  * @param slot - 撤销槽。
- * @returns 面向用户的结论。
+ * @returns 面向对方的结论。
  */
 export async function undoDedupe(store: MemoryStore, slot: MergeUndoSlot): Promise<string> {
   const before = slot.entries

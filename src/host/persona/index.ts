@@ -94,7 +94,7 @@ export function installPersona(
           void opened
             .recordHistory(entry)
             .catch((error: unknown) => log.warn('人格历史写入失败（不影响本次保存）', error))
-            // 写完之后顺带按保留期清理一次（用户 2026-10-09：历史要有限期，不能永久留）。
+            // 写完之后顺带按保留期清理一次（对方 2026-10-09：历史要有限期，不能永久留）。
             // 放在这里而不是 `persistPersona`：落盘路径不该知道"清理"这件事。
             .then(sweepAfterWrite, sweepAfterWrite)
         }
@@ -111,12 +111,12 @@ export function installPersona(
   // ⚠️ **F1（2026-10-04 修）**：`ready` 原先只判 `section.attached`（"命名空间接上了"），
   // **不判"存储读得到"**。存储域只要打不开（一条记录不符合 schema 就够），`state.store` 就永不赋值，
   // 于是 `read()` 回落到那份**空默认文档**、`initializedAt === ''` ⇒ 每轮注入
-  // `UNINITIALIZED_PROMPT`（「人格尚未初始化…」）—— 那是一句**假声明**：用户可能早就初始化过，
+  // `UNINITIALIZED_PROMPT`（「人格尚未初始化…」）—— 那是一句**假声明**：对方可能早就初始化过，
   // 只是这次读不到。同一根因还会让 `humanity_recall` 整场回"存储尚未就绪"（挂起 F2 的故障可见性）。
   //
   // 修法：把「存储句柄到手」也算进就绪条件。读不到的那几轮**返回空串**（什么都不注入），
   // 而不是注入一句假话。注意 `prompt-render.ts:42-44` 本来就是为这件事写的注释
-  // （"那份空文档不代表用户没初始化过"），只是当时 `ready` 没把存储算进去。
+  // （"那份空文档不代表对方没初始化过"），只是当时 `ready` 没把存储算进去。
   ctx.effect(
     () =>
       installPersonaInjection(ctx, log, {

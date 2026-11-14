@@ -58,7 +58,7 @@ function registerAll(
   includeInit: boolean,
 ): Disposer {
   const disposers: Disposer[] = [
-    // 封存后 init **整个工具下线**：它的描述里「先在对话里引导用户…」是引导泄漏的根因 ——
+    // 封存后 init **整个工具下线**：它的描述里「先在对话里引导对方…」是引导泄漏的根因 ——
     // complete 吞提示词但不吞工具目录，极简/已初始化会话的模型会照着这段模仿初始化流程
     // （2026-09-25 真机实证：极简净室里出现引导与重复 init）。看不见才模仿不了，比描述里写禁令硬。
     ...(includeInit ? [tools.register(defineInitTool(defineTool, persona))] : []),

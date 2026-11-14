@@ -35,7 +35,7 @@ export const RESULT_SCHEMA = {
   additionalProperties: false,
   properties: {
     ok: { type: 'boolean', required: true, description: '是否真的写入了' },
-    message: { type: 'string', required: true, description: '面向 Agent/用户的一句话结论' },
+    message: { type: 'string', required: true, description: '一句话结论（给对方看）' },
     fingerprint: { type: 'string', required: true, description: '条目指纹；空串表示没有写入' },
     scope: { type: 'string', required: true, description: '落盘的作用域' },
     status: { type: 'string', required: true, description: 'active 生效 / pending 待确认 / 空串=没写入' },

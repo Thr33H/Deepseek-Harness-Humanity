@@ -6,7 +6,7 @@
  */
 import type { ConfirmableIssueCode, PersonaIssueCode } from './constants.js'
 
-/** 底色的一个字段。`custom` 区分默认三段式与用户自行添加的字段。 */
+/** 底色的一个字段。`custom` 区分默认三段式与对方自行添加的字段。 */
 export interface IdentityField {
   key: string
   value: string
@@ -28,7 +28,7 @@ export interface MutableSection {
   items: string[]
 }
 
-/** 兜底层「用户定义」的一项：键值对。 */
+/** 兜底层「自定义」的一项：键值对。 */
 export interface UserDefinedEntry {
   key: string
   value: string
@@ -48,7 +48,7 @@ export interface PersonaDocument {
   mutableLayer: MutableLayer
 }
 
-/** 谁在写。用户在工作台里的编辑是权威输入，Agent 的自动整理才受高风险约束。 */
+/** 谁在写。对方在工作台里的编辑是权威输入，Agent 的自动整理才受高风险约束。 */
 export type WriteSource = 'user' | 'agent'
 
 /** 问题的严重度：`rejected` 挡住写入，`warning` 只提示。 */
@@ -76,7 +76,7 @@ export interface PersonaValidation {
 /** 校验的额外上下文。 */
 export interface ValidateOptions {
   /**
-   * 已经过用户在**对话里**确认（走审批/提问 seam）的 rejected 问题代码。
+   * 已经过对方在**对话里**确认（走审批/提问 seam）的 rejected 问题代码。
    * 命中的问题会**降级为 warning**（仍然出现在结论里，Agent 才能如实汇报"按你的确认删除了"），
    * 不在 {@link CONFIRMABLE_ISSUES} 白名单里的代码一律忽略。
    */

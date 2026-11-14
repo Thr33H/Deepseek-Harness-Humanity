@@ -156,7 +156,7 @@ export async function analyzeDigest(deps: AnalyzeDeps, input: AnalyzeInput): Pro
         inputTokens += mapped.usage.inputTokens
         outputTokens += mapped.usage.outputTokens
       }
-      // 被外部取消不重试：取消是用户的决定，不是输出质量问题。
+      // 被外部取消不重试：取消是对方的决定，不是输出质量问题。
       if (input.signal?.aborted === true) throw withSpent(mapped, inputTokens, outputTokens, attempts)
       lastError = mapped
       if (mapped.code === 'llm-failed') break

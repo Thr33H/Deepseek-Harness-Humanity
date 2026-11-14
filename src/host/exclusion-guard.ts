@@ -36,7 +36,7 @@ const HUMANITY_TOOLS = new Set<string>([
  */
 const CLEAN_ROOM_PRESETS = new Set<string>(['minimal'])
 
-/** 净室拒绝文案：说清「为什么」与「怎么办」，不把用户指向任何页面。 */
+/** 净室拒绝文案：说清「为什么」与「怎么办」，不把对方指向任何页面。 */
 export const CLEAN_ROOM_REASON =
   '当前会话运行在极简（净室）预设下：按该预设的设计语义，Humanity 的人格与记忆能力不启用。' +
   '如需携带人格与记忆，请改用标准模式会话。'

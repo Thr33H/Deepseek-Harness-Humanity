@@ -12,8 +12,8 @@ import type { Log } from './log.js'
 /**
  * 设置命名空间名。
  *
- * 它同时是用户在工作台配置面里看到的分组名，因此与包名解耦：包名可以改，
- * 已经写在用户设置文件里的分节名不能改（改了就等于让老用户丢掉自己的覆盖值，违反 G-004）。
+ * 它同时是对方在工作台配置面里看到的分组名，因此与包名解耦：包名可以改，
+ * 已经写在对方设置文件里的分节名不能改（改了就等于让老对方丢掉自己的覆盖值，违反 G-004）。
  */
 export const SETTINGS_NAMESPACE = 'humanity'
 
@@ -36,11 +36,11 @@ export function supportsDynamicSections(settings: SettingsProvider): boolean {
 
 /** 开关的读取入口。 */
 export interface SettingsBridge {
-  /** 当前生效配置：schema 默认 → 组合配置 → 用户覆盖。 */
+  /** 当前生效配置：schema 默认 → 组合配置 → 对方覆盖。 */
   read(): HumanityConfig
   /**
    * 是否已接上 DSH 设置服务。
-   * `false` 表示开关只来自组合配置，用户在工作台里改不动——工作台据此显示只读提示。
+   * `false` 表示开关只来自组合配置，对方在工作台里改不动——工作台据此显示只读提示。
    */
   readonly attached: boolean
   /**
@@ -61,7 +61,7 @@ export interface SettingsBridge {
  * *"that injection IS the attach/detach lifecycle"*。这正是 G-002 要的「可选 seam 的正确接法」。
  *
  * `installSection` 仍是我们注册命名空间的方式：它把"服务在 / 不在"收敛到同一个入口——服务在就用
- * schema 默认 + 组合配置 + 用户覆盖，服务不在就继续用组合配置，行为与之前完全一致。
+ * schema 默认 + 组合配置 + 对方覆盖，服务不在就继续用组合配置，行为与之前完全一致。
  *
  * @param ctx - 本插件的上下文（同时作为 `installSection` 的 owner fiber）。
  * @param entry - 组合配置里的入口值，作为 `base` 层，也是服务不在时的回退值。
@@ -118,7 +118,7 @@ export function installSettings(
       // 开关要即时生效（P-030），所以每次提交都重新同步一遍模块，而不是等重启。
       onChange: () => onChange(source()),
     })
-    log.info('设置服务已接入：开关可由用户在工作台修改')
+    log.info('设置服务已接入：开关可由对方在工作台修改')
 
     // 服务摘除：配置回退到组合入口，并把「可改」翻回 false，让工作台显示只读。
     return () => {
@@ -143,10 +143,10 @@ export function installSettings(
  * 把开关命名空间挂到自有数据面上（0.1.7 路径）。
  *
  * 语义必须与官方 settings 逐条对齐：
- * - 客户端读到的 `value` 是**已解析**的配置（schema 默认 → 组合入口 → 用户覆盖），
- *   而不是"只有用户改过的那几个字段" —— 否则工作台会把没改过的开关显示成未设置；
- * - 用户层（落盘的那份）只存**覆盖**：`update` 合并的是覆盖层，不是解析后的全量，
- *   不然一次拨动就会把组合配置里的值冻成用户值；
+ * - 客户端读到的 `value` 是**已解析**的配置（schema 默认 → 组合入口 → 对方覆盖），
+ *   而不是"只有对方改过的那几个字段" —— 否则工作台会把没改过的开关显示成未设置；
+ * - 对方层（落盘的那份）只存**覆盖**：`update` 合并的是覆盖层，不是解析后的全量，
+ *   不然一次拨动就会把组合配置里的值冻成对方值；
  * - 每次提交后回调 `onChanged`，让模块开关即时生效（P-030）。
  * @param plane - 数据面。
  * @param documents - 文档表句柄。

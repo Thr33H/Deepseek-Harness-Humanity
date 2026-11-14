@@ -102,7 +102,7 @@ export function toRecallValue(
   const message =
     note ??
     (kept.length === 0
-      ? '没有找到相关记忆。可以换个说法再试，或先和用户确认要记的内容。'
+      ? '没有找到相关记忆。可以换个说法再试，或先和对方确认要记的内容。'
       : `找到 ${kept.length} 条相关记忆${extra}`)
   return {
     ok,

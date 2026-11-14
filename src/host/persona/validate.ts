@@ -18,7 +18,7 @@ import { checkMutable } from './validate-mutable.js'
  * @param next - 规范化之后的候选文档。
  * @param prev - 当前生效文档；首次初始化时传 `undefined`。
  * @param source - 写入来源。
- * @param options - 额外上下文（目前只有"用户已确认"的白名单）。
+ * @param options - 额外上下文（目前只有"对方已确认"的白名单）。
  * @returns 校验结论；`ok === false` 时必须拒绝写入。
  */
 export function validatePersona(
@@ -32,7 +32,7 @@ export function validatePersona(
   checkIdentity(next, prev, source, issues)
   checkMutable(next, prev, source, issues)
 
-  // 白名单在这里**再拦一次**，不只在工具层拦：`confirmed` 是"用户点头了"的凭证，
+  // 白名单在这里**再拦一次**，不只在工具层拦：`confirmed` 是"对方点头了"的凭证，
   // 而 `validatePersona` 是所有人（工具、设置钩子、客户端直写）都会经过的那道门。
   // 类型只能约束 TypeScript 调用方，拦不住运行时传进来的字符串——所以把白名单做成
   // 运行时事实，而不是注释里的承诺。

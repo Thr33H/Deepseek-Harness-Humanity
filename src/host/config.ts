@@ -8,7 +8,7 @@ import { HISTORY_RETENTION_DAYS } from './persona/constants.js'
  * 记忆模块的运行模式。
  *
  * 用「预设模式」而不是一组互不相干的布尔开关：三层作用域、注入预算、衰减归档、
- * 向量检索如果各自暴露成独立开关，组合会爆炸，用户也没法判断自己开出了什么行为。
+ * 向量检索如果各自暴露成独立开关，组合会爆炸，对方也没法判断自己开出了什么行为。
  * 细项留给后续版本的高级开关（DECISIONS P-030）。
  */
 export const MEMORY_MODES = ['off', 'session', 'balanced', 'manual'] as const
@@ -29,8 +29,8 @@ export type ModuleId = (typeof MODULE_IDS)[number]
  * 记忆的高级开关（P-030 的细项）。
  *
  * `customized` 是这一组的总闸：**false = 完全跟随预设模式**（下面的值不参与解析，
- * 因此"切到 session-only"不会被上一轮的旧值拖住），true = 用户显式调过，按下面的值覆盖预设。
- * 这样"预设模式切换时自动给出默认值"与"用户单独覆盖某一项"两件事不会互相打架 ——
+ * 因此"切到 session-only"不会被上一轮的旧值拖住），true = 对方显式调过，按下面的值覆盖预设。
+ * 这样"预设模式切换时自动给出默认值"与"对方单独覆盖某一项"两件事不会互相打架 ——
  * 代价只是多一个显式标记，比让每个字段可选（schemas 里更绕）清楚得多。
  */
 export interface MemoryAdvancedConfig {
@@ -50,19 +50,19 @@ export interface MemoryAdvancedConfig {
    * 「长期未用」的窗口（天，0.1.10 新增，B2）：窗口内**完全不衰减**，窗口之后才按半衰期降权。
    *
    * 默认值取自 `memory/constants.ts` 的 {@link DECAY_UNUSED_DAYS}（90，**唯一真源**）——
-   * 这里只把它接成用户可改项，不另抄一个数字（G-004 默认值不漂移）。
+   * 这里只把它接成对方可改项，不另抄一个数字（G-004 默认值不漂移）。
    */
   decayUnusedDays: number
   /** 向量检索（P-027：MVP 恒关闭；这里保留字段是为了"改了不报错但也不生效"）。 */
   vector: boolean
 }
 
-/** Humanity 套件的全部用户可编辑开关。 */
+/** Humanity 套件的全部对方可编辑开关。 */
 export interface HumanityConfig {
   /** 套件总开关。关闭后不注入、不写数据、不跑后台任务；已有数据一律保留（P-006、P-048）。 */
   enabled: boolean
   /**
-   * 独立判断底层指令（用户 2026-09-23 定）：注入最前面的一句硬编码立场，
+   * 独立判断底层指令（对方 2026-09-23 定）：注入最前面的一句硬编码立场，
    * 不受底色/信息覆盖。默认开；关掉后 AI 可能更倾向于讨好。
    * 它与 modules.persona.enabled 同级：都是"人格怎么被注入"的开关，而不是某个模块的内容。
    */
@@ -72,7 +72,7 @@ export interface HumanityConfig {
     persona: {
       enabled: boolean
       /**
-       * `persona_history`（被取代/被删内容的审计表）的**保留天数**（用户 2026-10-09）。
+       * `persona_history`（被取代/被删内容的审计表）的**保留天数**（对方 2026-10-09）。
        *
        * `<= 0` = 关闭清理（永久保留）；负数按 0 处理。语义与"清理时机"见 `history-retention.ts`。
        */
@@ -80,7 +80,7 @@ export interface HumanityConfig {
     }
     /** 记忆：长期 / 工作区 / 会话三层，按模式预设 + 可选的高级开关。 */
     memory: { mode: MemoryMode; advanced: MemoryAdvancedConfig }
-    /** 自进化：会话整理管线，含梦境模式。调度/扫描/预算都是用户可编辑项（P-035/P-036/P-051）。 */
+    /** 自进化：会话整理管线，含梦境模式。调度/扫描/预算都是对方可编辑项（P-035/P-036/P-051）。 */
     evolution: {
       enabled: boolean
       schedule: {
@@ -94,7 +94,7 @@ export interface HumanityConfig {
         weekday: number
         /** 每月模式：几号（1–28，避开大小月差异）。 */
         monthDay: number
-        /** IANA 时区名；空串 = 跟随系统时区（P-035 用户在工作台确认）。 */
+        /** IANA 时区名；空串 = 跟随系统时区（P-035 对方在工作台确认）。 */
         timezone: string
       }
       scan: {
@@ -123,7 +123,7 @@ export interface HumanityConfig {
  * 开关 schema。
  *
  * 这里是全部默认值的唯一真源：`cordis.patch.yml` 刻意不写 `config:`，否则同一份默认值
- * 会存在两处，某次升级只改一处就会让老用户的默认行为悄悄漂移（G-004 默认值不漂移）。
+ * 会存在两处，某次升级只改一处就会让老对方的默认行为悄悄漂移（G-004 默认值不漂移）。
  *
  * 命名与 DECISIONS P-048 的收敛值逐项对齐，避免以后为了改名再动一次数据结构。
  */
@@ -131,7 +131,7 @@ export const Config: Schema<HumanityConfig> = Schema.object({
   enabled: Schema.boolean().default(true).description('Humanity 套件总开关'),
   independentJudgment: Schema.boolean()
     .default(true)
-    .description('独立判断底层指令：以事实、逻辑和可验证证据为准，不迎合、不编造。关闭后 AI 可能更倾向于迎合用户。'),
+    .description('独立判断底层指令：以事实、逻辑和可验证证据为准，不迎合、不编造。关闭后 AI 可能更倾向于迎合对方。'),
   modules: Schema.object({
     persona: Schema.object({
       enabled: Schema.boolean().default(true).description('人格模块：注入与首次唤醒引导'),

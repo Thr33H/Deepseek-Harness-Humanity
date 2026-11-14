@@ -21,7 +21,7 @@ import type { MemoryPolicy, MemoryPolicyOverrides } from './types.js'
  * 四个预设模式解析出的基础策略（P-030 / §4.2.2）。
  *
  * - `off`：什么都不做（不写、不检索、不注入、也不跑衰减归档），已有数据原样保留；
- * - `session`：只留会话层 —— 想要"记得住当前对话"但不要跨会话记忆的用户；
+ * - `session`：只留会话层 —— 想要"记得住当前对话"但不要跨会话记忆的对方；
  * - `balanced`（默认）：三层开启、注入 0–3 条、衰减归档开启、向量关闭；
  * - `manual`：写入与衰减照常，但**不自动注入**，全部记忆只能由 `humanity_recall` 取用。
  */
@@ -102,7 +102,7 @@ function clampThreshold(value: number): number {
 /**
  * 这份高级开关是不是**自相矛盾**：模式不是 off，却把三层全关掉。
  *
- * 用户不会"故意关掉所有层还选平衡模式"：那种状态只会让记忆功能静默失效
+ * 对方不会"故意关掉所有层还选平衡模式"：那种状态只会让记忆功能静默失效
  * （工具不注册、检索恒空、写入一律被拒），而界面看起来一切正常 —— 这类"配置上合法、
  * 语义上不可能"的组合必须有人拦。拦在**配置翻译处**而不是 `resolveMemoryPolicy`：
  * 后者是纯计算器，显式传 `{ scopes: 全 false }` 的调用方（测试、高级用法）有权这么做，
@@ -139,7 +139,7 @@ export function overridesOf(advanced: MemoryAdvancedConfig | undefined, mode: Me
     // 0.1.10（B2）：衰减窗口可配；缺字段（老配置/测试的部分对象）时留给 `resolveMemoryPolicy`
     // 用预设值兜底（undefined ⇒ 取预设的 90），因此这里不做 `?? 90` —— 那会造出第二份默认值。
     ...(advanced.decayUnusedDays === undefined ? {} : { decayUnusedDays: advanced.decayUnusedDays }),
-    // 向量检索在 MVP 恒关闭（P-027）：即便用户把开关打开也不生效，但**不报错**。
+    // 向量检索在 MVP 恒关闭（P-027）：即便对方把开关打开也不生效，但**不报错**。
     vector: false,
   }
 }
@@ -166,7 +166,7 @@ function clampDays(value: number): number {
  * 全部消费方（写入管线、检索、注入、工作台）都读这个结果，不各自去算 ——
  * 否则"模式说关、某个实现说开"这类不一致只会以行为诡异的形式出现。
  * @param mode - 预设模式。
- * @param overrides - 用户动过的高级开关。
+ * @param overrides - 对方动过的高级开关。
  */
 export function resolveMemoryPolicy(
   mode: MemoryMode,

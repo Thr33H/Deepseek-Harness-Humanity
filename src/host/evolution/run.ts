@@ -46,7 +46,7 @@ export interface RunnerDeps {
    *
    * 为什么由宿主现读进来而不是在这里算：注入预算的账只有一处算得对
    * （`persona/render.ts` 的 `personaPromptReport`，与提示词拼装共用同一套拟合）——
-   * 在这里重算一遍迟早与真实注入不一致，而那正是用户最不能接受的一类"看起来对"。
+   * 在这里重算一遍迟早与真实注入不一致，而那正是对方最不能接受的一类"看起来对"。
    */
   personaFit?(): PersonaBudgetState | undefined
   /**

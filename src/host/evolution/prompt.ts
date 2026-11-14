@@ -154,7 +154,7 @@ export function personaBudgetRule(budget: PersonaBudgetState | undefined): strin
  *
  * ⚠️ 0.1.12 修（D-1）：这里原来是 `Math.round`，于是 `1755/2065 = 84.988%` 会被显示成
  * **「占 85%」**，而护栏判据（`≥ 0.85`）在同一时刻说"没触发" ⇒ 注记里同时出现
- * 「占 85%」与「预算充足」，**显示与判据互相矛盾**（用户 2026-10-09 报的就是这一档）。
+ * 「占 85%」与「预算充足」，**显示与判据互相矛盾**（对方 2026-10-09 报的就是这一档）。
  *
  * 为什么取整方向必须是 floor：护栏线是 `used/budget ≥ 0.85` 这个**精确**比较，
  * 而 `floor(ratio × 100) ≥ 85 ⟺ ratio ≥ 0.85`（整数翻转点正好落在 0.85 上）——
@@ -200,7 +200,7 @@ export function personaBudgetNote(
 /** 模式的工作语言说法。 */
 const MODE_LABELS: Readonly<Record<RunMode, string>> = {
   incremental: '增量整理（小步、低成本，只提炼确凿内容）',
-  rescan: '回扫整理（用户指定的历史范围，标准同增量）',
+  rescan: '回扫整理（对方指定的历史范围，标准同增量）',
   dream: '梦境（长窗口联想整理：允许跨主题重组与反思，产出洞察与叙事）',
 }
 
@@ -209,7 +209,7 @@ export function buildSystemPrompt(context: PromptContext): string {
   const titles = context.sectionTitles.length > 0 ? context.sectionTitles.join('、') : '（暂无人格小节）'
   const card = renderPersonaCard(context.personaCard ?? [])
   return [
-    '你是 Humanity 套件的后台整理管线，不是对话参与者，也不面向用户输出。',
+    '你是 Humanity 套件的后台整理管线，不是对话参与者，也不面向对方输出。',
     '你的唯一任务：阅读对话摘要，提炼有长期价值的内容，输出一个 JSON 对象。',
     '',
     '总则（对每个字段都成立）：',
@@ -219,8 +219,8 @@ export function buildSystemPrompt(context: PromptContext): string {
     '- 一次性内容、寒暄、临时任务细节不属于任何字段。',
     '',
     '字段规则：',
-    '- memories：用户明确表达的长期偏好、对用户的称呼、稳定事实、长期目标、固定约定。',
-    '  每条：content=一句话短摘要（保留用户自己的说法，不加修饰）；',
+    '- memories：对方明确表达的长期偏好、对TA的称呼、稳定事实、长期目标、固定约定。',
+    '  每条：content=一句话短摘要（保留对方自己的说法，不加修饰）；',
     '  scope="long-term"（跨项目稳定）或 "workspace"（只对当前工作区成立）；',
     '  tags=0 到 3 个分类词；sensitive=是否属于密码、密钥、财务、健康、隐私地址、身份号码等敏感类别。',
     '  证据模糊的内容不要输出——宁缺毋滥。',
@@ -231,9 +231,9 @@ export function buildSystemPrompt(context: PromptContext): string {
     '  sectionConsolidations 提交合并建议，而不是再补一条。',
     '- sectionConsolidations：对**已有**条目的整合建议。section=小节名；keep=保留的那条（原样抄写）；',
     '  drop=要并掉的条目（原样抄写，必须与该小节现有条目逐字一致）；reason=为什么它们是同一件事。',
-    '  只合并**确实同义**的条目：互相包含但各是一条规矩的（例如"不跳过指定情节"与"不跳过指定情节、不代替用户做选择"）',
+    '  只合并**确实同义**的条目：互相包含但各是一条规矩的（例如"不跳过指定情节"与"不跳过指定情节、不代替对方做选择"）',
     '  不是重复，不要提交。这一项合并的是措辞完全不同的同义句（字符串相似度判不出来的那些）。',
-    '- personaFixed：对 AI 底色的修改建议。仅当用户明确陈述或纠正了 AI 的姓名、性别、',
+    '- personaFixed：对 AI 底色的修改建议。仅当对方明确陈述或纠正了 AI 的姓名、性别、',
     '  人格偏好、主语言或其自定义字段时提交。fieldKey=字段名；fieldValue=建议值（短文本）；reason=对话依据。',
     '- insights：跨对话的联想、模式与反思，每条一句话。梦境模式给 3 到 8 条；其余模式没有就给空数组。',
     '- narrative：仅梦境模式输出——以 AI 第一人称把这段时间的经历复述成一段短叙事（不超过 800 字）；',
@@ -251,7 +251,7 @@ export function buildSystemPrompt(context: PromptContext): string {
 }
 
 /**
- * 用户段：摘要正文 + 输出提醒。
+ * 对方段：摘要正文 + 输出提醒。
  *
  * 重试用第二参数追加纠错要求（第一次输出坏 JSON 后，把"只要 JSON"再说一遍，
  * 不改合同本身——合同改了会让两次尝试的输出不可比）。

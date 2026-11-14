@@ -134,7 +134,7 @@ function dshHome(): string | undefined {
  * 这样 "apply 期间 fiber 被卸载" 这类时序问题根本不会出现——也就没必要在 await 前后
  * 小心翼翼地安排 effect 注册顺序。
  * @param ctx - DSH 宿主上下文。
- * @param config - 组合配置入口值；用户覆盖由设置服务叠加在它之上。
+ * @param config - 组合配置入口值；对方覆盖由设置服务叠加在它之上。
  */
 export function apply(ctx: Context, config: HumanityConfig): void {
   const log = createLog(ctx)
@@ -196,7 +196,7 @@ export function apply(ctx: Context, config: HumanityConfig): void {
   state.evolution = installEvolution(ctx, log, evolutionDeps(settings, state))
   syncModulesEnabled(state, settings.read())
 
-  // 一行摘要：出问题时用户和日志都能立刻看到「谁被关掉了、为什么」。
+  // 一行摘要：出问题时对方和日志都能立刻看到「谁被关掉了、为什么」。
   log.info(
     `已挂载[设置${settings.attached ? '可改' : '只读'}][数据面${plane === undefined ? '缺席' : '在线'}] ${describeModules(registry.snapshot())}`,
   )

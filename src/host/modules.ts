@@ -15,7 +15,7 @@ export type Disposer = () => void
  * - `skeleton`：开关打开，但该模块在当前版本里还没有实现（M1 阶段全部如此）。
  *
  * 把 `skeleton` 单独列出来，是为了让工作台能如实显示「开关是开的，但功能还没到」，
- * 而不是把未实现的东西标成 active 骗用户。
+ * 而不是把未实现的东西标成 active 骗对方。
  */
 export type ModuleStatus = 'active' | 'disabled' | 'failed' | 'skeleton'
 

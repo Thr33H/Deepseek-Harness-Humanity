@@ -48,7 +48,7 @@ export interface RunRecord {
   error: string
 }
 
-/** 一条待用户确认的提案（P-038：固定人格/路由只提案，不自动生效）。 */
+/** 一条待对方确认的提案（P-038：固定人格/路由只提案，不自动生效）。 */
 export interface ProposalRecord {
   id: string
   kind: ProposalKind
@@ -60,7 +60,7 @@ export interface ProposalRecord {
   diff: string
   status: ProposalStatus
   createdAt: string
-  /** 用户做出决定的时刻；未决定为空串。 */
+  /** 对方做出决定的时刻；未决定为空串。 */
   decidedAt: string
   sourceRunId: string
   sourceSessionIds: string[]
@@ -88,7 +88,7 @@ export interface StateRecord {
   notifiedWatermark: string
   /** 下一次定时运行的 epoch 毫秒；0 = 未排程。 */
   nextRunAt: number
-  /** 当日用量统计的日期（YYYY-MM-DD，用户时区无关：按 UTC 计即可，预算是量级控制）。 */
+  /** 当日用量统计的日期（YYYY-MM-DD，对方时区无关：按 UTC 计即可，预算是量级控制）。 */
   dailyDate: string
   dailyCalls: number
   dailyInputTokens: number

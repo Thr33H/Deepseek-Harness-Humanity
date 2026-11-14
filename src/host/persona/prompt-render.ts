@@ -40,9 +40,9 @@ export function renderSectionText(context: unknown, runtime: PersonaSectionRunti
     probe(context)
     if (!source.enabled()) return ''
     // 文档还读不到（设置服务未就绪 / 根本没有设置服务）⇒ 这一轮什么都不注入。
-    // 特别是**不要**注入"人格尚未初始化"的引导语：那份空文档不代表用户没初始化过。
+    // 特别是**不要**注入"人格尚未初始化"的引导语：那份空文档不代表对方没初始化过。
     if (source.ready !== undefined && !source.ready()) return ''
-    // 中和 `{{`：人格是用户写的自然语言，里面的模板语法会让 DSH 的变量插值抛错、毁掉整轮
+    // 中和 `{{`：人格是对方写的自然语言，里面的模板语法会让 DSH 的变量插值抛错、毁掉整轮
     // pre-step（审计 S1-3）。内容在 `collectPersonaContent` 里已经中和过一次（那里才能算进预算），
     // 这里再走一遍是**幂等**的兜底 —— 人格段外还有固定文案，两道都比一道强，代价是一次正则。
     return neutralizePromptVars(

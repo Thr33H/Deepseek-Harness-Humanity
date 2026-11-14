@@ -11,14 +11,14 @@
  * ### 判定顺序（每一步都有决策依据）
  *
  * 1. 只处理 `active`（P-026：归档条目不再参与任何自动动作）；
- * 2. **受保护的不碰**：`pinned`（用户标记）、`confidence ≥ HIGH_CONFIDENCE_PROTECTED`（稳定事实）、
+ * 2. **受保护的不碰**：`pinned`（对方标记）、`confidence ≥ HIGH_CONFIDENCE_PROTECTED`（稳定事实）、
  *    `importance ≥ IMPORTANCE_PROTECTED`（重要）—— 这三类正是 P-026 点名"不衰减"的；
  * 3. 未用时长未达 `decayUnusedDays`（默认 90 天）⇒ 完全不衰减；
  * 4. 达到窗口后按半衰期降权：`next = floor(importance × 0.5^(超出天数 / 半衰期))`；
  * 5. `next < ARCHIVE_IMPORTANCE` ⇒ 先落盘降权后的分值，再 `archive`（归档入口只有这一个，
  *    步 2 定下的"状态变更只走 archive / restore"因此仍然成立）。
  *
- * 数据不删除：归档只是默认不参与检索（步 4 已按 `active` 过滤），用户可在工作台调回（`store.restore`）。
+ * 数据不删除：归档只是默认不参与检索（步 4 已按 `active` 过滤），对方可在工作台调回（`store.restore`）。
  * @module humanity/memory/decay
  */
 import {
@@ -45,7 +45,7 @@ export interface DecayReport {
    *
    * 为什么要单独一档：0.1.9 的报告只有 scanned/protected/decayed/archived，于是
    * 「扫了 98 条、一条都没动」这句话说不清是**都没到期**还是**都被保护**——
-   * 自进化每轮把这份报告写进运行记录后，用户看到的必须能区分这两件事。
+   * 自进化每轮把这份报告写进运行记录后，对方看到的必须能区分这两件事。
    */
   skippedFresh: number
 }
@@ -93,7 +93,7 @@ function emptyReport(): DecayReport {
   return { scanned: 0, decayed: 0, archived: 0, protectedCount: 0, skippedFresh: 0 }
 }
 
-/** 受保护的三类：用户标记、稳定事实、重要记忆（P-026）。 */
+/** 受保护的三类：对方标记、稳定事实、重要记忆（P-026）。 */
 function isProtected(entry: MemoryEntry): boolean {
   return (
     entry.pinned ||

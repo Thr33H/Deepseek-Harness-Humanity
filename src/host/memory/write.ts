@@ -5,10 +5,10 @@
  * {@link remember}（本次写入的全部判断都在这里）→ `MemoryStore.put` → 存储。
  *
  * 三条与决策直接对应的规则：
- * 1. **敏感内容只进待确认**（P-033）：`sensitivity: 'sensitive'` ⇒ `status: pending`，等用户确认；
+ * 1. **敏感内容只进待确认**（P-033）：`sensitivity: 'sensitive'` ⇒ `status: pending`，等对方确认；
  *    自动管线永远不把敏感内容直接写成生效、更不会提升为长期记忆或常驻摘要。
  * 2. **只自动写低风险稳定信息**（P-025）：模糊/一次性内容由调用方判断后记成会话记忆或干脆不记。
- * 3. **冲突只标记不解决**（P-025 + `conflict.ts`）：标记写进双方条目，等用户在工作台处理。
+ * 3. **冲突只标记不解决**（P-025 + `conflict.ts`）：标记写进双方条目，等对方在工作台处理。
  *
  * @module humanity/memory/write
  */
@@ -33,7 +33,7 @@ export interface RememberInput {
   tags?: string[]
   /** 敏感度：`sensitive` ⇒ 进待确认（P-033）。 */
   sensitivity: MemorySensitivity
-  /** 来源：用户明确说出的记满分置信度，Agent 推断的按默认置信度。 */
+  /** 来源：对方明确说出的记满分置信度，Agent 推断的按默认置信度。 */
   origin: MemoryOrigin
   /** 来源会话 id（必填：没有来源的记忆是传闻）。 */
   sessionId: string
@@ -44,7 +44,7 @@ export interface RememberInput {
 /** 一次写入的结果。失败也是结构化结果（这条路径的读者是模型，"为什么没写"要能进同一段文案）。 */
 export interface RememberResult {
   ok: boolean
-  /** 面向 Agent/用户的一句话结论。 */
+  /** 一句话结论（给对方看）。 */
   message: string
   /** 落盘后的条目；失败时不存在。 */
   entry?: MemoryEntry
@@ -54,7 +54,7 @@ export interface RememberResult {
    * 正文是否**超上限被截断**（0.1.9 新增）。
    *
    * 为什么要有这个字段：截断以前是**静默**的（硬切到 200 字、回执照旧说"写好了"）；
-   * 实测用户库里 33/56 条正好卡在上限上、调用方毫不知情。现在截断必须在**回执**里说清楚，
+   * 实测对方库里 33/56 条正好卡在上限上、调用方毫不知情。现在截断必须在**回执**里说清楚，
    * 并给模型一个能行动的说法（拆条 / 走会话检索），而不是让它以为写全了。
    */
   truncated?: boolean
@@ -76,7 +76,7 @@ export interface NormalizedMemoryContent {
  * 超限这件事由 {@link remember} 写进回执（`RememberResult.truncated` 与 `message`），
  * 也会进运行记录的注记（自进化那条路，见 `classify.ts` 的 `memoriesTruncated`）。
  *
- * 归一化只用于**比较**（`buildDedupeKey` / 冲突检测），落盘正文保留用户自己的说法 ——
+ * 归一化只用于**比较**（`buildDedupeKey` / 冲突检测），落盘正文保留对方自己的说法 ——
  * 所以这里只压空白、不改标点与大小写。
  * @param raw - 原始内容。
  * @returns 正文 + 截断标记 + 原长度（正文可能为空串，调用方据此拒绝）。
@@ -115,19 +115,19 @@ function ownerIdOf(input: RememberInput): string {
  *
  * 为什么需要这一步（真实漏洞，不是防御性编程）：指纹只由作用域 + 正文算出，不含敏感标记。
  * 于是"敏感内容先进待确认"之后，任何一次同内容的普通写入都会把状态刷回 `active`、
- * 并把 `sensitive` 抹成 false —— 用户明确标记的敏感内容就被一次无关的重复写入提升成了生效记忆。
- * 所以：已存条目是敏感的 ⇒ 保持敏感；仍是待确认的 ⇒ 保持待确认（只有用户能确认，见 `confirm.ts`）。
+ * 并把 `sensitive` 抹成 false —— 对方明确标记的敏感内容就被一次无关的重复写入提升成了生效记忆。
+ * 所以：已存条目是敏感的 ⇒ 保持敏感；仍是待确认的 ⇒ 保持待确认（只有对方能确认，见 `confirm.ts`）。
  */
 function mergeSafety(next: MemoryEntry, stored: MemoryEntry | undefined): MemoryEntry {
   if (stored === undefined) return next
   return {
     ...next,
     sensitive: next.sensitive || stored.sensitive,
-    // 待确认与已归档都是"用户还没点头"的状态：合并/重写都不许把它们放行（P-026 / P-033）。
+    // 待确认与已归档都是"对方还没点头"的状态：合并/重写都不许把它们放行（P-026 / P-033）。
     status: stored.status === 'active' ? next.status : stored.status,
     confirmedVia: stored.confirmedVia,
-    // **归档不许被悄悄复活**（P-026：归档只影响默认检索，回不回来由用户决定）：
-    // 用户在卡片上点了「归档」，之后模型再"想起"同一句话不该把它变回活跃 —— 那等于绕过了用户。
+    // **归档不许被悄悄复活**（P-026：归档只影响默认检索，回不回来由对方决定）：
+    // 对方在卡片上点了「归档」，之后模型再"想起"同一句话不该把它变回活跃 —— 那等于绕过了对方。
     archivedAt: stored.archivedAt,
   }
 }
@@ -226,7 +226,7 @@ export async function remember(
 
   const conflicting = existing.filter((item) => conflicts.includes(item.dedupeKey))
   // 0.1.9：截断**必须在回执里说出来**。旧行为是硬切到上限、回执照旧报成功 ——
-  // 实测用户库里 33/56 条正好卡在 200 字上，调用方从来不知道自己的话被切掉了尾巴。
+  // 实测对方库里 33/56 条正好卡在 200 字上，调用方从来不知道自己的话被切掉了尾巴。
   // 这里给的是**能行动**的说法（拆条 / 会话检索），不是一句"注意"。
   const truncationNote = normalized.truncated
     ? `\n⚠️ 正文超过上限（${CONTENT_CHAR_LIMIT} 字），**已截断保存前 ${CONTENT_CHAR_LIMIT} 字**（原始 ${normalized.originalChars} 字）。要保留全文请拆成多条写入，或用会话检索回查原文。`

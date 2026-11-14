@@ -1,5 +1,5 @@
 /**
- * 从运行期对象里读**记忆需要的身份**（会话 id、工作区 id、当前用户消息文本）。
+ * 从运行期对象里读**记忆需要的身份**（会话 id、工作区 id、当前对方消息文本）。
  *
  * 为什么用结构性读取而不是 import 那些包的类型：`dsh-agent` / `dsh-session` / `dsh-llm`
  * 都不是本插件的依赖（G-002 零硬依赖），引进来只为拿三个字段的类型，会把这个插件绑死在
@@ -12,7 +12,7 @@
  *   `exec.agent?.session.header.cwd`。**2026-09-26 真机实证**：此前读 `session.meta.cwd`
  *   恒为空，后果是「区域记忆」两头都坏——写入侧存空归属、检索侧 workspaceId 恒空
  *   （⇒ 全部 0 分被阈值刷掉、从来不注入）。`meta.cwd` 只作为最后的回退。
- * - 用户消息的正文在 `message.content` 的 `text` 块里（`dsh-llm` 的 `ContentBlock`）。
+ * - 对方消息的正文在 `message.content` 的 `text` 块里（`dsh-llm` 的 `ContentBlock`）。
  * @module humanity/memory/identity
  */
 
@@ -29,8 +29,8 @@ export interface MemoryIdentity {
 /**
  * 读一条消息里的**可见正文**。
  *
- * 只取 `text` 块：图片/工具结果/推理块都不是"用户说的话"，拿来检索只会引入噪音。
- * @param message - 用户消息（结构性读取）。
+ * 只取 `text` 块：图片/工具结果/推理块都不是"对方说的话"，拿来检索只会引入噪音。
+ * @param message - 对方消息（结构性读取）。
  * @returns 正文；没有文本块时为空串。
  */
 export function userTextOf(message: unknown): string {

@@ -1,17 +1,17 @@
 /**
  * 对话内提案提醒（P-043 的 B 方案落地）：有待确认批次时，在下一次主 Agent 装配里
- * 注入一小段指令，让 Agent 用两三句话告知用户，然后**同一批只提醒一次**。
+ * 注入一小段指令，让 Agent 用两三句话告知对方，然后**同一批只提醒一次**。
  *
  * ### 形态说明（如实记录，不假装是 UI 卡片）
  * DSH 没有"插件直接向对话发 UI 卡片"的 seam；能在系统提示词层做到的最接近形态是
  * 「引导模型在本次回复开头组织一段简短告知」——内容、分类数量与工作台入口都在指令里，
- * 措辞由 Agent 按人格组织（P-011 的职责边界）。若用户认为必须是字面 UI 卡片，
+ * 措辞由 Agent 按人格组织（P-011 的职责边界）。若对方认为必须是字面 UI 卡片，
  * 那是新 seam 的裁决事项（DEV-PLAN §5.4 已注明）。
  *
  * ### 水位机制（"同一批只提醒一次"）
  * 水位 = 当前全部 pending（提案 id + 记忆指纹）排序拼接的哈希。渲染出非空提醒后异步落盘；
  * 下次装配哈希相同 → 空串。新提案/新 pending 记忆改变哈希 → 再提醒一次。
- * 用户处理掉提案也会改变哈希——但那只会让提醒**消失**（total 归零直接空串），不会误报。
+ * 对方处理掉提案也会改变哈希——但那只会让提醒**消失**（total 归零直接空串），不会误报。
  *
  * 红线纪律：`text` 绝不抛（S1-2）；输出经 `neutralizePromptVars`（S1-3）；
  * 只对主 Agent 注入（`agent-scope.ts` 判定，不声明 `agents` 依赖——T0 事故）。
@@ -26,7 +26,7 @@ import { neutralizePromptVars } from '../text.js'
 import { PROPOSALS_SECTION_NAME, PROPOSALS_SECTION_ORDER } from './constants.js'
 import type { EvolutionState } from './state.js'
 
-/** 分类计数（文案里报给用户）。 */
+/** 分类计数（文案里报给对方）。 */
 export interface PendingCounts {
   memory: number
   persona: number
@@ -40,7 +40,7 @@ export interface PendingFacts {
   proposalIds(): string[]
   /** 待确认记忆指纹（pending 状态）。 */
   memoryFingerprints(): string[]
-  /** 分类计数（文案里报给用户）。 */
+  /** 分类计数（文案里报给对方）。 */
   counts(): PendingCounts
 }
 
@@ -69,10 +69,10 @@ function renderNotice(counts: PendingCounts): string {
   if (counts.persona > 0) parts.push(`人格 ${counts.persona} 条`)
   if (counts.route > 0) parts.push(`路由 ${counts.route} 条`)
   return (
-    `【待确认提案】现在有 ${counts.total} 条内容在等待用户确认（${parts.join('、')}）。` +
-    '请在本次回复的开头用两三句话告知用户：有多少条待确认、大致是哪些类别，' +
+    `【待确认提案】现在有 ${counts.total} 条内容在等待对方确认（${parts.join('、')}）。` +
+    '请在本次回复的开头用两三句话告知对方：有多少条待确认、大致是哪些类别，' +
     '以及可以打开 Humanity 工作台的「待确认」页逐条处理。' +
-    '只简短提醒这一次，不要展开内容细节，不要替用户做决定，也不要在之后的回复里重复。'
+    '只简短提醒这一次，不要展开内容细节，不要替对方做决定，也不要在之后的回复里重复。'
   )
 }
 

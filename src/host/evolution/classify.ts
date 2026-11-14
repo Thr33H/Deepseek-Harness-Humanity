@@ -73,21 +73,21 @@ export interface ClassifyResult {
    * 本轮有多少条记忆**因超上限被截断保存**（0.1.9 新增）。
    *
    * 为什么要有：截断以前是静默的（硬切 200 字、回执照报成功）。这条路径的读者是**运行记录**
-   * （`run-loop.ts` 会把它写成一条注记）⇒ 用户翻时间线就能看到"有几条没存全"，
+   * （`run-loop.ts` 会把它写成一条注记）⇒ 对方翻时间线就能看到"有几条没存全"，
    * 不必去逐条比对正文。
    */
   memoriesTruncated: number
   /**
    * 本轮信息**实际并掉**的同义条目数（0.1.10 · A4）。
    *
-   * 为什么要进运行记录：自进化接管"人格预算整理"之后，用户要能看见"这轮到底并掉了几条"——
+   * 为什么要进运行记录：自进化接管"人格预算整理"之后，对方要能看见"这轮到底并掉了几条"——
    * 不然"自进化说它整理了人格"只是一句自述，无从核对。
    */
   personaMerged: number
   /**
    * 本轮有多少条**拟新增的条目被护栏/预演拦下**（0.1.11 · A）。
    *
-   * 为什么单独记账：护栏现在会在"接近预算"时就停追加，用户需要能看见"模型提了、但没写进去几条"——
+   * 为什么单独记账：护栏现在会在"接近预算"时就停追加，对方需要能看见"模型提了、但没写进去几条"——
    * 否则表现是"自进化好像什么都没干"，而真相是它守住了预算。运行记录注记会读这个数。
    */
   personaAdditionsDropped: number
@@ -174,7 +174,7 @@ export async function applyAnalysis(deps: ClassifyDeps, context: ClassifyContext
   addCounted(result, addFixedProposals(context, output, addProposal))
 
   if (context.mode === 'dream' && output.insights.length > 0) {
-    // 洞察不自动写记忆（联想产物的证据强度低）：进运行记录，由用户在时间线里决定。
+    // 洞察不自动写记忆（联想产物的证据强度低）：进运行记录，由对方在时间线里决定。
     deps.log.info(`梦境产出 ${output.insights.length} 条洞察（已存入运行记录，不自动入库）`)
   }
   return result

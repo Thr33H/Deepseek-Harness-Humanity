@@ -19,7 +19,7 @@ import type { AnalysisOutput } from './model.js'
  * 先按模型的整合建议**并掉同义条目**（P-056）。
  *
  * 只有 `drop` 与现有条目**逐字一致**才算数：对不上就忽略 —— 宁可少并一条，
- * 也不能凭"大概指的是这句"去删用户的内容。`keep` 不在该小节里时不并（防止把两条都删掉）。
+ * 也不能凭"大概指的是这句"去删对方的内容。`keep` 不在该小节里时不并（防止把两条都删掉）。
  * @param section - 该小节现有条目（原地改）。
  * @param consolidations - 该小节收到的整合建议。
  * @returns 实际并掉的条数。
@@ -170,7 +170,7 @@ export async function writePersonaSections(
  * `VALUE_SOFT_LIMIT = 120` ⇒ 注入时尾巴被切掉）。后者一并拦下是有意的：信息最坏的结果是
  * "写进去了却不生效"，一条只进得去前半截的条目正属此类 —— 宁可这一轮不写、并如实记一笔
  * "拦下拟新增 N 条"（运行记录里看得见），也不要静默收下半条。
- * 若用户更希望"长条目照收、注入时裁"，把判据收窄成 `fit.dropped > 0` 即可（改这一处）。
+ * 若对方更希望"长条目照收、注入时裁"，把判据收窄成 `fit.dropped > 0` 即可（改这一处）。
  *
  * 只有一处口径算得对（{@link ClassifyDeps.personaFit}，宿主接线到 `personaPromptReport`）；
  * 接线缺席时（旧接线 / 测试替身）回退到同一函数 + `independentJudgment: true` ——

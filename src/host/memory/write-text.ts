@@ -2,7 +2,7 @@
  * 写入路径的**文案**：作用域标签与"这次写入了什么"的结论句。
  *
  * 为什么从 `write.ts` 拆出来：那份文件贴着 200 行行数门，而"怎么判断/怎么落盘"与
- * "结论怎么说给模型听"是两件事 —— 后者几乎每次用户反馈都要改措辞，前者不该跟着动。
+ * "结论怎么说给模型听"是两件事 —— 后者几乎每次对方反馈都要改措辞，前者不该跟着动。
  * 三个消费方（工具结果、检索渲染、写入本身）都从这里取标签，措辞只有一个真源。
  * @module humanity/memory/write-text
  */
@@ -36,7 +36,7 @@ export function describeEntry(
       ? `已更新${SCOPE_LABELS[entry.scope]}（同一条事实，未重复新增）。`
       : `已写入${SCOPE_LABELS[entry.scope]}。`
   const parts = [head]
-  if (entry.status === 'pending') parts.push('这是敏感内容，已进入待确认：用户确认前不参与检索与注入。')
-  if (hasConflict) parts.push('与已有记忆可能矛盾，已标记冲突（不改动任何一方，等用户在工作台处理）。')
+  if (entry.status === 'pending') parts.push('这是敏感内容，已进入待确认：对方确认前不参与检索与注入。')
+  if (hasConflict) parts.push('与已有记忆可能矛盾，已标记冲突（不改动任何一方，等对方在工作台处理）。')
   return parts.join('')
 }

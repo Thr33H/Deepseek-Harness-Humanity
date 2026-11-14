@@ -4,7 +4,7 @@
  * 为什么从 `render.ts` 拆出来：那边贴着文件行数质量门，而"怎么排字"与"装不下时先牺牲谁"
  * 是两个独立问题 —— 后者要能被单独读懂、单独测。
  *
- * ⚠️ **2026-09-26 修的一处结构性缺陷**（用户发现某实例的提示词末尾挂着「已截断」）：旧实现把
+ * ⚠️ **2026-09-26 修的一处结构性缺陷**（对方发现某实例的提示词末尾挂着「已截断」）：旧实现把
  * **一个小节当成一整行**，放不下就整节丢掉 —— 真机上 7 节里有 3 节从来没进过提示词。
  * 现在改成**逐条填充 + 轮转配额**：每节先保底一条，剩下的按轮次一条一条加；唯一的限制是字符
  * 预算（曾经的"每节最多 N 条"已删：它与成本无关，只会造出一个不可解释的悬崖）。
@@ -18,7 +18,7 @@ export interface FitSection {
   items: readonly string[]
 }
 
-/** 拟合输入：头部原子行（标题 / 底色）、小节、尾部原子行（用户定义）。 */
+/** 拟合输入：头部原子行（标题 / 底色）、小节、尾部原子行（自定义）。 */
 export interface FitInput {
   head: readonly string[]
   sections: readonly FitSection[]
@@ -150,7 +150,7 @@ export function fitPersonaContent(input: FitInput, budget: number): FitResult {
     if (!pushAtomic(cursor, line, limit)) break
   }
 
-  // 尾部（用户定义）先占位：它是用户亲手写的兜底内容，不该被信息挤掉。
+  // 尾部（自定义）先占位：它是对方亲手写的兜底内容，不该被信息挤掉。
   const tailCost = costOf(input.tail)
   const reservedTail = cursor.used + tailCost <= limit ? tailCost : 0
   if (reservedTail === 0 && input.tail.length > 0) cursor.truncated = true

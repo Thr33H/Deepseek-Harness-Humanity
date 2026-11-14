@@ -62,7 +62,7 @@ export function mergeIdentityFields(raw: readonly { key: string; value: string }
  *
  * 另外两条仍然保留：
  * 1. **标准小标题按 P-020 的固定顺序排列**（顺序是标准的一部分：工作台按它展示、Agent 按它归位）；
- * 2. **非标准小标题保持参数顺序、附在标准集合之后**（P-016 允许用户自由添加）；
+ * 2. **非标准小标题保持参数顺序、附在标准集合之后**（P-016 允许对方自由添加）；
  * 3. 同名小标题**不在这里去重**：重复标题是 P-010 的高风险项，该由校验器拒绝。
  * @param raw - 模型给出的快照。
  * @param current - 当前生效文档（"漏传 = 保留原值"要用它）。
@@ -115,8 +115,8 @@ export function carriesIdentityWrite(name: string, args: unknown): boolean {
 
 /** 还没初始化就想整理信息时给 Agent 的指引。 */
 export const NOT_INITIALIZED_REASON =
-  '人格底色还没有初始化。请先在对话里了解用户，调用 humanity_persona_init 写入底色，再来整理信息。'
+  '人格底色还没有初始化。请先在对话里了解对方，调用 humanity_persona_init 写入底色，再来整理信息。'
 
 /** 底色已封存时给 Agent 的指引。 */
 export const SEALED_REASON =
-  '人格底色已封存：Agent 不能修改底色。如需变更，请用户在 Humanity 工作台修改。'
+  '人格底色已封存：Agent 不能修改底色。如需变更，请对方在 Humanity 工作台修改。'

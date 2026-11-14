@@ -25,11 +25,11 @@ export interface MemoryEntry {
   tags: string[]
   /** 重要度 0–5。重要条目不参与衰减（P-026）。 */
   importance: number
-  /** 置信度 0–1。自动写入 < 1；用户明确说出的为 1。 */
+  /** 置信度 0–1。自动写入 < 1；对方明确说出的为 1。 */
   confidence: number
-  /** 敏感标记：只有用户明确说"记住"才允许为真（P-033），可在工作台查看与删除。 */
+  /** 敏感标记：只有对方明确说"记住"才允许为真（P-033），可在工作台查看与删除。 */
   sensitive: boolean
-  /** 用户标记（钉住/置顶）：不衰减、不归档，优先级最高。 */
+  /** 对方标记（钉住/置顶）：不衰减、不归档，优先级最高。 */
   pinned: boolean
   /** 写入来源。自动管线不得改写它（P-033）。 */
   origin: MemoryOrigin
@@ -62,7 +62,7 @@ export interface MemoryEntry {
    * 与哪些条目**可能矛盾**（对方的去重指纹）。空数组 = 没有检测到冲突。
    *
    * 只标记、不解决：判据是本地关键词启发式（见 `conflict.ts`），它没有资格自动决定
-   * "用户到底喜欢还是不喜欢咖啡"。冲突由用户在工作台处理（M3 步骤 8）。
+   * "对方到底喜欢还是不喜欢咖啡"。冲突由对方在工作台处理（M3 步骤 8）。
    */
   conflictWith: string[]
   /**
@@ -109,7 +109,7 @@ export interface MemoryEntryInput {
   confidence?: number
   /** 敏感标记；省略时取 `false`（P-033）。 */
   sensitive?: boolean
-  /** 用户标记；省略时取 `false`。 */
+  /** 对方标记；省略时取 `false`。 */
   pinned?: boolean
   /** 来源消息 id。 */
   sourceMessageId?: string
@@ -155,17 +155,17 @@ export interface MemoryPolicy {
    */
   pinFrequent: boolean
   /**
-   * 自动写入敏感内容。**恒为 false**：P-033 规定敏感信息只有用户明确说"记住"才写，
+   * 自动写入敏感内容。**恒为 false**：P-033 规定敏感信息只有对方明确说"记住"才写，
    * 因此它不是一个开关，而是管线的硬约束。
    */
   autoWriteSensitive: boolean
 }
 
 /**
- * 高级开关（P-030）。全部可选：只覆盖用户真正动过的那几项，其余跟随预设。
+ * 高级开关（P-030）。全部可选：只覆盖对方真正动过的那几项，其余跟随预设。
  *
  * 这里刻意**没有** `pinFrequent` / `autoWriteSensitive`：那两项由决策钉死，
- * 开放成开关等于把决策变成"用户自己不小心打开的功能"。
+ * 开放成开关等于把决策变成"对方自己不小心打开的功能"。
  */
 export interface MemoryPolicyOverrides {
   /** 三层作用域的独立开关。 */

@@ -126,7 +126,7 @@ test('两个工具都注册进了真实工具表，且参数契约对模型可�
     assert.ok(update, 'humanity_persona_update 没有注册')
     // 参数 schema 是模型可见的部分，必须真的带上底色字段定义。
     assert.ok(JSON.stringify(init.parameters).includes('人格偏好'))
-    assert.ok(JSON.stringify(update.parameters).includes('用户定义'))
+    assert.ok(JSON.stringify(update.parameters).includes('自定义'))
   } finally {
     await harness.dispose()
   }
@@ -387,7 +387,7 @@ test('⑤ 显式清空有内容的一节：用户在对话里点确认 → 真�
     })
 
     assert.equal(approval.seen.length, 1, '必须恰好问一次')
-    assert.match(approval.seen[0].reason, /删掉用户已有的内容/)
+    assert.match(approval.seen[0].reason, /删掉对方已有的内容/)
     assert.equal(approval.seen[0].toolName, PERSONA_UPDATE_TOOL)
     assert.equal(cleared.value.ok, true, '用户确认后应当写入成功')
     // 0.1.14：「经验教训」是非原生项 ⇒ 清空即删除（生效口径里整节消失，不留空壳）。

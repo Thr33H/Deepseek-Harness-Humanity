@@ -31,12 +31,12 @@ export function checkIdentity(
 }
 
 /**
- * 反向查重：底色字段名不得与信息小标题 / 用户定义键撞名。
+ * 反向查重：底色字段名不得与信息小标题 / 自定义键撞名。
  *
- * 为什么需要反向（2026-09-25 真机反馈）：`core-key-shadowed` 只查「写信息」方向，用户在底色
+ * 为什么需要反向（2026-09-25 真机反馈）：`core-key-shadowed` 只查「写信息」方向，对方在底色
  * 加一个「对TA的称呼」字段能无任何提示地保存成功 —— 此后每次写信息都会被 shadow 拒绝，
- * 而用户看不懂为什么。在撞名的源头拦，比在每次受害者侧拦便宜且可解释。
- * 祖父化：prev 里已同名的字段不查 —— 否则一份已经撞名的旧文档会拒掉之后**所有**保存，用户无从修复。
+ * 而对方看不懂为什么。在撞名的源头拦，比在每次受害者侧拦便宜且可解释。
+ * 祖父化：prev 里已同名的字段不查 —— 否则一份已经撞名的旧文档会拒掉之后**所有**保存，对方无从修复。
  */
 function checkShadowsMutable(next: PersonaDocument, prev: PersonaDocument | undefined, issues: PersonaIssue[]): void {
   const shadowed = new Set<string>([
@@ -51,7 +51,7 @@ function checkShadowsMutable(next: PersonaDocument, prev: PersonaDocument | unde
       code: 'identity.shadows-mutable',
       path: `identityCard.fields[${index}].key`,
       severity: 'rejected',
-      message: `字段名「${field.key}」与信息的小标题或用户定义键撞名，请改其中一个名字。`,
+      message: `字段名「${field.key}」与信息的小标题或自定义键撞名，请改其中一个名字。`,
     })
   }
 }
@@ -100,7 +100,7 @@ function checkKeyDuplicates(fields: readonly IdentityField[], issues: PersonaIss
 }
 
 /**
- * P-012 的核心字段是底色的最小集合；缺任何一个都意味着"用户明确设定的核心事实没了"（P-010 高风险）。
+ * P-012 的核心字段是底色的最小集合；缺任何一个都意味着"对方明确设定的核心事实没了"（P-010 高风险）。
  *
  * ⚠️ **这条规则只对"不经规范化的调用方"生效**：`normalizePersona` 的 `ensureCoreFields` 会把缺的核心字段
  * 补成空值（旧数据 + 新 schema 的兼容点，2026-09-23 真机事故），所以正常路径下这里永远为真。
@@ -120,7 +120,7 @@ function checkCoreFields(fields: readonly IdentityField[], issues: PersonaIssue[
 }
 
 /**
- * 封存：Agent 不能改底色（P-013/P-023）。用户在工作台里改是允许的——只有用户能改。
+ * 封存：Agent 不能改底色（P-013/P-023）。对方在工作台里改是允许的——只有对方能改。
  *
  * **唯一的例外是首次初始化**（P-003：Agent 引导 → 写入底色 → 封存）。封存是"初始化完成
  * 之后"才成立的状态，所以判据必须是「当前底色是否已经有人写过」，而不是「调用方有没有传 prev」：
@@ -140,7 +140,7 @@ function checkSealed(
     code: 'identity.sealed',
     path: 'identityCard',
     severity: 'rejected',
-    message: '人格底色已对 Agent 封存，Agent 不能修改；如需变更，请用户前往 Humanity 工作台。',
+    message: '人格底色已对 Agent 封存，Agent 不能修改；如需变更，请对方前往 Humanity 工作台。',
   })
 }
 

@@ -17,7 +17,7 @@
  *
  * | 官方行为 | 这里 |
  * |---|---|
- * | `installSection` 注册命名空间后，`get(ns)` 能读到"schema 默认 → 组合配置 → 用户覆盖" | `get(ns)` = 已落盘文档，没有则读 `base`（= 组合配置那层） |
+ * | `installSection` 注册命名空间后，`get(ns)` 能读到"schema 默认 → 组合配置 → 对方覆盖" | `get(ns)` = 已落盘文档，没有则读 `base`（= 组合配置那层） |
  * | `validate(value)` 在写入前调用，抛错即拒绝本次写入 | 同：先 `validate` 再落盘 |
  * | `setSource(read)` 在 attach / detach 时回调 | 同：attach 时给一次读取闭包 |
  * | `onChange()` 在**提交成功后**触发（attach 时也立刻触发一次） | 同 |

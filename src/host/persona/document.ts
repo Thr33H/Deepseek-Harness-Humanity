@@ -13,11 +13,11 @@ import { validatePersona } from './validate.js'
 import type { PersonaDocument, ValidateOptions, WriteSource } from './types.js'
 
 /**
- * 人格文档的命名空间名。它写在用户的设置文件里，因此**改名等于丢用户数据**（G-004）。
+ * 人格文档的命名空间名。它写在对方的设置文件里，因此**改名等于丢对方数据**（G-004）。
  */
 export const PERSONA_NAMESPACE = 'humanity-persona'
 
-/** 写入被拒。`issues` 是结构化的判定结果，调用方据此组织对用户说的话（P-011）。 */
+/** 写入被拒。`issues` 是结构化的判定结果，调用方据此组织对TA说的话（P-011）。 */
 export class PersonaWriteRejected extends Error {
   readonly code = 'PERSONA_WRITE_REJECTED'
   readonly issues: ReturnType<typeof validatePersona>['issues']
@@ -77,13 +77,13 @@ export function readCurrent(state: SectionState): PersonaDocument {
  *
  * 单向数据流（见 normalize.ts 文件头）：**校验**看调用方传了什么（空的自定义节还在 ⇒ 能区分
  * "显式清空"与"漏传"），**落盘**才删掉空壳 —— 顺序反了就会出现"显式删除被误报成漏传"。
- * `options.confirmed` 只可能来自"用户已在对话里点过确认"（见 constants.ts 的 CONFIRMABLE_ISSUES
- * 白名单），所以存储层的二次校验没有被绕过：它只是知道了"这一条用户已经点头"。
+ * `options.confirmed` 只可能来自"对方已在对话里点过确认"（见 constants.ts 的 CONFIRMABLE_ISSUES
+ * 白名单），所以存储层的二次校验没有被绕过：它只是知道了"这一条对方已经点头"。
  * @param state - 接线状态。
  * @param history - 历史接收方；存储未就绪时返回 undefined 即可。
  * @param next - 待写入的文档（会被规范化）。
  * @param writeSource - 写入来源，决定校验强度。
- * @param options - 用户已确认的问题代码白名单。
+ * @param options - 对方已确认的问题代码白名单。
  */
 export async function writePersona(
   state: SectionState,

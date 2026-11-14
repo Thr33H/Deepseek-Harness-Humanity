@@ -30,7 +30,7 @@ export interface RunAccumulator {
   /**
    * 本轮有多少条记忆**超上限被截断保存**（0.1.9）。
    *
-   * 收尾时写成一条注记进运行记录：用户翻时间线就能看见"有几条没存全"，
+   * 收尾时写成一条注记进运行记录：对方翻时间线就能看见"有几条没存全"，
    * 不必去逐条比对正文长度（旧行为是硬切 + 静默）。
    */
   truncatedMemories: number
@@ -204,7 +204,7 @@ export async function runLoop(deps: RunnerDeps, accumulator: RunAccumulator, tar
         // 0.1.11：被护栏/预演拦下的新增也要记账（"什么都没干"与"守住了预算"是两回事）。
         accumulator.personaAdditionsDropped += result.personaAdditionsDropped
         // 0.1.9：把"有记忆被截断保存"这件事**记进时间线**（记的是运行记录，不是只打日志）——
-        // 否则用户只能靠逐条比对正文才能发现有内容被切掉了尾巴。
+        // 否则对方只能靠逐条比对正文才能发现有内容被切掉了尾巴。
         accumulator.truncatedMemories += result.memoriesTruncated
       }
     } catch (error) {

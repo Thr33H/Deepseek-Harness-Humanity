@@ -44,8 +44,8 @@ export function projectionPatch(input: ProjectionInput): Record<string, unknown>
     // 开关显示的是**生效值**（来自 policy），不是配置里的原值（2026-09-26 审计 C6）：
     // 配置写着"三层全关但模式是 balanced"时宿主会按模式回退（`isDegenerateAdvanced`），
     // 于是旧投影出现"生效作用域：三层全在"与"三个开关全关"并排挂着，两个控件互相打脸，
-    // 用户不知道该信哪个。开关与作用域标签现在同源于 policy，物理上不可能再分叉。
-    // 用户拨开关时客户端会以这份生效值为底写回（见 `memory-config.ts`），等于顺手修好配置。
+    // 对方不知道该信哪个。开关与作用域标签现在同源于 policy，物理上不可能再分叉。
+    // 对方拨开关时客户端会以这份生效值为底写回（见 `memory-config.ts`），等于顺手修好配置。
     advanced: {
       longTerm: policy.scopes['long-term'],
       work: policy.scopes.workspace,
