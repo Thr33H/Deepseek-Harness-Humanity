@@ -68,7 +68,7 @@ test('渲染：见面这段只写"做什么"，不写成一步步的流程说明
   const text = renderPersonaPrompt(createDefaultPersona(), { enabled: true })
 
   assert.match(text, /怎么称呼对方/)
-  assert.match(text, /不要一口气抛出多个问题/)
+  assert.match(text, /一次问完/, '用户 2026-11-14：一次问全，不要挤牙膏')
   assert.match(text, /Humanity 工作台/)
   assert.match(text, /先回应/, '对方先说别的事：先回应，再自然提起')
   assert.match(text, /不要承诺任何你现在做不到的事/)

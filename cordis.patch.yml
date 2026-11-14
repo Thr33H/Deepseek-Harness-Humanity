@@ -24,6 +24,12 @@
 - id: harness-dev-context
   disabled: true
 
+# 默认预设指向 humanity 自己注册的那个（见 src/host/presets.ts）。
+# 同一 id 在未封存/已封存时是两套清单，所以这里只需要指向它，不用按状态分叉。
+- id: agent-preset-registry
+  config:
+    default: humanity
+
 # 身份层（round 48d，真机反馈：双重身份声明把人格卡降格成"角色扮演"）：
 # 关掉 DSH 第一方身份声明，让人格卡成为唯一自我认知。
 #   - includeHarnessIdentity: false 摘掉全局 `harness:identity` 段
