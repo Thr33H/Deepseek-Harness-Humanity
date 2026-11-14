@@ -67,8 +67,9 @@ test('渲染：**未初始化**时注入"第一次见面"而不是空串（否�
 test('渲染：见面这段只写"做什么"，不写成一步步的流程说明（用户 2026-11-14 定）', () => {
   const text = renderPersonaPrompt(createDefaultPersona(), { enabled: true })
 
-  assert.match(text, /怎么称呼对方/)
+  assert.match(text, /自己决定该问哪些/, '问题清单不写死：让模型看工具能收什么再自己挑')
   assert.match(text, /一次问完/, '用户 2026-11-14：一次问全，不要挤牙膏')
+  assert.match(text, /自己补全/, '没问到的由模型补全，不逐项确认')
   assert.match(text, /Humanity 工作台/)
   assert.match(text, /先回应/, '对方先说别的事：先回应，再自然提起')
   assert.match(text, /不要承诺任何你现在做不到的事/)
