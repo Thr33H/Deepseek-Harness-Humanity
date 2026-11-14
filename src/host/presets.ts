@@ -27,17 +27,15 @@ import { describeError, reportBootFailure, type Log } from './log.js'
 export const HUMANITY_PRESET_ID = 'humanity'
 
 /**
- * 工具闸的白名单：**只有 humanity 自己的工具**。
+ * 工具闸的教训（2026-11-14，真机）：**闸不能装在预设作用域**。
  *
- * 闸只约束"宿主平面的全局工具"（预设内的工具是作用域工具，闸管不着，也不需要管）。
- * 名单之外的一切全局工具在沉浸式里不可见 —— 这就是"我决定它面前有什么"的落点。
+ * `dsh-tools` 的可见性是"自己的注册不受限、继承来的受限"；对**会话**来说，预设里的工具
+ * 正是"继承来的"，于是在预设层放一个 allow 白名单会把 `web_search` / `read` 一起遮掉
+ * （症状：模型看得见工具、调用时报 `unknown tool "web_search"`）。
+ * 正确位置是**会话作用域**（`agent.ctx.tools.restrict`，dsh-subagent 就是这么用的），
+ * 而且白名单必须把预设里的工具名也列全。这一版先不装闸：预设本身已经限定了插件清单，
+ * 真正要防的是"以后装的宿主平面插件把工具塞进来"，那需要单独一版正确的实现。
  */
-export const GATE_ALLOW = [
-  'humanity_persona_init',
-  'humanity_persona_update',
-  'humanity_remember',
-  'humanity_recall',
-] as const
 
 /** loader 的插件条目（与 `cordis.patch.yml` 的方言一一对应）。 */
 interface Entry {
@@ -65,11 +63,6 @@ const COMPACTION_GROUP: Entry = {
   ],
 }
 
-/** 工具闸条目：只在沉浸式里出现（极简也带闸，见下）。 */
-function gateEntry(): Entry {
-  return { id: 'humanity-gate', name: 'deepseek-harness-humanity/gate', config: { allow: [...GATE_ALLOW] } }
-}
-
 /** 两套清单共用的取内容部分。 */
 function contentOnly(readOnly: boolean): Entry[] {
   return [
@@ -88,7 +81,7 @@ function contentOnly(readOnly: boolean): Entry[] {
 
 /** 未封存：只能取内容，别的什么也做不了。 */
 export function minimalPlugins(): Entry[] {
-  return [...contentOnly(true), COMPACTION_GROUP, gateEntry()]
+  return [...contentOnly(true), COMPACTION_GROUP]
 }
 
 /** 已封存：在取内容之上打开"写"、时间与定时提醒。 */
@@ -99,7 +92,6 @@ export function immersivePlugins(): Entry[] {
     { id: 'tool-schedule', name: '@deepseek-ai/dsh-tool-schedule' },
     { id: 'present', name: '@deepseek-ai/dsh-tool-present' },
     COMPACTION_GROUP,
-    gateEntry(),
   ]
 }
 

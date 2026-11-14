@@ -32,9 +32,6 @@
     "./client": {
       "default": "./lib/client.js"
     },
-    "./gate": {
-      "default": "./lib/gate.js"
-    },
     "./package.json": "./package.json"
   },
   "files": [
