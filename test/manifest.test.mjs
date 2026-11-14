@@ -52,9 +52,9 @@ test('客户端声明只列出真实存在的同组合包（写错会让组合�
   assert.equal(packageJson.dsh.client.external, undefined)
 })
 
-test('组合补丁：插入插件行 + 替换 system-prompt 身份行（身份层，round 48d）', () => {
-  assert.ok(Array.isArray(patch) && patch.length === 2)
-  const [layer, identityLayer] = patch
+test('组合补丁：插入插件行 + 替换 system-prompt 身份行 + 停掉两段宿主提示词噪音', () => {
+  assert.ok(Array.isArray(patch) && patch.length === 4)
+  const [layer, fileRefRow, devContextRow, identityLayer] = patch
   assert.ok(Array.isArray(layer.insert) && layer.insert.length === 1)
 
   const [row] = layer.insert
@@ -67,6 +67,12 @@ test('组合补丁：插入插件行 + 替换 system-prompt 身份行（身份�
   assert.equal(identityLayer.config.includeHarnessIdentity, false, '第一方身份声明必须在配置层关掉（信息是唯一自我认知）')
   assert.equal(identityLayer.config.personaPrefix, '', '全局 persona 前缀置空（各 preset 的前缀由宿主身份层在 waterfall 摘除）')
   assert.match(identityLayer.config.personaSuffix, /cwd/, '工作目录是事实不是身份，必须保留')
+
+  // 两段宿主平面噪音（2026-11-14）：它们不在任何 preset 里，只能在补丁层整行停掉。
+  assert.equal(fileRefRow.id, 'file-reference-local', '@ 路径说明来自这一行')
+  assert.equal(fileRefRow.disabled, true)
+  assert.equal(devContextRow.id, 'harness-dev-context', 'checkout / Web GUI 说明来自这一行')
+  assert.equal(devContextRow.disabled, true)
 })
 
 test('组合补丁不重复声明默认值（默认值只能有一个真源）', () => {

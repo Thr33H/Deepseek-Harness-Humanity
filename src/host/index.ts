@@ -24,6 +24,7 @@ import { createLog, type Log } from './log.js'
 import { createModuleRegistry, describeModules, MODULES, type Disposer, type ModuleRegistry } from './modules.js'
 import { migrateLegacyDocuments } from './migrate.js'
 import { createPlaneSettings, installPlaneSettings } from './plane-settings.js'
+import { installPresets } from './presets.js'
 import { createCompatState } from './preset-compat.js'
 import { installSettings, SETTINGS_NAMESPACE } from './settings.js'
 import { installMemory } from './memory/index.js'
@@ -195,6 +196,16 @@ export function apply(ctx: Context, config: HumanityConfig): void {
   // 自进化模块（M5）：整理管线 + 提案系统 + 调度 + 对话内提醒。跨模块句柄现读（P-048）。
   state.evolution = installEvolution(ctx, log, evolutionDeps(settings, state))
   syncModulesEnabled(state, settings.read())
+
+  // 预设（2026-11-14）：未封存只有"取内容"的工具，封存后换成沉浸式清单。
+  // 必须排在人格/记忆之后 —— 工具闸的白名单要能解析到 humanity 自己的工具名。
+  // 封存状态**现读**人格文档：封存那一刻由 `onDocumentChanged` 触发一次切换。
+  const presets = installPresets(ctx, log, () => state.persona?.section.read().identityCard.sealedAt !== '')
+  ctx.effect(() => presets.dispose, 'humanity: 预设卸载')
+  if (state.persona !== undefined) {
+    const off = state.persona.section.onDocumentChanged(() => presets.sync())
+    ctx.effect(() => off, 'humanity: 预设随封存切换')
+  }
 
   // 一行摘要：出问题时对方和日志都能立刻看到「谁被关掉了、为什么」。
   log.info(
