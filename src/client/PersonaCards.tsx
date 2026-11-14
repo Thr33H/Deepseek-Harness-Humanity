@@ -119,7 +119,7 @@ export function IdentityCardEditor({ t, controller, state }: CardProps) {
  */
 export function MutableCardEditor({ t, controller, state }: CardProps) {
   const shared = { t, controller, disabled: state.saving || !state.writable }
-  const report = personaPromptReport(state.draft, { independentJudgment: state.independentJudgment })
+  const report = personaPromptReport(state.draft)
   const total = (report?.injected ?? 0) + (report?.dropped ?? 0)
   const overflow = (report?.sections ?? []).filter((section) => section.dropped > 0)
   const detail = overflow.map((section) => `${section.title} ${section.dropped} 条`).join('、')

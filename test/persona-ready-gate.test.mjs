@@ -117,7 +117,7 @@ test('F1 ③：存储就绪 + 人格已初始化 ⇒ 注入人格段（不是引
     await settle()
 
     const text = await personaText(booted)
-    assert.match(text, /# 你是谁（人格底色）/, '已初始化 ⇒ 应注入人格段')
+    assert.match(text, /## 你是/, '已初始化 ⇒ 应注入人格段')
     assert.match(text, /小安/, '卡里的姓名应在')
     assert.doesNotMatch(text, /你还没有名字/, '已初始化时不得再说未初始化')
   } finally {

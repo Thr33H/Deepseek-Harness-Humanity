@@ -34,7 +34,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import { createMainAgentJudge, subjectOf } from '../agent-scope.js'
 import { probeInjectionSurvived, type CompatState } from '../preset-compat.js'
 import type { Log } from '../log.js'
-import { renderSectionText } from './prompt-render.js'
+import { renderJudgmentText, renderSectionText } from './prompt-render.js'
 import type { PersonaDocument } from './types.js'
 
 /**
@@ -52,6 +52,15 @@ export const PERSONA_SECTION_NAME = 'humanity:persona'
  * 人格底色属于"比工具说明更靠前的底色"，所以取一个紧跟其后的正数。
  */
 export const PERSONA_SECTION_ORDER = 10
+
+/**
+ * 「保持你的独立」段的名字与位置。
+ *
+ * 位置必须**在记忆段（20）之后**：用户 2026-11-15 定的版式是
+ * 「你是 X → 你的记忆 → 保持你的独立」，独立判断是收尾的立场，不该插在人格与记忆之间。
+ */
+export const JUDGMENT_SECTION_NAME = 'humanity:judgment'
+export const JUDGMENT_SECTION_ORDER = 25
 
 /**
  * 一个可注入的人格源。
@@ -141,9 +150,17 @@ export function installPersonaInjection(
       text: (context) => renderSectionText(context, { source, isMainAgent, probe, log }),
     })
 
+    // 收尾的立场段：与人格同源、不同段（顺序见 JUDGMENT_SECTION_ORDER 的说明）。
+    const disposeJudgment = sctx.systemPrompt.section({
+      name: JUDGMENT_SECTION_NAME,
+      order: JUDGMENT_SECTION_ORDER,
+      text: (context) => renderJudgmentText(context, { source, isMainAgent, probe, log }),
+    })
+
     log.info('人格注入已接入系统提示词（依赖只声明 systemPrompt；主/子判定在拼装时进行）')
 
     disposeAll = () => {
+      disposeJudgment()
       disposeSection()
       disposeAll = undefined
     }

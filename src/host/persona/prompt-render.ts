@@ -8,6 +8,7 @@
 import { subjectOf } from '../agent-scope.js'
 import { warnSafely, type Log } from '../log.js'
 import { neutralizePromptVars } from '../text.js'
+import { INDEPENDENT_JUDGMENT_PROMPT } from './prompt-texts.js'
 import { renderPersonaPrompt } from './render.js'
 import type { PersonaPromptSource } from './prompt.js'
 
@@ -48,13 +49,41 @@ export function renderSectionText(context: unknown, runtime: PersonaSectionRunti
     return neutralizePromptVars(
       renderPersonaPrompt(source.read(), {
         enabled: true,
-        independentJudgment: source.independentJudgment?.() ?? true,
       }),
     )
   } catch (error) {
     // ⚠️ 这里**只能吞**：本函数在提示词装配路径上被调用，那一层没有 try/catch，
     // 抛一次就毁掉这一轮 pre-step。连"记日志"都必须再包一层（见 `warnSafely`，审计 S1-2）。
     warnSafely(log, '人格注入渲染失败：本轮不注入（不影响对话继续）', error)
+    return ''
+  }
+}
+
+/**
+ * 「保持你的独立」段的渲染（`humanity:judgment`，order 25）。
+ *
+ * 为什么单独成段（2026-11-15 用户定的版式）：它必须排在「你的记忆」**之后**，
+ * 而人格段是 order 10、记忆是 20 —— 同一段内部怎么排都做不到。
+ *
+ * 注入条件与旧实现一致：只对主 Agent、开关打开、且底色**已封存**（封存前注入会让模型
+ * 拿"独立判断"去拒绝对方刚设定的人格）。
+ * @param context - 装配上下文（`agent` / `scope`）。
+ * @param runtime - 人格源与主/子判定。
+ * @returns 提示词片段；不该注入时返回空串。
+ */
+export function renderJudgmentText(context: unknown, runtime: PersonaSectionRuntime): string {
+  const { source, isMainAgent, log } = runtime
+  try {
+    const subject = subjectOf(context)
+    if (subject === undefined || !isMainAgent(subject)) return ''
+    if (!source.enabled()) return ''
+    if (source.ready !== undefined && !source.ready()) return ''
+    if (source.independentJudgment?.() === false) return ''
+    const sealedAt = source.read()?.identityCard?.sealedAt
+    if (sealedAt === undefined || sealedAt === '') return ''
+    return neutralizePromptVars(INDEPENDENT_JUDGMENT_PROMPT)
+  } catch (error) {
+    warnSafely(log, '独立判断注入失败：本轮不注入（不影响对话继续）', error)
     return ''
   }
 }

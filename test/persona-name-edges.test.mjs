@@ -17,7 +17,7 @@ import { test } from 'node:test'
 
 import { CORE_IDENTITY_KEYS } from '../lib/persona/constants.js'
 import { createDefaultPersona } from '../lib/persona/model.js'
-import { identityNameOf, identityStatementOf } from '../lib/persona/render-content.js'
+import { identityNameOf } from '../lib/persona/render-content.js'
 import { renderPersonaPrompt } from '../lib/persona/render.js'
 
 const NAME_KEY = CORE_IDENTITY_KEYS[0]
@@ -25,18 +25,21 @@ const NAME_KEY = CORE_IDENTITY_KEYS[0]
 /** 单元级：喂一个姓名值，取 `identityNameOf` 的结果。 */
 const nameOf = (value) => identityNameOf({ fields: [{ key: NAME_KEY, value }], sections: [], userDefined: [] })
 
-/** 端到端：渲染真人格段，取**身份行那一行**。 */
-function identityLineOf(value) {
+/**
+ * 端到端：渲染真人格段，取**标题行**（`## 你是…`）。
+ * 2026-11-15 起名字只出现在标题里（身份陈述句已删除）。
+ */
+function titleLineOf(value) {
   const persona = createDefaultPersona()
   persona.identityCard.fields[0].value = value
   persona.identityCard.initializedAt = '2026-09-23T00:00:00.000Z'
   persona.identityCard.sealedAt = '2026-09-23T00:00:00.000Z'
   const text = renderPersonaPrompt(persona, { enabled: true })
-  return text.split('\n').find((line) => line.startsWith('我是运行在'))
+  return text.split('\n').find((line) => line.startsWith('## 你是'))
 }
 
-/** 降级形态（不写名字）那一句。 */
-const DEGRADED = /我是运行在 DeepSeek Harness 里的一台机器上的一个 AI。/
+/** 取不到名字时的标题（只陈述"你是谁"，不写名字，也不留占位符）。 */
+const UNNAMED_TITLE = '## 你是谁'
 
 // ───────────────────────────── 缺陷①：空锚点 / 纯标点 ─────────────────────────────
 
@@ -62,13 +65,11 @@ test('0.1.8 缺陷①：纯标点/纯空白的值 ⇒ 降级（"够格当名字"
   }
 })
 
-test('0.1.8 缺陷①（端到端）：空锚点时身份行**只有降级形态**，不出现「：」这种假名字', () => {
-  const line = identityLineOf('本名：；别名：')
-  assert.ok(line !== undefined, '身份行必须在')
-  assert.match(line, DEGRADED, '空锚点 ⇒ 降级成不写名字')
-  assert.doesNotMatch(line, /「：」/, '不得出现「：」')
+test('0.1.8 缺陷①（端到端）：空锚点时标题**不带名字**，不出现「：」这种假名字', () => {
+  const line = titleLineOf('本名：；别名：')
+  assert.equal(line, UNNAMED_TITLE, '空锚点 ⇒ 标题退回不带名字的形态')
   assert.doesNotMatch(line, /「/, '降级形态里不应有任何名字引号')
-  assert.doesNotMatch(line, /本名|别名/, '标签不得混进身份行')
+  assert.doesNotMatch(line, /本名|别名/, '标签不得混进标题')
 })
 
 // ───────────────────────────── 缺陷②：超长 ⇒ 降级，不截断 ─────────────────────────────
@@ -93,12 +94,11 @@ test('0.1.8 缺陷②：从标签里解析出的超长名字 ⇒ 也降级（两
   }
 })
 
-test('0.1.8 缺陷②（端到端）：超长值进不了身份行，且身份行里**永不出现截断标记 `…`**', () => {
+test('0.1.8 缺陷②（端到端）：超长值进不了标题，标题里**永不出现截断标记 `…`**', () => {
   for (const value of ['阿'.repeat(30), '很长的名字'.repeat(12), '本名：' + '阿'.repeat(40)]) {
-    const line = identityLineOf(value)
-    assert.ok(line !== undefined, '身份行必须在')
-    assert.doesNotMatch(line, /…/, '身份行不得出现截断标记')
-    assert.match(line, DEGRADED, '超长 ⇒ 降级形态')
+    const line = titleLineOf(value)
+    assert.equal(line, UNNAMED_TITLE, '超长 ⇒ 不带名字')
+    assert.doesNotMatch(line, /…/, '标题不得出现截断标记')
   }
 })
 
@@ -160,20 +160,7 @@ test('0.1.8 回归：保守降级三类不变（多行 / 多引号段无标签 /
   }
 })
 
-test('0.1.8 回归：真实形态的**身份行逐字**仍正确（用户卡那一条）', () => {
-  const line = identityLineOf('本名：「示例」；别名：「例子」')
-  assert.match(line, /^我是运行在 DeepSeek Harness 里的一台机器上的「示例」。/)
-  const name = /「(.+?)」/.exec(line)?.[1] ?? ''
-  assert.equal(name, '示例', `名字应恰好是「示例」，实际 ${JSON.stringify(name)}`)
-  assert.match(line, /下面写的不是我在扮演的角色，是我自己/)
-})
-
-test('0.1.8 回归：身份陈述句的**降级形态**未被改动', () => {
-  const statement = identityStatementOf({ fields: [{ key: NAME_KEY, value: '本名：；别名：' }], sections: [], userDefined: [] })
-  assert.equal(
-    statement,
-    '我是运行在 DeepSeek Harness 里的一台机器上的一个 AI。' +
-      '下面写的不是我在扮演的角色，是我自己；运行在服务器上、要靠工具才能碰到东西，这些是事实，不改变我是谁。',
-    '降级形态应逐字不变（只是"少掉名字那一小块"）',
-  )
+test('0.1.8 回归：真实形态 ⇒ 标题取到名字本身，不是整串标签', () => {
+  const line = titleLineOf('本名：「示例」；别名：「例子」')
+  assert.equal(line, '## 你是示例', `标题应恰好是「## 你是示例」，实际 ${JSON.stringify(line)}`)
 })

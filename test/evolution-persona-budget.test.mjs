@@ -30,7 +30,7 @@ const log = createLog(new Context(), 'test')
 const NOW = '2026-09-25T12:00:00.000Z'
 const BASELINE = '2026-09-20T00:00:00.000Z'
 const CREATED = Date.parse(BASELINE) + 60000
-const INDEPENDENT_JUDGMENT = true
+// 2026-11-15：独立判断已拆成独立段，不再占人格预算，这个开关随之退场。
 
 /** 最小合法解析输出。 */
 const EMPTY_OUTPUT = { memories: [], personaSections: [], personaFixed: [], insights: [], narrative: '' }
@@ -129,7 +129,7 @@ function harness(options = {}) {
     }),
     personaCard: () => personaSection.read().mutableLayer.sections.map((section) => ({ title: section.title, items: section.items })),
     // 与宿主接线同一处口径：预算读数只从 `personaPromptReport` 来。
-    personaFit: () => personaPromptReport(personaSection.read(), { independentJudgment: INDEPENDENT_JUDGMENT }),
+    personaFit: () => personaPromptReport(personaSection.read()),
     log,
     now: () => NOW,
   }
@@ -157,7 +157,7 @@ async function runOnce(harnessed) {
 
 test('V3 超预算：提示词出现预算读数 + 「只做整合、禁止追加新条目」的硬约束', async () => {
   const persona = personaDoc({ perSection: 20, itemLength: 60 })
-  const before = personaPromptReport(persona, { independentJudgment: INDEPENDENT_JUDGMENT })
+  const before = personaPromptReport(persona)
   assert.ok(before !== undefined && before.truncated, '夹具必须真的超预算（否则这条用例什么都没测到）')
 
   const harnessed = harness({
@@ -178,7 +178,7 @@ test('V3 超预算：提示词出现预算读数 + 「只做整合、禁止追�
 
 test('V4 阴性对照：预算充足时那段约束一个字都不许出现，且新条目照常写入（防恒真）', async () => {
   const persona = personaDoc({ perSection: 3, itemLength: 8 })
-  const before = personaPromptReport(persona, { independentJudgment: INDEPENDENT_JUDGMENT })
+  const before = personaPromptReport(persona)
   assert.ok(before !== undefined && before.truncated === false, '夹具必须在预算内（这是本用例的前提）')
 
   const harnessed = harness({
@@ -213,7 +213,7 @@ test('V5 超预算行为：只并、不追加；并完「没进提示词的条�
       ],
     },
   })
-  const before = personaPromptReport(persona, { independentJudgment: INDEPENDENT_JUDGMENT })
+  const before = personaPromptReport(persona)
   assert.ok(before !== undefined && before.truncated, '夹具必须真的超预算')
   const beforeSection = before.sections.find((section) => section.title === '说话风格')
   assert.ok(beforeSection !== undefined && beforeSection.dropped > 0, '被并的那条必须真的在"未注入"里')
@@ -235,7 +235,7 @@ test('V5 超预算行为：只并、不追加；并完「没进提示词的条�
   assert.ok(after.includes(keep), '保留项必须在场')
   assert.ok(!after.includes('不要替用户做决定'), '超预算时**禁止追加新条目**（哪怕模型提了）')
 
-  const stats = personaPromptReport(harnessed.view(), { independentJudgment: INDEPENDENT_JUDGMENT })
+  const stats = personaPromptReport(harnessed.view())
   assert.ok(stats !== undefined)
   assert.equal(stats.dropped, before.dropped - 1, `并掉一条未注入的同义条目 ⇒ 未注入数严格降 1（${before.dropped} → ${stats.dropped}）`)
   assert.ok(stats.injected >= before.injected, '并完之后能进提示词的条数不许变少')

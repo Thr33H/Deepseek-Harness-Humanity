@@ -180,7 +180,7 @@ export async function writePersonaSections(
  * @returns 加进去之后注入会被截断时为 true。
  */
 function wouldTruncate(deps: ClassifyDeps, candidate: PersonaDocument): boolean {
-  const fit = deps.personaFit?.(candidate) ?? personaPromptReport(candidate, { independentJudgment: true })
+  const fit = deps.personaFit?.(candidate) ?? personaPromptReport(candidate)
   // 拟合读不出来（形状异常等）时**放行**：预演是"多一道闸"，不该变成"一个静默的写入禁令"。
   return fit !== undefined && fit.truncated
 }

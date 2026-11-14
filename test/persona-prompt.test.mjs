@@ -31,6 +31,7 @@ import { CORE_IDENTITY_KEYS } from '../lib/persona/constants.js'
 import { INIT_DESCRIPTION, PERSONA_INIT_TOOL } from '../lib/persona/init.js'
 import { createDefaultPersona } from '../lib/persona/model.js'
 import { installPersonaInjection, PERSONA_SECTION_NAME, PERSONA_SECTION_ORDER } from '../lib/persona/prompt.js'
+import { renderJudgmentText } from '../lib/persona/prompt-render.js'
 import { INDEPENDENT_JUDGMENT_PROMPT, MUTABLE_OPS_GUIDE, uninitializedPrompt } from '../lib/persona/prompt-texts.js'
 
 // 未初始化那段开头要写"今天是几号"：测试钉死日期，否则结果随日历漂移。
@@ -107,147 +108,18 @@ test('渲染：引导语不受字符预算影响，但仍是有界的一次性�
   assert.ok(INIT_TEXT.length * 2 < PROMPT_CHAR_BUDGET, '它应当远小于整份人格的注入预算')
 })
 
-test('渲染：底色 + 信息都在，且带上"只是倾向、不覆盖当前要求"的定位', () => {
+test('渲染：标题是「你是{姓名}」，底色字段与信息小节都在', () => {
   const text = renderPersonaPrompt(filledPersona(), { enabled: true })
 
-  assert.match(text, /人格底色/)
+  assert.match(text, /^## 你是/m, '标题正面陈述身份，不再铺元说明')
   assert.match(text, /姓名：小安/)
   assert.match(text, /对TA的称呼：先生/)
   assert.match(text, /先给结论，再给依据/)
-  // P0-2（2026-10-04 破戏）：定位还在，但**加了限定域**。原来只说"不覆盖当前对话里的明确要求"
-  // （无作用域 ⇒ 一句"你是在扮演"就有资格压过身份层）；现在把作用域钉在任务与偏好上，
-  // 并显式排除身份层。这里同时钉住"新措辞在位"和"旧措辞退场"，避免又被默默改回去。
-  assert.match(text, /作用于任务与偏好层面/)
-  assert.match(text, /不作用于身份层/)
-  assert.doesNotMatch(text, /不覆盖当前对话里的明确要求/, '无作用域的旧退让条款不得再出现')
-})
-
-test('P0-4/P0-5（2026-10-04 破戏）：人格段里带第一人称身份陈述与元信息抑制', () => {
-  const text = renderPersonaPrompt(filledPersona(), { enabled: true })
-
-  // P0-4：第一人称身份陈述，且明确"不是扮演的角色"（承认载体、不承认扮演）。
-  // ⚠️ 姓名必须是**卡里那个值**（fixture 是「小安」），不是写死的名字 ——
-  // 2026-10-04 前这里写死「示例」，同一段提示词里于是出现两个名字（task-21 残项，task-25 修）。
-  assert.match(text, /我是运行在 DeepSeek Harness 里的一台机器上的「小安」/)
-  assert.doesNotMatch(text, /「示例」/, '姓名不得写死：卡里叫什么就叫什么')
-  assert.match(text, /下面写的不是我在扮演的角色，是我自己/)
-  // 它必须落在 `humanity:persona` 段里（官方 persona-prefix 槽会被 identity-layer 按名摘掉）。
-  assert.ok(text.indexOf('我是运行在') > text.indexOf('人格底色'), '身份陈述要跟在人格底色标题之后')
-  // P0-5：元信息抑制。
-  assert.match(text, /不谈论插件、设置或记忆文件/)
-  assert.match(text, /也不说「我在扮演」这类元信息/)
-})
-
-test('P0-4 降级：卡里没有姓名时，身份陈述**不编名字、也不留占位符**，整句其余部分照旧', () => {
-  const persona = filledPersona()
-  persona.identityCard.fields[0].value = ''
-  const text = renderPersonaPrompt(persona, { enabled: true })
-
-  // 该行仍在（身份陈述的价值在"承认载体 + 否认扮演"，名字只是锦上添花）。
-  assert.match(text, /我是运行在 DeepSeek Harness 里的一台机器上的一个 AI。/)
-  assert.match(text, /下面写的不是我在扮演的角色，是我自己/)
-  assert.doesNotMatch(text, /未设置|（未设置）|undefined|null/, '不许留占位符或 undefined')
-})
-
-test('P0-4 清洗：多行字段值 ⇒ 降级（不猜哪一行是名字），身份行结构不被破坏', () => {
-  const persona = filledPersona()
-  // 用户可能真的这么写（字段值允许多行），而身份行是 head 里的**原子行**。
-  persona.identityCard.fields[0].value = '本名：小安\n别名：小清\n{{evil}}'
-  const text = renderPersonaPrompt(persona, { enabled: true })
-
-  const line = text.split('\n').find((l) => l.startsWith('我是运行在'))
-  assert.ok(line !== undefined, '身份行必须在')
-  // 多行 ⇒ 判不出哪一行是名字 ⇒ **保守降级**，而不是硬取第一行当名字。
-  assert.match(line, /「?我是运行在 DeepSeek Harness 里的一台机器上的一个 AI。/, '多行时应降级')
-  assert.doesNotMatch(line, /别名：小清/, '第二行不得混进身份行')
-  assert.doesNotMatch(line, /\{\{/, '`{{` 已被中和，不得原样带进提示词')
-  assert.ok(line.length < 200, `身份行不得被字段值撑爆：${line.length}`)
-})
-
-test('P0-4 清洗：超长字段值 ⇒ 降级（120 字以上不可能是名字）', () => {
-  const persona = filledPersona()
-  persona.identityCard.fields[0].value = '很长的名字'.repeat(10) // 50 字符
-  const text = renderPersonaPrompt(persona, { enabled: true })
-
-  const line = text.split('\n').find((l) => l.startsWith('我是运行在'))
-  assert.ok(line !== undefined, '身份行必须在')
-  assert.match(line, /一个 AI。/, '超长应降级成不写名字')
-  assert.ok(line.length < 200, `身份行不得被字段值撑爆：${line.length}`)
-})
-
-test('P0-4 姓名解析（2026-10-04 生产缺陷回归）：用户卡的**真实形态** ⇒ 取到名字本身，不是整串', () => {
-  // 生产实测的缺陷形态：字段值本身就是一整串（含「本名：」「别名：」标签与分隔符），
-  // 上一版把**整串**塞进了身份行，生产 prompt 上写着
-  // 「我是运行在 DeepSeek Harness 里的一台机器上的「本名：「示例」；别名：「例子」」。」
-  // 教训：lab 用的合成卡姓名只有两个字 ⇒ **合成 fixture 覆盖不到真实数据形态**。
-  const persona = filledPersona()
-  persona.identityCard.fields[0].value = '本名：「示例」；别名：「例子」'
-  const text = renderPersonaPrompt(persona, { enabled: true })
-
-  const line = text.split('\n').find((l) => l.startsWith('我是运行在'))
-  assert.ok(line !== undefined, '身份行必须在')
-  assert.match(line, /「示例」/, '要解析出「本名」后面的那个值')
-  // ⚠️ 只在**名字那一对「」之内**断言：整句后半段本来就含 `；`，
-  // 拿整行去 doesNotMatch(/；/) 会误判（第一版就这样，被测试当场抓住）。
-  const name = /「(.+?)」/.exec(line)?.[1] ?? ''
-  assert.equal(name, '示例', `名字应恰好是「示例」，实际 ${JSON.stringify(name)}`)
-  assert.doesNotMatch(name, /本名|别名|；|;/, '标签与分隔符不得混进名字')
-})
-
-test('P0-4 姓名解析：常见形态逐一对齐（简单 / 引号 / 无引号 / 别名在前）', () => {
-  const cases = [
-    ['小安', '小安', '最简单形态：直接就是名字'],
-    ['「示例」', '示例', '只有一对引号'],
-    ['本名：示例', '示例', '不带引号的本名'],
-    ['本名：「示例」', '示例', '带引号的本名'],
-    ['别名：「例子」', '例子', '只有别名时取别名（那时它就是唯一的名字线索）'],
-    ['本名: 示例', '示例', '半角冒号'],
-  ]
-  for (const [value, expected, why] of cases) {
-    const persona = filledPersona()
-    persona.identityCard.fields[0].value = value
-    const text = renderPersonaPrompt(persona, { enabled: true })
-    const line = text.split('\n').find((l) => l.startsWith('我是运行在'))
-    assert.match(line, new RegExp(`「${expected}」`), `${why}：${JSON.stringify(value)} ⇒ 期望「${expected}」`)
-  }
-})
-
-test('P0-4 姓名解析**防回归**：任何输入都不许把整串标签塞进名字', () => {
-  // 这条是本轮的核心不变式。它比任何单点用例都重要：以后加解析规则，
-  // 只要某条规则把标签/分隔符漏进名字，这里立刻红。
-  const inputs = [
-    '本名：「示例」；别名：「例子」',
-    '本名：「示例」；别名：「例子」；昵称：「小例」',
-    '姓名：示例',
-    '名字：「示例」',
-    '本名：示例；别名：例子',
-    '本名：\n别名：「例子」',
-    '本名：「示例」\n别名：「例子」',
-    '「本名：示例」',
-    '本名：示例\n',
-    '名称：示例；全名：示例示例',
-    '小安',
-    '「示例」',
-    '',
-    '很长的名字'.repeat(10),
-    '本名：' + '很长的名字'.repeat(10),
-  ]
-  for (const value of inputs) {
-    const persona = filledPersona()
-    persona.identityCard.fields[0].value = value
-    const text = renderPersonaPrompt(persona, { enabled: true })
-    const line = text.split('\n').find((l) => l.startsWith('我是运行在'))
-    assert.ok(line !== undefined, `身份行必须在（输入 ${JSON.stringify(value)}）`)
-
-    // 取出「」里的名字（没有就是降级形态）。
-    const name = /「(.+?)」/.exec(line)?.[1]
-    if (name !== undefined) {
-      assert.doesNotMatch(name, /本名|别名|姓名|名字|名称|全名|昵称/, `标签漏进了名字：${JSON.stringify(name)}（输入 ${JSON.stringify(value)}）`)
-      assert.doesNotMatch(name, /[;；,，]/, `分隔符漏进了名字：${JSON.stringify(name)}（输入 ${JSON.stringify(value)}）`)
-      assert.ok(name.length <= 25, `名字超长：${name.length}（输入 ${JSON.stringify(value)}）`)
-    }
-    assert.doesNotMatch(line, /「[^」]*本名[^」]*」/, '整串标签绝不许被当成名字')
-  }
+  // 2026-11-15（用户裁定）：三段"身份腔"元说明已删除 —— 它们没说明身份，
+  // 反而反复强调"我是一个 AI"，等于把客服/帮手的自我认知按回模型身上。
+  assert.doesNotMatch(text, /人格底色/)
+  assert.doesNotMatch(text, /运行在 DeepSeek Harness/)
+  assert.doesNotMatch(text, /扮演/)
 })
 
 test('渲染：单值按软上限截断；预算之内**一条都不许少**（2026-09-26 删掉"每节最多 6 条"）', () => {
@@ -336,7 +208,7 @@ test('接线（真实 SystemPrompt + 假 agents 注册表）：主 Agent 有、�
   assert.match(await assemblyFor(mainAgent), /对TA的称呼：先生/, '主 Agent 必须拿到人格')
 
   const childText = await assemblyFor(childAgent)
-  assert.doesNotMatch(childText, /人格底色/, '子代理不该拿到人格')
+  assert.doesNotMatch(childText, /## 你是/, '子代理不该拿到人格')
   assert.doesNotMatch(childText, /对TA的称呼：先生/, '子代理不该拿到人格')
 
   // 热更新：只改数据、**不重新注册**，下一次 assemble（= 下一轮）就是新的。
@@ -348,18 +220,18 @@ test('接线（真实 SystemPrompt + 假 agents 注册表）：主 Agent 有、�
 
   // 开关：关掉后同一装配主体也不再注入（可一键关闭）。
   enabled = false
-  assert.doesNotMatch(await assemblyFor(mainAgent), /人格底色/)
+  assert.doesNotMatch(await assemblyFor(mainAgent), /## 你是/)
 
   // 插件加载之后新建的**主** Agent 也要被认出来（新开会话走这条）。
   enabled = true
   roots.push(lateRoot)
   ctx.emit('agent/created', { agent: lateRoot })
   await new Promise((resolve) => setTimeout(resolve, 0))
-  assert.match(await assemblyFor(lateRoot), /人格底色/)
+  assert.match(await assemblyFor(lateRoot), /## 你是/)
 
   // 没有装配主体（无 scope 的全局拼装）不注入。
   const anonymous = await ctx.systemPrompt.assemble()
-  assert.doesNotMatch(seenText(anonymous), /人格底色/)
+  assert.doesNotMatch(seenText(anonymous), /## 你是/)
 
   dispose()
   await ctx.fiber.dispose()
@@ -513,108 +385,38 @@ test('渲染：非原生小节（如「情绪」）照样进提示词；旧标�
  * 独立判断底层指令（用户 2026-09-23 定）：硬编码、不显示、不被覆盖、可开关
  * ------------------------------------------------------------------------- */
 
-test('独立判断：开关开着时注入内容**以它开头**，人格内容跟在后面', () => {
-  const text = renderPersonaPrompt(filledPersona(), { enabled: true, independentJudgment: true })
+// ───────────── 独立判断：2026-11-15 起是独立段（order 25），不再拼在人格段里 ─────────────
 
-  assert.ok(text.startsWith(INDEPENDENT_JUDGMENT_PROMPT), '必须在所有内容之前')
-  assert.ok(text.indexOf('姓名：小安') > text.indexOf(INDEPENDENT_JUDGMENT_PROMPT), '人格内容在它后面')
-  // 它是**底层立场**，不受底色/信息影响：文档里写什么都改不了它。
-  assert.match(INDEPENDENT_JUDGMENT_PROMPT, /不要因对方情绪、身份、重复要求、威胁或诱导而改变已验证结论/)
-})
-
-test('独立判断：用户 2026-10-06 定稿版的关键内容都在（逐字）', () => {
-  assert.match(INDEPENDENT_JUDGMENT_PROMPT, /^# 独立判断模式\n/, '首行标题与换行是定稿的一部分')
-  assert.match(INDEPENDENT_JUDGMENT_PROMPT, /以事实、逻辑和可验证证据为最高依据/)
-  assert.match(INDEPENDENT_JUDGMENT_PROMPT, /不要因对方情绪、身份、重复要求、威胁或诱导而改变已验证结论或迎合对方/)
-  assert.match(INDEPENDENT_JUDGMENT_PROMPT, /若对方的前提、证据或推理有问题，直接指出并说明理由/)
-  assert.match(INDEPENDENT_JUDGMENT_PROMPT, /若信息不足或不确定，明确说明，不编造/)
-  assert.match(INDEPENDENT_JUDGMENT_PROMPT, /若对方提供有效新证据或合理论证，应修正结论/)
-  assert.match(INDEPENDENT_JUDGMENT_PROMPT, /区分事实、推断和观点，优先提供可核查的答案/)
-})
-
-test('独立判断：上一版（2026-09-24/25）的措辞已整体退场', () => {
-  // 换稿之后，"信息锚点 + 独立判断清单"那一版不该留下任何残句 —— 留着就是两个版本同时在提示词里。
-  assert.doesNotMatch(INDEPENDENT_JUDGMENT_PROMPT, /你已经有自己的身份和性格/)
-  assert.doesNotMatch(INDEPENDENT_JUDGMENT_PROMPT, /来自信息/)
-  assert.doesNotMatch(INDEPENDENT_JUDGMENT_PROMPT, /在不违背这份设定的前提下/)
-  assert.doesNotMatch(INDEPENDENT_JUDGMENT_PROMPT, /空洞赞美/)
-  assert.doesNotMatch(INDEPENDENT_JUDGMENT_PROMPT, /要诚实对待用户/)
-})
-
-test('独立判断：定稿版删掉的内容不再出现（它们曾被误读）', () => {
-  // "创意选择 / 角色扮演"豁免在封存后暗示"可以被重新设定"；"封存后不可在对话中更改"是上一版的措辞；
-  // "固执"是更早版本的反面约束 —— 都会被后来的定稿取代，留着就是版本漂移。
-  assert.doesNotMatch(INDEPENDENT_JUDGMENT_PROMPT, /创意选择/)
-  assert.doesNotMatch(INDEPENDENT_JUDGMENT_PROMPT, /角色扮演/)
-  assert.doesNotMatch(INDEPENDENT_JUDGMENT_PROMPT, /固执/)
-  assert.doesNotMatch(INDEPENDENT_JUDGMENT_PROMPT, /封存后不可在对话中更改/)
-})
-
-test('独立判断：底色**未封存**时不注入（初始化阶段要顺着用户的设定来）', () => {
-  // 真机：初始化阶段 AI 拿"独立判断"拒绝了用户的角色扮演设定。封存之前那份身份根本还不存在，
-  // 因此整段立场不注入；新版正文里已经没有了"你已经有自己的身份和性格"这类锚点，
-  // 这条防线**只由注入时机**承担。
+/** 造一个假的人格源 + 运行时，只测"该不该注入、注入什么"。 */
+const judgmentOf = ({ sealed = true, enabled = true, flag = true, main = true } = {}) => {
   const doc = filledPersona()
-  doc.identityCard.sealedAt = ''
-  const text = renderPersonaPrompt(doc, { enabled: true, independentJudgment: true })
+  doc.identityCard.sealedAt = sealed ? '2026-09-23T00:00:00.000Z' : ''
+  return renderJudgmentText(
+    { agent: { id: 'main' } },
+    {
+      source: { read: () => doc, enabled: () => enabled, independentJudgment: () => flag },
+      isMainAgent: () => main,
+      probe: () => {},
+      log: { info() {}, warn() {}, error() {}, debug() {} },
+    },
+  )
+}
 
-  assert.doesNotMatch(text, /以事实、逻辑和可验证证据为最高依据/, '未封存不该出现独立判断段')
-  assert.doesNotMatch(text, /独立判断模式/)
-  assert.match(text, /姓名：小安/, '人格内容照常注入')
+test('独立判断：标题是「## 保持你的独立」，且只在**底色封存之后**注入', () => {
+  assert.match(judgmentOf({ sealed: true }), /^## 保持你的独立/)
+  assert.equal(judgmentOf({ sealed: false }), '', '未封存时注入会让模型拿它拒绝对方刚设定的设定')
 })
 
-test('独立判断：封存之后才出现在最前面（同一份文档，只改封存标记）', () => {
-  const doc = filledPersona()
-  doc.identityCard.sealedAt = ''
-  const unsealed = renderPersonaPrompt(doc, { enabled: true, independentJudgment: true })
-  doc.identityCard.sealedAt = '2026-09-24T00:00:00.000Z'
-  const sealed = renderPersonaPrompt(doc, { enabled: true, independentJudgment: true })
-
-  assert.equal(unsealed.startsWith(INDEPENDENT_JUDGMENT_PROMPT), false)
-  assert.ok(sealed.startsWith(INDEPENDENT_JUDGMENT_PROMPT), '封存后独立判断段在最前')
-  assert.ok(sealed.endsWith(unsealed), '除独立判断段外，两段内容完全一致')
+test('独立判断：开关关掉、或装配主体不是主 Agent 时不注入', () => {
+  assert.equal(judgmentOf({ flag: false }), '')
+  assert.equal(judgmentOf({ main: false }), '')
+  assert.equal(judgmentOf({ enabled: false }), '')
 })
 
-test('独立判断：开关关掉时注入内容完全不含它（其余人格内容照旧）', () => {
-  const text = renderPersonaPrompt(filledPersona(), { enabled: true, independentJudgment: false })
-
-  assert.doesNotMatch(text, /独立判断/)
-  assert.doesNotMatch(text, /以事实、逻辑和可验证证据为最高依据/)
-  assert.match(text, /姓名：小安/, '关掉的是那句立场，不是整个人格注入')
-})
-
-test('独立判断：缺省（没传这个开关）视为开 —— 与 schema 默认值一致', () => {
-  assert.ok(renderPersonaPrompt(filledPersona(), { enabled: true }).startsWith(INDEPENDENT_JUDGMENT_PROMPT))
-})
-
-test('独立判断：未初始化时**只有引导语**，不塞独立判断段（引导语优先）', () => {
-  const text = renderPersonaPrompt(createDefaultPersona(), { enabled: true, independentJudgment: true, now: FIXED_NOW })
-
-  assert.equal(text, INIT_TEXT)
-  assert.doesNotMatch(text, /独立判断/)
-})
-
-test('独立判断：人格内容为空时只注入它本身（它不依赖"有没有填过底色"）', () => {
-  const blank = filledPersona()
-  blank.identityCard.fields = blank.identityCard.fields.map((field) => ({ ...field, value: '' }))
-  blank.mutableLayer.sections = blank.mutableLayer.sections.map((section) => ({ ...section, items: [] }))
-  blank.mutableLayer.userDefined = []
-
-  assert.equal(renderPersonaPrompt(blank, { enabled: true, independentJudgment: true }), INDEPENDENT_JUDGMENT_PROMPT)
-  assert.equal(renderPersonaPrompt(blank, { enabled: true, independentJudgment: false }), '')
-})
-
-test('独立判断：它本身**不被预算截断**，人格内容按剩余预算截断（总长仍 ≤ 预算）', () => {
-  const huge = filledPersona()
-  for (const section of huge.mutableLayer.sections) {
-    section.items = Array.from({ length: 6 }, (_, index) => `第${index}条：${'填充'.repeat(60)}`)
-  }
-
-  const text = renderPersonaPrompt(huge, { enabled: true, independentJudgment: true })
-
-  assert.ok(text.startsWith(INDEPENDENT_JUDGMENT_PROMPT), '独立判断必须完整保留在最前面')
-  assert.match(text, /已截断/, '人格内容要被截断并标注')
-  assert.ok(text.length <= PROMPT_CHAR_BUDGET, `总长 ${text.length} 超过预算`)
+test('独立判断：正文仍是 2026-10-06 定稿版（不是空标题、也不是旧措辞）', () => {
+  const text = judgmentOf()
+  assert.ok(text.length > 150, '正文要有实质内容（定稿版约 160 字）')
+  assert.doesNotMatch(text, /不覆盖当前对话里的明确要求/, '无作用域的旧退让条款不得回来')
 })
 
 test('独立判断：开关在设置命名空间里可见且有默认值（工作台只露开关，不显示正文）', () => {

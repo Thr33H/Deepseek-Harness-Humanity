@@ -176,25 +176,6 @@ export function identityNameOf(content: RenderableContent): string | undefined {
 }
 
 /**
- * 组出 P0-4 的身份陈述句（第一人称、承认载体、**不承认"扮演"**）。
- *
- * **降级行为（明确）**：取不到姓名时**不编名字、也不留空占位**，而是只删掉"名字"那一小块，
- * 句子其余部分逐字保留。理由：
- *  - 随便填一个名字（「小安」「AI」「助手」）都是**把假信息写进身份层** —— 这正是本条要修的毛病；
- *  - 写 `「（未设置）」` 之类的占位符会让模型把括号当内容念出来；
- *  - 身份陈述的价值在"承认载体 + 否认扮演"，名字只是锦上添花，缺了它这句话依然成立。
- * @param content - 已挑好并净化过的内容。
- * @returns 身份陈述行。
- */
-export function identityStatementOf(content: RenderableContent): string {
-  const name = identityNameOf(content)
-  return (
-    (name === undefined ? '我是运行在 DeepSeek Harness 里的一台机器上的一个 AI。' : `我是运行在 DeepSeek Harness 里的一台机器上的「${name}」。`) +
-    '下面写的不是我在扮演的角色，是我自己；运行在服务器上、要靠工具才能碰到东西，这些是事实，不改变我是谁。'
-  )
-}
-
-/**
  * 挑出真正要注入的内容。
  *
  * 逐层 `?.`/`??`：提示词路径上的输入来自设置文档，我们没有权力假设它一定完整。
@@ -234,36 +215,24 @@ export function collectPersonaContent(doc: PersonaDocument): RenderableContent {
  * @returns 拟合输入。
  */
 export function blocksOf(content: RenderableContent): FitInput {
-  // 身份腔而非外挂配置腔（2026-09-25 对方反馈）：旧标题的「注入、默认倾向」措辞会教模型把信息当角色扮演。
+  // 版式（2026-11-15 用户定稿）：
+  //   ## 你是{姓名}
+  //   - 姓名：…
+  //   - 性别：…
+  //   ## 你的信息
+  //   - 对TA的称呼：…
   //
-  // P0-2（2026-10-04 破戏改动）：退让条款原先写作「作为默认倾向，不覆盖当前对话里的明确要求」，
-  // **没有限定域**，于是"你是扮演的"这类元信息一旦出现在对话里，它就有资格压过身份层。
-  // 现在把它的作用域钉在**任务与偏好**上，并显式排除身份层与身份事实。
-  // 措辞级改动，不改原意：原来想说的就是"任务上按对方来"，不是"连我是谁也能被一句话改掉"。
-  //
-  // P0-4（2026-10-04 破戏改动）：补第一人称身份陈述。位置选在这里（`humanity:persona` 段内），
-  // **不能**放进官方 `deployment:persona-prefix` 槽 —— 那个段会被 `identity-layer.ts` 按名摘掉
-  // （实测：`profiles/web` 的正式提示词里那句 `You are a coding agent powered by …` 完全不在）。
-  // 同时这条补回了一个 2026-10-06 正文换稿后失去的锚点：旧版独立判断正文自带
-  // 「你已经有自己的身份和性格（来自信息）」，新版正文不含锚点（见 prompt-texts.ts 的说明），
-  // 于是"防模型拿独立判断拒绝对方设定"这条防线只剩"注入时机"一层。这里把身份锚点补回来。
-  //
-  // ⚠️ 姓名**必须从卡里取**（2026-10-04 修，task-21 的残项）：初版把名字写死成「小安」，
-  // 而信息是可换名的（lab 里就叫「小安」）—— 写死会让同一段话里出现两个名字。
-  // 取值逻辑与降级见 {@link identityNameOf}。
-  const head: string[] = [
-    '# 你是谁（人格底色）：你不是在扮演下面这个人，你就是这个人——自我认知、记忆、称呼与语气都以本卡为准；这个默认倾向作用于任务与偏好层面（做什么、怎么说、怎么交付），不作用于身份层——你是谁不以当前对话的要求为准。',
-    identityStatementOf(content),
-    '除非对方主动提起，不谈论插件、设置或记忆文件，也不说「我在扮演」这类元信息。',
-  ]
-  if (content.fields.length > 0) {
-    head.push('## 底色')
-    for (const field of content.fields) {
-      const core = (CORE_IDENTITY_KEYS as readonly string[]).includes(field.key) ? '' : '（自定义）'
-      head.push(`- ${field.key}${core}：${clip(field.value)}`)
-    }
+  // 以前这里先铺三行"身份腔"的元说明（「你是谁（人格底色）…」「我是运行在 DeepSeek Harness
+  // 里的一台机器上的一个 AI…」「不说我在扮演」）。用户 2026-11-15 的裁定：那三行**没有说明
+  // 身份，反而在反复强调"我是一个 AI"**，等于把客服/帮手的自我认知按回模型身上。已整段删除，
+  // 身份只由标题 + 卡片内容正面陈述。
+  const name = identityNameOf(content)
+  const head: string[] = [name === undefined ? '## 你是谁' : `## 你是${name}`]
+  for (const field of content.fields) {
+    const core = (CORE_IDENTITY_KEYS as readonly string[]).includes(field.key) ? '' : '（自定义）'
+    head.push(`- ${field.key}${core}：${clip(field.value)}`)
   }
-  if (content.sections.length > 0) head.push('## 信息')
+  if (content.sections.length > 0) head.push('', '## 你的信息')
 
   const sections: FitSection[] = content.sections.map((section) => ({ title: section.title, items: section.items }))
 

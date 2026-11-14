@@ -56,7 +56,7 @@ function contentBudget(fixedLength: number): number {
  */
 export function renderPersonaPrompt(
   doc: PersonaDocument,
-  options: { enabled: boolean; independentJudgment?: boolean; now?: Date },
+  options: { enabled: boolean; now?: Date },
 ): string {
   try {
     return renderPersonaPromptOrThrow(doc, options)
@@ -91,7 +91,7 @@ export function renderPersonaPrompt(
  */
 function renderPersonaPromptOrThrow(
   doc: PersonaDocument,
-  options: { enabled: boolean; independentJudgment?: boolean; now?: Date },
+  options: { enabled: boolean; now?: Date },
 ): string {
   if (!options.enabled) return ''
 
@@ -100,21 +100,16 @@ function renderPersonaPromptOrThrow(
   // 日期在**渲染时**算（`{{变量}}` 只有 provider/model，写别的会让整轮组装抛错）。
   if (doc?.identityCard?.initializedAt === '') return uninitializedPrompt(dayText(options.now))
 
-  // 独立判断段**只在底色已封存后**注入（理由见上面的函数注释：封存前注入会让模型拿它拒绝对方的设定）。
-  // 判据用 `sealedAt`（P-002：状态由独立标记判定，不比对内容）。
-  const sealed = doc?.identityCard?.sealedAt !== '' && doc?.identityCard?.sealedAt !== undefined
-  const anti = sealed && options.independentJudgment !== false ? INDEPENDENT_JUDGMENT_PROMPT : ''
+  // ⚠️ 独立判断段**不再**渲染在这里（2026-11-15）：它要排在「你的记忆」之后，
+  // 只好拆成独立段（`humanity:judgment`，order 25）。人格段因此只剩"你是谁 + 你的信息"。
   const content = collectPersonaContent(doc)
   const hasContent = content.fields.length > 0 || content.sections.length > 0 || content.userDefined.length > 0
+  if (!hasContent) return ''
 
-  // 人格内容为空：只留独立判断这一句 —— 它值得注入，且与"有没有填过底色"无关。
-  if (!hasContent) return anti
-
-  // 操作约定段与独立判断段同属固定成本：预算只截人格内容。
-  const fixed = [anti, MUTABLE_OPS_GUIDE].filter((part) => part !== '').join('\n\n')
-  const fitted = fitPersonaContent(blocksOf(content), contentBudget(fixed.length))
+  // 操作约定段属于固定成本：预算只截人格内容。
+  const fitted = fitPersonaContent(blocksOf(content), contentBudget(MUTABLE_OPS_GUIDE.length))
   const persona = fitted.lines.join('\n')
-  return `${anti === '' ? '' : `${anti}\n\n`}${persona}\n\n${MUTABLE_OPS_GUIDE}`
+  return `${persona}\n\n${MUTABLE_OPS_GUIDE}`
 }
 
 /** 本地日期 `YYYY-MM-DD`（未初始化那段开头要写"今天是几号"）。 */
@@ -133,22 +128,16 @@ function dayText(now: Date | undefined): string {
  * "写进去的这 20 条里，有 12 条根本不会生效"。这里把同一套拟合账目交给界面，
  * 且**不新增任何投影字段**：文档本来就在客户端手上，算它是纯函数。
  * @param doc - 当前生效的人格文档（可为形状不对的值）。
- * @param options - `independentJudgment`：独立判断段是否注入（它占用同一份预算）。
  * @returns 拟合账目；不该注入时返回 undefined（未初始化 / 内容为空）。
  */
-export function personaPromptReport(
-  doc: PersonaDocument,
-  options: { independentJudgment?: boolean } = {},
-): FitStats | undefined {
+export function personaPromptReport(doc: PersonaDocument): FitStats | undefined {
   try {
     if (doc?.identityCard?.initializedAt === '') return undefined
-    const sealed = doc?.identityCard?.sealedAt !== '' && doc?.identityCard?.sealedAt !== undefined
-    const anti = sealed && options.independentJudgment !== false ? INDEPENDENT_JUDGMENT_PROMPT : ''
     const content = collectPersonaContent(doc)
     const hasContent = content.fields.length > 0 || content.sections.length > 0 || content.userDefined.length > 0
     if (!hasContent) return undefined
-    const fixed = [anti, MUTABLE_OPS_GUIDE].filter((part) => part !== '').join('\n\n')
-    return fitPersonaContent(blocksOf(content), contentBudget(fixed.length)).stats
+    // 独立判断段已拆成独立 section（不占人格预算），这里的固定成本只剩操作约定段。
+    return fitPersonaContent(blocksOf(content), contentBudget(MUTABLE_OPS_GUIDE.length)).stats
   } catch {
     // 与渲染同一条纪律：这是给界面看的账，形状不对就当"算不出来"，绝不冒泡。
     return undefined

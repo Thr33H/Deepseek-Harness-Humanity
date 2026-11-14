@@ -185,7 +185,7 @@ function wouldTruncate(document, title, items) {
 
 test('V3 接近上限（未截断）：提示词要求只做整合、写回层不写新条目，但**合并照常**', async () => {
   // 夹具 = 真机那轮的形状：全部条目都进得去（truncated=false），但已用到 93%。
-  const persona = personaDoc({ perSection: 3, itemLength: 60 })
+  const persona = personaDoc({ perSection: 3, itemLength: 75 })
   const before = assertRatio(
     persona,
     (fit) => fit.truncated === false && fit.used / fit.budget >= PERSONA_BUDGET_GUARD_RATIO,
@@ -284,7 +284,7 @@ test('V6 预演（一批 3 条、容量超）：未超且护栏未触发，但�
     (fit) => fit.truncated === false && fit.used / fit.budget < PERSONA_BUDGET_GUARD_RATIO,
     '夹具必须是"未超且护栏未触发"',
   )
-  const batch = Array.from({ length: 3 }, (_, index) => `B${index}:${'z'.repeat(112)}`)
+  const batch = Array.from({ length: 3 }, (_, index) => `B${index}:${'z'.repeat(240)}`)
   assert.equal(wouldTruncate(persona, LAST_SECTION, batch), true, '前提：这一批真的塞不下')
 
   const harnessed = harness({ persona, output: { ...EMPTY_OUTPUT, personaSections: [{ section: LAST_SECTION, items: batch }] } })
