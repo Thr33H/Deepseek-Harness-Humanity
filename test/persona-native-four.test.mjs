@@ -372,6 +372,29 @@ test('V8 注入：原生 4 节 + 自定义节都进提示词，原生在前；�
   assert.ok(report.used > 0, '用掉的字数必须为正')
 })
 
+test('文案里不许出现"这个 AI"这类第三人称措辞（2026-11-15 真机：模型照抄它写进了记忆）', async () => {
+  // 事故形态：init 工具描述写着「底色只放"这个 AI 是什么"的稳定事实」，模型据此写下
+  // 「对方自称火火；**为这个AI定下设定**：陆衔清…」——把自己的身份说成"给一个 AI 做配置"。
+  // 提示词/工具描述里描述"你"时，一律用"你"，不许用"这个 AI / AI 助手"。
+  const { INIT_DESCRIPTION } = await import('../lib/persona/init.js')
+  const { UPDATE_DESCRIPTION } = await import('../lib/persona/update.js')
+  const { MEMORY_GUIDANCE } = await import('../lib/memory/inject.js')
+  const { MUTABLE_OPS_GUIDE, uninitializedPrompt } = await import('../lib/persona/prompt-texts.js')
+
+  const texts = {
+    'init 工具描述': INIT_DESCRIPTION,
+    'update 工具描述': UPDATE_DESCRIPTION,
+    '记忆引导': MEMORY_GUIDANCE,
+    '操作约定段': MUTABLE_OPS_GUIDE,
+    '第一次见面': uninitializedPrompt('2026-11-15'),
+  }
+  for (const [name, text] of Object.entries(texts)) {
+    for (const banned of ['这个 AI', '这个AI', 'AI 助手', 'AI助手']) {
+      assert.ok(!text.includes(banned), `${name} 里不得出现「${banned}」`)
+    }
+  }
+})
+
 test('文案不许再把已降级的小节说成"标准"（2026-11-15 真机：每次初始化都多出一个「习惯与偏好」）', async () => {
   // 事故形态：0.1.14 已把「习惯与偏好 / 经验教训 / 情绪 / 未结修正」降级为普通自定义项，
   // 但三处**文案**（init 工具描述、update 工具描述、人格段的操作约定）仍把它们列成"标准小节"，
