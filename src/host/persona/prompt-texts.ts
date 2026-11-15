@@ -77,8 +77,8 @@ export function uninitializedPrompt(today: string): string {
     '问清楚之后，分两层写：',
     '- 你的底色（humanity_persona_init，写完即封存）：只放"你是什么"——姓名、性别、人格偏好、主语言。',
     '  写完就封存，之后连你自己也改不了。',
-    '- 你的信息（humanity_persona_update）：怎么称呼对方、说话风格、交付格式、行为边界、习惯偏好、规矩。',
-    '  称呼**不要**放进底色的自定义字段。',
+    '- 你的信息（humanity_persona_update）：怎么称呼对方、说话风格、交付格式、行为边界。',
+    '  只写对方真说过的；没提到的就不要铺一节出来。称呼**不要**放进底色的自定义字段。',
     '',
     '写完之后，告诉对方可以在 Humanity 工作台里随时修改。',
   ].join('\n')
@@ -121,6 +121,6 @@ export const INDEPENDENT_JUDGMENT_PROMPT =
  * 操作立场"，不是人格内容，因此也不出现在工作台。
  */
 export const MUTABLE_OPS_GUIDE =
-  '操作约定（Humanity）：对方提供"怎么相处"类设定（对TA的称呼、说话风格、交付格式、行为边界、习惯与偏好）时，' +
+  '操作约定（Humanity）：对方提供"怎么相处"类设定（对TA的称呼、说话风格、交付格式、行为边界，以及他自定的别的小节）时，' +
   '调用 humanity_persona_update 写进信息对应小标题；对方本人的稳定事实（职业、项目名、长期目标、固定约定）' +
   '调用 humanity_remember 写进记忆。两者不要混；已经写过的不要再问一次。'

@@ -366,8 +366,32 @@ test('V8 注入：原生 4 节 + 自定义节都进提示词，原生在前；�
     ['对TA的称呼', '说话风格', '经验教训', '我自己的标题'],
     '投影只收有内容的小节，顺序不变',
   )
-  const report = personaPromptReport(persona, { independentJudgment: false })
+  const report = personaPromptReport(persona)
   assert.ok(report !== undefined && report.budget > 0 && report.budget < PROMPT_CHAR_BUDGET, '预算读数在 2400 以内（扣固定段）')
   assert.equal(report.truncated, false, '这份小卡不该被截断')
   assert.ok(report.used > 0, '用掉的字数必须为正')
+})
+
+test('文案不许再把已降级的小节说成"标准"（2026-11-15 真机：每次初始化都多出一个「习惯与偏好」）', async () => {
+  // 事故形态：0.1.14 已把「习惯与偏好 / 经验教训 / 情绪 / 未结修正」降级为普通自定义项，
+  // 但三处**文案**（init 工具描述、update 工具描述、人格段的操作约定）仍把它们列成"标准小节"，
+  // 于是模型每次初始化都照着建一节「习惯与偏好」——对方从没要求过。
+  const { INIT_DESCRIPTION } = await import('../lib/persona/init.js')
+  const { UPDATE_DESCRIPTION } = await import('../lib/persona/update.js')
+  const { MUTABLE_OPS_GUIDE, uninitializedPrompt } = await import('../lib/persona/prompt-texts.js')
+
+  const texts = {
+    'init 工具描述': INIT_DESCRIPTION,
+    'update 工具描述': UPDATE_DESCRIPTION,
+    '操作约定段': MUTABLE_OPS_GUIDE,
+    '第一次见面': uninitializedPrompt('2026-11-15'),
+  }
+  for (const [name, text] of Object.entries(texts)) {
+    for (const demoted of DEMOTED) {
+      assert.ok(
+        !text.includes(demoted),
+        `${name} 里不得再把「${demoted}」当标准小节列出（它只是普通自定义项）`,
+      )
+    }
+  }
 })
