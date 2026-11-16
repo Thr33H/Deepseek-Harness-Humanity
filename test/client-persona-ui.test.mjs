@@ -214,12 +214,11 @@ test('V3 反面①：客户端没有"删除锁定项"这个动作 —— 连二�
   }
 
   const draft = controller.getSnapshot().draft
-  // 2026-11-16：原生小节是 5 个（4 个相处方式 + 关系）；「经验教训」「决定权」是夹具当
+  // 2026-11-16：原生小节是 4 个（关系在、交付格式已退役）；「经验教训」「决定权」是夹具当
   // **自定义项**加进去的，因此排在原生之后（顺序按文档里的先后）。
   assert.deepEqual(draft.mutableLayer.sections.map((section) => section.title), [
     '对TA的称呼',
     '说话风格',
-    '交付格式',
     '行为边界',
     '关系',
     '经验教训',
@@ -466,7 +465,7 @@ test('V11 反面（控制器）：**锁定的 8 项** beginRename 是空操作�
     // 原生 4 小节：名字是插件认的标识（`LOCKED_SECTION_TITLES`），既不可删也不可改名。
     'section:对TA的称呼',
     'section:说话风格',
-    'section:交付格式',
+    'section:关系',
     'section:行为边界',
   ]
   for (const itemId of forbidden) {
@@ -557,11 +556,11 @@ test('V7 回归：锁定判定不影响 Agent 的常规整理（漏传 = 不动�
   assert.equal(validation.ok, true, `Agent 常规整理照旧放行（实际：${validation.issues.map((issue) => issue.code).join(',')}）`)
 })
 
-test('V7 回归：schema 默认值仍由常量生成（2026-11-16 起预置 5 个原生小节）', () => {
+test('V7 回归：schema 默认值仍由常量生成（2026-11-16 起预置 4 个原生小节）', () => {
   const persona = createDefaultPersona()
   assert.deepEqual(
     persona.mutableLayer.sections.map((section) => section.title),
-    ['对TA的称呼', '说话风格', '交付格式', '行为边界', '关系'],
+    ['对TA的称呼', '说话风格', '行为边界', '关系'],
     '新装不再预置那 4 个空节（用户："dsh 新装一个 Humanity，也是显示 8 个原生项"）',
   )
   assert.equal(validatePersona(normalizePersona(persona), effectivePersona(persona), 'user').ok, true)

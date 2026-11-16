@@ -50,7 +50,7 @@ function itemsOf(document, title) {
 test('该并的并：措辞几乎相同的两条并成一条，留下信息量更大的那条', () => {
   const persona = personaWith({
     说话风格: ['台词不加括号，直接写', '台词不加括号、直接写'],
-    交付格式: ['以小说体推进，注重心理与身体反应细节', '以小说体推进剧情，注重心理与身体反应细节'],
+    关系: ['以小说体推进，注重心理与身体反应细节', '以小说体推进剧情，注重心理与身体反应细节'],
   })
 
   const { document, merged } = consolidatePersona(persona)
@@ -58,13 +58,13 @@ test('该并的并：措辞几乎相同的两条并成一条，留下信息量�
   assert.equal(merged.length, 2)
   assert.deepEqual(itemsOf(document, '说话风格'), ['台词不加括号，直接写'], '同样长 ⇒ 留先出现的那条（稳定可预期）')
   assert.deepEqual(
-    itemsOf(document, '交付格式'),
+    itemsOf(document, '关系'),
     ['以小说体推进剧情，注重心理与身体反应细节'],
     '一条是另一条的延长 ⇒ 留更长的那条，信息不丢',
   )
   assert.deepEqual(
     merged.map((item) => item.title).sort(),
-    ['交付格式', '说话风格'],
+    ['关系', '说话风格'],
     '合并清单要能被人复核',
   )
 })
@@ -105,14 +105,14 @@ test('极性否决：一条带否定、另一条不带 ⇒ 再像也是反面，
 test('不跨小节：同样的一句话落在两个小节里，各留各的（结构是用户分的）', () => {
   const persona = personaWith({
     说话风格: ['先给结论，再给依据'],
-    交付格式: ['先给结论，再给依据'],
+    关系: ['先给结论，再给依据'],
   })
 
   const { document, merged } = consolidatePersona(persona)
 
   assert.equal(merged.length, 0)
   assert.equal(itemsOf(document, '说话风格').length, 1)
-  assert.equal(itemsOf(document, '交付格式').length, 1)
+  assert.equal(itemsOf(document, '关系').length, 1)
 })
 
 test('逐字相同：只留一条（旧行为就有的那一档，不能被长度门槛弄丢）', () => {

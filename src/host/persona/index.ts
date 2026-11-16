@@ -17,7 +17,7 @@ import type { CompatState } from '../preset-compat.js'
 import type { HumanityStore } from '../store.js'
 import { createWriteSweeper, pruneHistoryByRetention } from './history-retention.js'
 import { installPersonaInjection } from './prompt.js'
-import { migrateRelationshipFromIdentity } from './relationship.js'
+import { upgradePersonaDocument } from './upgrade.js'
 import { installPersonaSection, type PersonaSection } from './section.js'
 import { installPersonaTools, type PersonaToolsHandle } from './tools.js'
 import { installIdentityLayer } from './identity-layer.js'
@@ -50,11 +50,11 @@ export interface PersonaModule {
    */
   pruneHistory(): Promise<number>
   /**
-   * 一次性数据迁移：把「关系」从底色搬进信息（2026-11-16 用户拍板 A）。
+   * 一次性数据升级：关系从底色搬进信息、退役「交付格式」（见 `upgrade.ts`）。
    * 幂等、永不抛；未就绪时什么都不做（宿主会在下一个就绪点再叫一次）。
    * @returns 这次是否真的改了文档。
    */
-  migrateRelationship(): Promise<boolean>
+  upgrade(): Promise<boolean>
   dispose(): void
 }
 
@@ -124,11 +124,25 @@ export function installPersona(
   // 修法：把「存储句柄到手」也算进就绪条件。读不到的那几轮**返回空串**（什么都不注入），
   // 而不是注入一句假话。注意 `prompt-render.ts:42-44` 本来就是为这件事写的注释
   // （"那份空文档不代表对方没初始化过"），只是当时 `ready` 没把存储算进去。
+  // ⚠️ 数据升级的**唯一可靠触发点**（2026-11-16 真机教训）：
+  // 启动早期调用 `upgrade()` 时，命名空间可能刚接上、内容还没读出来 —— 读回来的是默认空文档，
+  // 于是判定"无需升级"直接返回，且**一次都不会再试**（存储打开那一刻 `state.persona` 还没赋值）。
+  // 这里复用注入已经在用的就绪条件（命名空间接上 + 存储句柄到手）：它第一次为真时，文档才是真的。
+  let upgraded = false
+  const ready = (): boolean => {
+    const isReady = section.attached && deps.store() !== undefined
+    if (isReady && !upgraded) {
+      upgraded = true
+      void upgradePersonaDocument(section, log)
+    }
+    return isReady
+  }
+
   ctx.effect(
     () =>
       installPersonaInjection(ctx, log, {
         read: () => section.read(),
-        ready: () => section.attached && deps.store() !== undefined,
+        ready,
         enabled: deps.enabled,
         independentJudgment: deps.independentJudgment,
       }, compat, onCompatProbed),
@@ -146,7 +160,7 @@ export function installPersona(
      * 一次性数据迁移：把「关系」从底色搬进信息（2026-11-16 用户拍板 A）。
      * 幂等；未就绪时什么都不做，宿主会在下一个就绪点再叫一次。
      */
-    migrateRelationship: () => migrateRelationshipFromIdentity(section, log),
+    upgrade: () => upgradePersonaDocument(section, log),
     dispose: () => tools.dispose(),
   }
 }

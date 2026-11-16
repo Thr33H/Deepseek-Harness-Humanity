@@ -130,7 +130,7 @@ test('默认 8 项：锁定小节整节删除被拒绝（用户与 Agent 两侧�
   // 用户 2026-10-09：默认 8 项（底色 4 项 + 信息前 4 个小节）不可删。
   // 底色那一半由 `identity.core-missing` 管，信息这一半由 `mutable.section-locked-missing` 管。
   const prev = filledPersona()
-  for (const title of ['对TA的称呼', '说话风格', '交付格式', '行为边界']) {
+  for (const title of ['对TA的称呼', '说话风格', '行为边界', '关系']) {
     const next = filledPersona()
     next.mutableLayer.sections = next.mutableLayer.sections.filter((section) => section.title !== title)
 
@@ -328,7 +328,7 @@ test('Bug B/R1 规范化**不删**空壳节（删除留给 effectivePersona 在�
   const persona = createDefaultPersona()
   persona.mutableLayer.sections.push({ title: '小明专属节', items: [] })
   persona.mutableLayer.sections.push({ title: '健康情况', items: ['对花生过敏'] })
-  persona.mutableLayer.sections[2].items = [] // 交付格式：标准节清空
+  persona.mutableLayer.sections[2].items = [] // 行为边界：原生节清空
 
   const normalized = normalizePersona(persona)
   const titles = normalized.mutableLayer.sections.map((section) => section.title)
@@ -339,7 +339,7 @@ test('Bug B/R1 规范化**不删**空壳节（删除留给 effectivePersona 在�
   const kept = effectivePersona(normalized).mutableLayer.sections.map((section) => section.title)
   assert.equal(kept.includes('小明专属节'), false, '删除这一步：自定义节 + 空 items = 删掉')
   assert.equal(kept.includes('健康情况'), true, '有内容的非标准节照旧保留')
-  assert.equal(kept.includes('交付格式'), true, '标准节即使清空也必须保留（schema/展示顺序的一部分）')
+  assert.equal(kept.includes('行为边界'), true, '原生节即使清空也必须保留（schema/展示顺序的一部分）')
 })
 
 test('Bug B/R1 显式清空自定义节 = section-cleared（可确认的删除），**不是** section-dropped', () => {

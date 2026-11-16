@@ -41,8 +41,8 @@ test('默认人格是"未初始化、未封存"的空白状态，而不是某个
 
 test('信息的默认小标题直接来自常量，不是抄一遍', () => {
   // 改 STANDARD_SECTION_TITLES 而忘改默认值，是这类代码最典型的分叉。
-  // 2026-11-16：原生小节 **5 个**（4 个相处方式 + 关系，关系从底色搬来）。
-  assert.equal(STANDARD_SECTION_TITLES.length, 5)
+  // 2026-11-16：原生小节 **4 个**（关系从底色搬来、交付格式退役，仍是 4 个槽位）。
+  assert.equal(STANDARD_SECTION_TITLES.length, 4)
   assert.deepEqual(
     createDefaultPersona().mutableLayer.sections.map((section) => section.title),
     [...STANDARD_SECTION_TITLES],
@@ -69,4 +69,4 @@ test('未提供的兄弟键取默认值，但数组字段是整体替换而不�
 // 0.1.14：`isStandardMutableLayer`（"信息是不是全由标准标题组成"）随用户"没有标准这一说"的
 // 产品决定一起删除（见 `predicates.ts` 的文件头与 `constants.ts` 的 `PERSONA_ISSUE_CODES` 注释）——
 // 它服务的那条 `mutable.section-non-standard` 提示已无产出点，派生判断也一并退役。
-// 新装预置 **5 个原生小节**：`createDefaultPersona()` 与常量同源（上面那条用例已钉）。
+// 新装预置 **4 个原生小节**：`createDefaultPersona()` 与常量同源（上面那条用例已钉）。

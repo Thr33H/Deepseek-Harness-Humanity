@@ -50,7 +50,7 @@ async function bootClient(document = emptyPersona()) {
 
 /* ---------------------------------------------------------------- V3 新装只有 8 个原生项 */
 
-test('V3 正面：新装文档 = 底色 4 字段 + 信息**恰好 5** 个原生小节（4 个相处方式 + 关系）', () => {
+test('V3 正面：新装文档 = 底色 4 字段 + 信息**恰好 4** 个原生小节（含关系、无交付格式）', () => {
   const persona = createDefaultPersona()
 
   assert.deepEqual(
@@ -61,9 +61,9 @@ test('V3 正面：新装文档 = 底色 4 字段 + 信息**恰好 5** 个原生�
   assert.deepEqual(
     persona.mutableLayer.sections.map((section) => section.title),
     NATIVE,
-    '信息 5 个原生小节 —— 旧版那 4 个空节不再预置',
+    '信息 4 个原生小节 —— 旧版那 4 个空节不再预置',
   )
-  assert.equal(NATIVE.length + CORE_IDENTITY_KEYS.length, 9, '底色 4 + 信息 5（关系已从底色搬进信息）')
+  assert.equal(NATIVE.length + CORE_IDENTITY_KEYS.length, 8, '底色 4 + 信息 4（交付格式退役、关系从底色搬来）')
   for (const title of DEMOTED) {
     assert.equal(persona.mutableLayer.sections.some((section) => section.title === title), false, `新装不该预置「${title}」`)
   }

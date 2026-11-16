@@ -848,7 +848,7 @@ test('V17 正面：每一项的三格都按「名称 → 内容 → 动作」横
     // 0.1.14：原生小节只剩 4 个；「经验教训」「决定权」是夹具当**自定义项**加进来的，同样三栏一行。
     'section:对TA的称呼',
     'section:说话风格',
-    'section:交付格式',
+    'section:关系',
     'section:行为边界',
     'section:经验教训',
     'section:决定权',
@@ -971,7 +971,7 @@ test('V3 正面：**锁定的 8 项**在界面上没有删除入口，其余项�
   for (const id of ['identity:0', 'identity:1', 'identity:2', 'identity:3']) {
     assert.equal(markup.includes(deleteMarker(id)), false, `${id} 是锁定项，界面上不该有删除入口`)
   }
-  for (const title of ['对TA的称呼', '说话风格', '交付格式', '行为边界']) {
+  for (const title of ['对TA的称呼', '说话风格', '行为边界', '关系']) {
     assert.equal(markup.includes(deleteMarker(`section:${title}`)), false, `「${title}」是锁定项，界面上不该有删除入口`)
     assert.match(markup, new RegExp(`data-persona-item="section:${title}"[^>]*data-locked="true"`), `「${title}」要标明是锁定项`)
   }
@@ -1101,7 +1101,7 @@ const LOCKED_IDS = [
   'identity:3',
   'section:对TA的称呼',
   'section:说话风格',
-  'section:交付格式',
+  'section:关系',
   'section:行为边界',
 ]
 /** 非原生的小节（0.1.14 起与用户自己加的小节**同待遇**：可删、可改名）。 */
@@ -1156,7 +1156,7 @@ test('V12 不破新口径：默认态名称区仍无输入框；改名态只动�
   // ① 默认态：**所有**项的名称区都没有输入控件（上一轮的口径不能因为加了改名而破掉）。
   const allIds = ['identity:0', 'identity:1', 'identity:2', 'identity:3', 'identity:4']
   // 0.1.14：原生 4 个 + 非原生的自定义小节（含原来的「经验教训」）。
-  for (const title of ['对TA的称呼', '说话风格', '交付格式', '行为边界', '经验教训', '决定权']) {
+  for (const title of ['对TA的称呼', '说话风格', '行为边界', '关系', '经验教训', '决定权']) {
     allIds.push(`section:${title}`)
   }
   for (const id of allIds) {
