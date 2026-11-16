@@ -189,6 +189,8 @@ export function apply(ctx: Context, config: HumanityConfig): void {
     // ⚠️ 存储打开是"人格文档真的读得到"的那一刻：在此之前 `section.read()` 拿到的是默认文档
     // （`sealedAt` 为空），预设会按"未封存"注册。`presets` 在这之后才会赋值，用 `?.` 兜住。
     presets?.sync()
+    // 关系搬家（底色 → 信息，2026-11-16）：需要文档真的读得到，所以也放在这一刻。
+    void state.persona?.migrateRelationship()
   })
 
   // 净室排除：极简会话拒绝 Humanity 工具（complete 吞 prompt 不吞工具目录，工具层由 guard 兜底）。
@@ -217,7 +219,11 @@ export function apply(ctx: Context, config: HumanityConfig): void {
     const off = state.persona.section.onDocumentChanged(() => presets?.sync())
     ctx.effect(() => off, 'humanity: 预设随封存切换')
     // 启动时"数据可读"比"有写入"更早发生也更关键：那一刻才知道人格到底封没封存。
-    const offAttached = state.persona.section.onAttached(() => presets?.sync())
+    const offAttached = state.persona.section.onAttached(() => {
+      presets?.sync()
+      // 存储可能晚于设置接上；迁移是幂等的，两个就绪点各叫一次最省事。
+      void state.persona?.migrateRelationship()
+    })
     ctx.effect(() => offAttached, 'humanity: 预设随命名空间接上重判')
   }
 

@@ -60,7 +60,7 @@ test('命名空间被注册，未写入时按默认（未初始化）人格解�
     const descriptor = descriptorOf(harness.ctx)
     assert.ok(descriptor, 'humanity-persona 命名空间没有注册')
     assert.equal(descriptor.value.identityCard.initializedAt, '')
-    assert.equal(descriptor.value.mutableLayer.sections.length, 4, '0.1.14：新装只预置 4 个原生小节')
+    assert.equal(descriptor.value.mutableLayer.sections.length, 5, '2026-11-16：新装预置 5 个原生小节（含关系）')
     assert.equal(harness.persona.attached, true)
   } finally {
     await harness.dispose()

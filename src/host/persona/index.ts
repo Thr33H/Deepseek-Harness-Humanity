@@ -17,6 +17,7 @@ import type { CompatState } from '../preset-compat.js'
 import type { HumanityStore } from '../store.js'
 import { createWriteSweeper, pruneHistoryByRetention } from './history-retention.js'
 import { installPersonaInjection } from './prompt.js'
+import { migrateRelationshipFromIdentity } from './relationship.js'
 import { installPersonaSection, type PersonaSection } from './section.js'
 import { installPersonaTools, type PersonaToolsHandle } from './tools.js'
 import { installIdentityLayer } from './identity-layer.js'
@@ -48,6 +49,12 @@ export interface PersonaModule {
    * @returns 删除的条数。
    */
   pruneHistory(): Promise<number>
+  /**
+   * 一次性数据迁移：把「关系」从底色搬进信息（2026-11-16 用户拍板 A）。
+   * 幂等、永不抛；未就绪时什么都不做（宿主会在下一个就绪点再叫一次）。
+   * @returns 这次是否真的改了文档。
+   */
+  migrateRelationship(): Promise<boolean>
   dispose(): void
 }
 
@@ -135,6 +142,11 @@ export function installPersona(
     section,
     setEnabled: (next) => tools.setEnabled(next),
     pruneHistory: pruneNow,
+    /**
+     * 一次性数据迁移：把「关系」从底色搬进信息（2026-11-16 用户拍板 A）。
+     * 幂等；未就绪时什么都不做，宿主会在下一个就绪点再叫一次。
+     */
+    migrateRelationship: () => migrateRelationshipFromIdentity(section, log),
     dispose: () => tools.dispose(),
   }
 }

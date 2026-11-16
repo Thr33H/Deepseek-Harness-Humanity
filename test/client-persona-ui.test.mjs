@@ -214,13 +214,14 @@ test('V3 反面①：客户端没有"删除锁定项"这个动作 —— 连二�
   }
 
   const draft = controller.getSnapshot().draft
-  // 0.1.14：默认只有 4 个**原生**小节；「经验教训」「决定权」是夹具当**自定义项**加进去的，
-  // 因此排在原生 4 个之后（顺序按文档里的先后）。
+  // 2026-11-16：原生小节是 5 个（4 个相处方式 + 关系）；「经验教训」「决定权」是夹具当
+  // **自定义项**加进去的，因此排在原生之后（顺序按文档里的先后）。
   assert.deepEqual(draft.mutableLayer.sections.map((section) => section.title), [
     '对TA的称呼',
     '说话风格',
     '交付格式',
     '行为边界',
+    '关系',
     '经验教训',
     '决定权',
   ])
@@ -556,11 +557,11 @@ test('V7 回归：锁定判定不影响 Agent 的常规整理（漏传 = 不动�
   assert.equal(validation.ok, true, `Agent 常规整理照旧放行（实际：${validation.issues.map((issue) => issue.code).join(',')}）`)
 })
 
-test('V7 回归：schema 默认值仍由常量生成（0.1.14 起只预置 4 个原生小节）', () => {
+test('V7 回归：schema 默认值仍由常量生成（2026-11-16 起预置 5 个原生小节）', () => {
   const persona = createDefaultPersona()
   assert.deepEqual(
     persona.mutableLayer.sections.map((section) => section.title),
-    ['对TA的称呼', '说话风格', '交付格式', '行为边界'],
+    ['对TA的称呼', '说话风格', '交付格式', '行为边界', '关系'],
     '新装不再预置那 4 个空节（用户："dsh 新装一个 Humanity，也是显示 8 个原生项"）',
   )
   assert.equal(validatePersona(normalizePersona(persona), effectivePersona(persona), 'user').ok, true)
