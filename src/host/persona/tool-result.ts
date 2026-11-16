@@ -20,7 +20,7 @@ export interface ResultIssue {
 /** 工具返回的规范值。字段与下面的 `RESULT_SCHEMA` 一一对应。 */
 export interface PersonaToolValue {
   ok: boolean
-  action: 'init' | 'update'
+  action: 'init' | 'update' | 'identity'
   message: string
   identityCard: Array<{ key: string; value: string }>
   mutableLayer: Array<{ title: string; items: string[] }>
@@ -40,7 +40,7 @@ export const RESULT_SCHEMA = {
   additionalProperties: false,
   properties: {
     ok: { type: 'boolean', required: true, description: '是否真的写入成功' },
-    action: { type: 'string', required: true, description: 'init | update' },
+    action: { type: 'string', required: true, description: 'init | update | identity' },
     message: { type: 'string', required: true, description: '一句话结论（给对方看）；失败时说明为什么没写入' },
     identityCard: {
       type: 'array',
@@ -114,7 +114,7 @@ function snapshot(doc: PersonaDocument): Omit<PersonaToolValue, 'ok' | 'action' 
 
 /** 一次成功的写入结果。 */
 export function success(
-  action: 'init' | 'update',
+  action: 'init' | 'update' | 'identity',
   doc: PersonaDocument,
   message: string,
   warnings: readonly PersonaIssue[] = [],
@@ -129,7 +129,7 @@ export function success(
  * 走同一条渲染通道；否则模型只会看到一句无上下文的工具错误，然后照旧向对方宣布写好了。
  */
 export function refusal(
-  action: 'init' | 'update',
+  action: 'init' | 'update' | 'identity',
   doc: PersonaDocument,
   message: string,
   issues: readonly PersonaIssue[] = [],

@@ -76,7 +76,7 @@ export function uninitializedPrompt(today: string): string {
     '',
     '问清楚之后，分两层写：',
     '- 你的底色（humanity_persona_init，写完即封存）：只放"你是什么"——姓名、性别、人格偏好、主语言。',
-    '  写完就封存，之后连你自己也改不了。',
+    '  写完就封存：之后你自己改不了它，只有对方明确说要改某一条时，才用 humanity_persona_identity（会当场问他确认）。',
     '- 你的信息（humanity_persona_update）：怎么称呼对方、说话风格、行为边界、关系。',
     '  只写对方真说过的；没提到的就不要铺一节出来。称呼与关系**不要**放进底色的自定义字段 ——',
     '  它们属于信息（关系会变，底色封存后谁也改不了）。',

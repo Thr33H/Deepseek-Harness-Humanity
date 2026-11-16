@@ -19,6 +19,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { createLog } from '../lib/log.js'
 import { STANDARD_SECTION_TITLES } from '../lib/persona/constants.js'
+import { PERSONA_IDENTITY_TOOL } from '../lib/persona/identity.js'
 import { PERSONA_INIT_TOOL } from '../lib/persona/init.js'
 import { installPersonaSection, PERSONA_NAMESPACE } from '../lib/persona/section.js'
 import { installPersonaTools } from '../lib/persona/tools.js'
@@ -838,6 +839,116 @@ test('封存后 init 工具整体下线：模型可见集合里不再有它（�
       harness.ctx.tools.schemas().some((schema) => schema.name === PERSONA_UPDATE_TOOL),
       true,
       'update 不受封存影响，仍可用',
+    )
+  } finally {
+    await harness.dispose()
+  }
+})
+
+/* ─────────────────────────── 底色修正（2026-11-16）：
+ * 封存后 agent 唯一的改底色通道：先在对话里问，对方点头才写。
+ * 这几条钉的是"封存仍然有效、但不必再把人赶去工作台"。 ─────────────────────────── */
+
+test('封存后：底色工具上线、init 下线（两者互斥）', async () => {
+  const harness = await boot()
+  try {
+    const before = harness.ctx.tools.schemas().map((schema) => schema.name)
+    assert.equal(before.includes(PERSONA_IDENTITY_TOOL), false, '未封存时不该有底色工具（初始化走 init）')
+
+    await harness.call(PERSONA_INIT_TOOL, initArgs)
+    const after = harness.ctx.tools.schemas().map((schema) => schema.name)
+    assert.equal(after.includes(PERSONA_IDENTITY_TOOL), true, '封存后必须有底色修正工具')
+    assert.equal(after.includes(PERSONA_INIT_TOOL), false, '封存后 init 必须下线')
+  } finally {
+    await harness.dispose()
+  }
+})
+
+test('底色修正：对话内确认 → 真的写入，确认框里能看到"旧值 → 新值"', async () => {
+  const approval = { outcome: 'allowed-once', seen: [] }
+  const harness = await boot({ approval, agent: { id: 'test-agent' } })
+  try {
+    await harness.call(PERSONA_INIT_TOOL, initArgs)
+
+    const result = await harness.call(PERSONA_IDENTITY_TOOL, { set: [{ key: '姓名', value: '小安二号' }], remove: [] })
+
+    assert.equal(approval.seen.length, 1, '必须恰好问一次')
+    assert.equal(approval.seen[0].toolName, PERSONA_IDENTITY_TOOL)
+    assert.match(approval.seen[0].reason, /小安 → 小安二号/, '确认框要说清从什么改成什么')
+    assert.equal(result.value.ok, true)
+    assert.equal(harness.persona.read().identityCard.fields[0].value, '小安二号')
+  } finally {
+    await harness.dispose()
+  }
+})
+
+test('底色修正：对方拒绝 → 一个字都不写', async () => {
+  const approval = { outcome: 'rejected', seen: [] }
+  const harness = await boot({ approval, agent: { id: 'test-agent' } })
+  try {
+    await harness.call(PERSONA_INIT_TOOL, initArgs)
+    const result = await harness.call(PERSONA_IDENTITY_TOOL, { set: [{ key: '姓名', value: '小安二号' }], remove: [] })
+
+    assert.equal(result.value.ok, false)
+    assert.match(result.value.message, /拒绝/)
+    assert.equal(harness.persona.read().identityCard.fields[0].value, '小安', '拒绝后必须保持原值')
+  } finally {
+    await harness.dispose()
+  }
+})
+
+test('底色修正：没有确认入口时**一律不写**（fail-closed）', async () => {
+  const harness = await boot()
+  try {
+    await harness.call(PERSONA_INIT_TOOL, initArgs)
+    const result = await harness.call(PERSONA_IDENTITY_TOOL, { set: [{ key: '姓名', value: '小安二号' }], remove: [] })
+
+    assert.equal(result.value.ok, false)
+    assert.match(result.value.message, /没有可用的确认入口/)
+    assert.equal(harness.persona.read().identityCard.fields[0].value, '小安')
+  } finally {
+    await harness.dispose()
+  }
+})
+
+test('底色修正：值没变化就不打扰对方（不弹确认、不写盘）', async () => {
+  const approval = { outcome: 'allowed-once', seen: [] }
+  const harness = await boot({ approval, agent: { id: 'test-agent' } })
+  try {
+    await harness.call(PERSONA_INIT_TOOL, initArgs)
+    const before = harness.history.length
+    const result = await harness.call(PERSONA_IDENTITY_TOOL, { set: [{ key: '姓名', value: '小安' }], remove: [] })
+
+    assert.equal(result.value.ok, true)
+    assert.equal(approval.seen.length, 0, '没有变化就不该弹确认框')
+    assert.equal(harness.history.length, before, '没有变化就不该写历史')
+  } finally {
+    await harness.dispose()
+  }
+})
+
+test('底色修正：核心字段删不掉，自定义字段能删', async () => {
+  const approval = { outcome: 'allowed-once', seen: [] }
+  const harness = await boot({ approval, agent: { id: 'test-agent' } })
+  try {
+    await harness.call(PERSONA_INIT_TOOL, initArgs)
+    await harness.call(PERSONA_IDENTITY_TOOL, { set: [{ key: '归属地', value: '临安' }], remove: [] })
+
+    // 核心四项：显式点名删除也必须被忽略（不是报错，是"这一项不属于可删范围"）。
+    const coreAttempt = await harness.call(PERSONA_IDENTITY_TOOL, { set: [], remove: ['姓名'] })
+    assert.equal(coreAttempt.value.ok, true)
+    assert.equal(
+      harness.persona.read().identityCard.fields.some((field) => field.key === '姓名'),
+      true,
+      '核心字段删不掉',
+    )
+
+    const customAttempt = await harness.call(PERSONA_IDENTITY_TOOL, { set: [], remove: ['归属地'] })
+    assert.equal(customAttempt.value.ok, true)
+    assert.equal(
+      harness.persona.read().identityCard.fields.some((field) => field.key === '归属地'),
+      false,
+      '自定义字段必须真的被删掉',
     )
   } finally {
     await harness.dispose()

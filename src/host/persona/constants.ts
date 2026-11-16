@@ -128,7 +128,7 @@ export const HISTORY_RETENTION_DAYS = 30
  *   所以要在这里问一次（真机反馈缺陷 ⑤ 之后，"漏传"已改为"不动这一节"，不再触发确认）。
  * @see validatePersona
  */
-export const CONFIRMABLE_ISSUES = ['mutable.section-dropped', 'mutable.section-cleared'] as const
+export const CONFIRMABLE_ISSUES = ['mutable.section-dropped', 'mutable.section-cleared', 'identity.sealed'] as const
 
 /** 可确认放行的问题代码。 */
 export type ConfirmableIssueCode = (typeof CONFIRMABLE_ISSUES)[number]

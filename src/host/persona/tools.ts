@@ -19,6 +19,7 @@ import type { defineTool as defineToolType } from '@deepseek-ai/dsh-tools'
 
 import type { Log } from '../log.js'
 import { installToolsSeam, type ToolsApi } from '../tools-seam.js'
+import { defineIdentityTool, PERSONA_IDENTITY_TOOL } from './identity.js'
 import { defineInitTool, PERSONA_INIT_TOOL } from './init.js'
 import { isUntouchedIdentityCard } from './predicates.js'
 import type { PersonaSection } from './section.js'
@@ -62,6 +63,17 @@ function registerAll(
     // complete 吞提示词但不吞工具目录，极简/已初始化会话的模型会照着这段模仿初始化流程
     // （2026-09-25 真机实证：极简净室里出现引导与重复 init）。看不见才模仿不了，比描述里写禁令硬。
     ...(includeInit ? [tools.register(defineInitTool(defineTool, persona))] : []),
+    // 封存后才有它：底色修正的唯一通道，写入前一定在对话里问一次（见 `identity.ts`）。
+    ...(includeInit
+      ? []
+      : [
+          tools.register(
+            defineIdentityTool(defineTool, {
+              persona,
+              confirm: (exec, reason) => requestApproval(approvalOf(), exec, PERSONA_IDENTITY_TOOL, log, reason),
+            }),
+          ),
+        ]),
     tools.register(
       defineUpdateTool(defineTool, {
         persona,
@@ -88,11 +100,19 @@ function guardExecution(
   execution: { name: string; arguments: unknown },
   persona: PersonaSection,
 ): string | undefined {
-  if (execution.name !== PERSONA_INIT_TOOL && execution.name !== PERSONA_UPDATE_TOOL) return undefined
+  if (
+    execution.name !== PERSONA_INIT_TOOL &&
+    execution.name !== PERSONA_UPDATE_TOOL &&
+    execution.name !== PERSONA_IDENTITY_TOOL
+  ) {
+    return undefined
+  }
 
   const card = persona.read().identityCard
   if (execution.name === PERSONA_INIT_TOOL && !isUntouchedIdentityCard(card)) return SEALED_REASON
   if (execution.name === PERSONA_UPDATE_TOOL && isUntouchedIdentityCard(card)) return NOT_INITIALIZED_REASON
+  // 底色工具只在封存后注册；走到这里还能被调用，说明注册状态与文档不一致 —— 直接拒。
+  if (execution.name === PERSONA_IDENTITY_TOOL && isUntouchedIdentityCard(card)) return NOT_INITIALIZED_REASON
   if (carriesIdentityWrite(execution.name, execution.arguments)) return SEALED_REASON
   return undefined
 }
