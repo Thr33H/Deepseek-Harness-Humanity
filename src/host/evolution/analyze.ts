@@ -11,7 +11,7 @@
  * @module humanity/evolution/analyze
  */
 import { AnalysisOutputSchema, type AnalysisOutput } from './model.js'
-import { buildSystemPrompt, buildUserMessage, type PersonaBudgetState, type PersonaCardSection } from './prompt.js'
+import { buildSystemPrompt, buildUserMessage, type PersonaCardSection } from './prompt.js'
 import type { LlmAccess } from './llm.js'
 import type { ModelRoute, RunMode } from './types.js'
 
@@ -46,8 +46,6 @@ export interface AnalyzeInput {
   sectionTitles: readonly string[]
   /** 信息当前内容（判断「已存在/同义」用；见 PromptContext.personaCard）。 */
   personaCard?: readonly PersonaCardSection[]
-  /** 人格**注入预算**读数（见 PromptContext.personaBudget）：超预算时提示词追加"只合并"约束。 */
-  personaBudget?: PersonaBudgetState
   maxOutputTokens: number
   /** 单次调用墙钟上限（毫秒）。 */
   timeoutMs: number
@@ -92,7 +90,6 @@ async function attempt(deps: AnalyzeDeps, route: ModelRoute, input: AnalyzeInput
       workspaceLabel: input.workspaceLabel,
       sectionTitles: input.sectionTitles,
       ...(input.personaCard === undefined ? {} : { personaCard: input.personaCard }),
-      ...(input.personaBudget === undefined ? {} : { personaBudget: input.personaBudget }),
     }),
     text: buildUserMessage(input.digest, correction),
     maxTokens: input.maxOutputTokens,

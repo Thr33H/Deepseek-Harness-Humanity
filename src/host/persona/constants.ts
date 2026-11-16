@@ -104,12 +104,12 @@ export const PERSONA_ISSUE_CODES = [
 export type PersonaIssueCode = (typeof PERSONA_ISSUE_CODES)[number]
 
 /**
- * 单个值的长文软上限（P-015）。
+ * 2026-11-16：原来的 `VALUE_SOFT_LIMIT = 120` 已删除。
  *
- * 只警告、不硬拒绝：长文本不是错误，只是更贵、更容易自相矛盾。硬拒绝会把
- * "对方就想写一段话"变成功能缺陷。
+ * 对方要求取消字数限制：单条内容不再被截断（`clip.ts` 一并删除），也不再给"写太长"的
+ * 警告（`identity.value-too-long` / `mutable.item-too-long` 两个问题码随之退场）。
+ * 长度完全由对方自己控制。
  */
-export const VALUE_SOFT_LIMIT = 120
 
 /**
  * `persona_history` 的**默认保留天数**（对方 2026-10-09：「删除的进历史，要有个保留天数，

@@ -491,42 +491,6 @@ test('顶层配置命名空间在宿主与浏览器两侧必须一致（独立�
   assert.equal(client.HUMANITY_NAMESPACE, SETTINGS_NAMESPACE, '写错命名空间等于开关点了没反应')
 })
 
-test('信息：注入账目就写在卡上（装得下报条数，装不下如实警告到小节）', async () => {
-  /** 起一个装好插件的工作台，返回渲染结果。 */
-  const renderWith = async (document) => {
-    const descriptor = await loadBundle()
-    const plugin = descriptor.factory(createPlatformRequire())
-    const { ctx, registrations, localeNamespaces } = createFakeContext(createFakeChannel(document).channel)
-    plugin.apply(ctx)
-    await settle()
-    return render(nodeRequire('react').createElement(mainComponent(registrations), { t: translator(localeNamespaces) }))
-  }
-  const seeded = (itemsFor) => {
-    const document = emptyPersona()
-    document.identityCard.fields.forEach((field) => {
-      field.value = '值'
-    })
-    document.identityCard.initializedAt = '2026-09-23T00:00:00.000Z'
-    document.identityCard.sealedAt = '2026-09-23T00:00:00.000Z'
-    document.mutableLayer.sections.forEach((section) => {
-      section.items = itemsFor(section.title)
-    })
-    return document
-  }
-
-  // 装得下：只报条数，不吓人。
-  const small = await renderWith(seeded(() => ['一条']))
-  assert.match(small, /进提示词 \d+\/\d+ 条/, '卡上要如实写出"进去了几条"')
-  assert.equal(small.includes('进不了提示词'), false, '全都进得去时不该报警告')
-
-  // 装不下：必须点名到小节（用户 2026-09-26 发现提示词被截断后才看得见这件事）。
-  // 每条都写成不同的字：**完全相同的条目会被规范化折叠掉**（去重是宿主行为，不是这里的考题）。
-  const huge = await renderWith(seeded((title) => Array.from({ length: 20 }, (_, index) => `${title}第${index}条${'填'.repeat(60)}`)))
-  assert.match(huge, /进不了提示词/, '超出预算时必须给出警告，而不是让用户去翻提示词')
-  assert.match(huge, /超出注入预算/, '警告要说清原因')
-  assert.match(huge, /条。/, '警告要说明怎么办')
-})
-
 /* ---------------------------------------------------------------------------
  * 0.1.13 人格页交互改造（用户 2026-10-09）：默认无输入框 / 项名下删除 / 底部添加
  *

@@ -63,18 +63,6 @@ const personaZh = {
     + '每项的**名称是固定文字**（不可就地改），**内容随时可以在右边的框里改**；'
     + '项名下的「删除」删掉的是**整项**（文档里与提示词里都不再有它，默认的前 4 个小节删不掉）；'
     + '要加内容走底部的入口。',
-  // 注入账目（用户 2026-09-26 发现提示词被截断后加的）：卡上写的东西到底进去多少，必须看得见。
-  'persona.budget.tag': '进提示词 {injected}/{total} 条',
-  'persona.budget.hint':
-    '信息按字符预算注入（当前上限 {budget} 字符，其中还包含永不截断的操作约定段）。'
-    + '一次装不下时，每个小标题先保底一条，再按轮次分配；没进去的条目会在提示词里如实标注。'
-    + '把重复的条目合并、把长条目写短，就能让它们全部进去。',
-  'persona.budget.dropped':
-    '⚠️ 有 {dropped} 条进不了提示词（超出注入预算）：{sections}。上面那张卡上的条目没有全部生效，'
-    + '合并重复条目或写短一些即可。',
-  'persona.budget.clipped':
-    '⚠️ 有条目超过单条上限（{limit} 字符），进提示词时被截断：条目本身还在，但尾巴不会生效。'
-    + '把它拆成两条或写短一些即可。',
   // ⚠️ 0.1.14：`persona.userDefined` / `userDefinedHint` / `addEntry`（兜底层「用户定义」及其添加入口）
   // 随该区块下线一起删除 —— 界面上没有入口了，留着的文案只会成为一条永远没人读的死字符串。
   'persona.save': '保存',
@@ -154,17 +142,6 @@ const personaEn = {
     + 'Each item has a fixed, non-editable name; its content is always editable in the box on the right. '
     + 'The "Remove" under an item name deletes the whole item '
     + '(gone from the document and the prompt; the first four default sections cannot be removed), and new content goes in through the entry at the bottom.',
-  'persona.budget.tag': '{injected}/{total} entries injected',
-  'persona.budget.hint':
-    'The persona card is injected under a character budget ({budget} characters, which also covers the untruncated operating note). '
-    + 'When it does not fit, every section keeps at least one entry and the rest are handed out round by round; whatever is left out is stated in the prompt. '
-    + 'Merging duplicates and shortening long entries brings everything back in.',
-  'persona.budget.dropped':
-    '⚠️ {dropped} entries will not reach the prompt (over the injection budget): {sections}. '
-    + 'The card above is not fully in effect — merging duplicates or shortening entries fixes it.',
-  'persona.budget.clipped':
-    '⚠️ Some entries exceed the per-entry limit ({limit} characters) and are cut when injected: '
-    + 'the entry stays on the card, but its tail never takes effect. Splitting it or shortening it fixes this.',
   // ⚠️ 0.1.14: `persona.userDefined` / `userDefinedHint` / `addEntry` removed with the User-defined block.
   'persona.save': 'Save',
   'persona.saving': 'Saving…',

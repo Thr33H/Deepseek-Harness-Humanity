@@ -21,8 +21,8 @@ import { Context } from '@deepseek-ai/cordis'
 import { CORE_IDENTITY_KEYS, PERSONA_ISSUE_CODES, STANDARD_SECTION_TITLES } from '../lib/persona/constants.js'
 import { effectivePersona, normalizePersona } from '../lib/persona/normalize.js'
 import { createDefaultPersona } from '../lib/persona/model.js'
-import { personaPromptReport, PROMPT_CHAR_BUDGET, renderPersonaPrompt } from '../lib/persona/render.js'
 import { collectPersonaContent } from '../lib/persona/render-content.js'
+import { renderPersonaPrompt } from '../lib/persona/render.js'
 import { completeSections } from '../lib/persona/tool-helpers.js'
 import { validatePersona } from '../lib/persona/validate.js'
 import { createLog } from '../lib/log.js'
@@ -351,7 +351,7 @@ test('V8 注入：原生 4 节 + 自定义节都进提示词，原生在前；�
   withSection(persona, '经验教训', ['别在深夜做决定'])
   withSection(persona, '我自己的标题', ['自定义内容'])
 
-  const text = renderPersonaPrompt(persona, { enabled: true, independentJudgment: false })
+  const text = renderPersonaPrompt(persona, { enabled: true })
   for (const needle of ['对TA的称呼', '主人', '说话风格', '先给结论', '经验教训', '别在深夜做决定', '我自己的标题']) {
     assert.ok(text.includes(needle), `注入内容里必须有「${needle}」`)
   }
@@ -359,17 +359,6 @@ test('V8 注入：原生 4 节 + 自定义节都进提示词，原生在前；�
   const positions = ['对TA的称呼', '说话风格', '经验教训', '我自己的标题'].map((title) => text.indexOf(title))
   assert.deepEqual(positions, [...positions].sort((a, b) => a - b), '顺序：原生在前，自定义在后（按文档顺序）')
 
-  // 投影与预算读数：4 + 2 节都在投影里，且这份小卡没超预算。
-  const content = collectPersonaContent(persona)
-  assert.deepEqual(
-    content.sections.map((section) => section.title),
-    ['对TA的称呼', '说话风格', '经验教训', '我自己的标题'],
-    '投影只收有内容的小节，顺序不变',
-  )
-  const report = personaPromptReport(persona)
-  assert.ok(report !== undefined && report.budget > 0 && report.budget < PROMPT_CHAR_BUDGET, '预算读数在 2400 以内（扣固定段）')
-  assert.equal(report.truncated, false, '这份小卡不该被截断')
-  assert.ok(report.used > 0, '用掉的字数必须为正')
 })
 
 test('文案里不许出现"这个 AI"这类第三人称措辞（2026-11-15 真机：模型照抄它写进了记忆）', async () => {

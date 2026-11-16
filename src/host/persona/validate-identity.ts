@@ -5,7 +5,7 @@
  * 分开放之后每一处都能一眼看完（函数 ≤40 行是硬要求，不是审美偏好）。
  * @module humanity/persona/validate-identity
  */
-import { CORE_IDENTITY_KEYS, VALUE_SOFT_LIMIT } from './constants.js'
+import { CORE_IDENTITY_KEYS } from './constants.js'
 import { isUntouchedIdentityCard } from './predicates.js'
 import type { IdentityField, PersonaDocument, PersonaIssue, WriteSource } from './types.js'
 
@@ -67,14 +67,7 @@ function checkFieldRows(fields: readonly IdentityField[], issues: PersonaIssue[]
         message: '底色存在没有名字的字段，无法保存。',
       })
     }
-    if (field.value.length > VALUE_SOFT_LIMIT) {
-      issues.push({
-        code: 'identity.value-too-long',
-        path: `identityCard.fields[${index}].value`,
-        severity: 'warning',
-        message: `字段值超过 ${VALUE_SOFT_LIMIT} 字，会明显增加注入成本，建议写短。`,
-      })
-    }
+    // 2026-11-16：取消字数限制后不再检查字段值长度（`identity.value-too-long` 已退场）。
   }
 }
 

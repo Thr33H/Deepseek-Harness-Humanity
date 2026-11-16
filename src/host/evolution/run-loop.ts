@@ -10,7 +10,6 @@ import type { ClassifyDeps, ClassifyResult } from './classify.js'
 import { applyAnalysis } from './classify.js'
 import { ANALYZE_TIMEOUT_MS, INSIGHTS_CAP, MAX_SESSION_FAILURES, NARRATIVE_CAP } from './constants.js'
 import { buildDigest } from './digest.js'
-import type { PersonaBudgetState } from './prompt.js'
 import type { RunOptions, RunnerDeps } from './run.js'
 import type { ScanTarget } from './scan.js'
 import { dayKeyOf } from './schedule-time.js'
@@ -34,25 +33,8 @@ export interface RunAccumulator {
    * 不必去逐条比对正文长度（旧行为是硬切 + 静默）。
    */
   truncatedMemories: number
-  /**
-   * 本轮**开始时**读到的人格注入预算读数（0.1.10 · A1）。
-   *
-   * 为什么一轮只读一次、而不是每个会话各读一次：这一轮里逐个会话的合并会让读数一直变，
-   * 而"本轮算不算超预算、要不要只做整合"必须是**一个**判断 —— 同一轮里一会儿只合并、
-   * 一会儿又允许追加，行为就成了随机的。运行记录里记的也是这同一个读数，账目与行为对得上。
-   */
-  personaBudget: PersonaBudgetState | undefined
-  /**
-   * 本轮人格护栏是否触发（0.1.11 · A）：预算已超**或**接近上限（`used/budget ≥ 0.85`）。
-   *
-   * 与 `personaBudget` 一起在轮首算一次（同一个读数），提示词与写回层都读它 ——
-   * 不允许哪一处自己按别的口径再判一次。
-   */
-  personaGuarded: boolean
   /** 本轮实际并掉的同义条目数（A4：写进运行记录）。 */
   personaMerged: number
-  /** 本轮被护栏/预演拦下的拟新增条数（0.1.11：写进运行记录，免得看起来像"什么都没干"）。 */
-  personaAdditionsDropped: number
 }
 
 /** 当日用量视图。 */
@@ -121,8 +103,6 @@ async function digestOneSession(deps: RunnerDeps, accumulator: RunAccumulator, t
       workspaceLabel: target.cwd,
       sectionTitles: card.map((section) => section.title),
       personaCard: card,
-      // 护栏触发（已超 / 接近上限）时提示词追加"只做整合、禁止追加新条目"；预算充足时这一段不出现（V4）。
-      ...(accumulator.personaBudget === undefined ? {} : { personaBudget: accumulator.personaBudget }),
       maxOutputTokens: budget.maxOutputTokensPerCall,
       timeoutMs: ANALYZE_TIMEOUT_MS,
     },
@@ -138,7 +118,6 @@ async function digestOneSession(deps: RunnerDeps, accumulator: RunAccumulator, t
       cwd: target.cwd,
       mode: accumulator.record.mode,
       // 写回层的兜底（A3；0.1.11 起含"接近预算"）：护栏触发就只认整合建议 —— 不指望模型听提示词的话。
-      personaGuardActive: accumulator.personaGuarded,
     },
     outcome.output,
   )
@@ -201,8 +180,6 @@ export async function runLoop(deps: RunnerDeps, accumulator: RunAccumulator, tar
         accumulator.record.proposalsCreated += result.proposalsCreated
         // A4：并了几条要能进运行记录（自进化"整理过人格"要有可核对的读数）。
         accumulator.personaMerged += result.personaMerged
-        // 0.1.11：被护栏/预演拦下的新增也要记账（"什么都没干"与"守住了预算"是两回事）。
-        accumulator.personaAdditionsDropped += result.personaAdditionsDropped
         // 0.1.9：把"有记忆被截断保存"这件事**记进时间线**（记的是运行记录，不是只打日志）——
         // 否则对方只能靠逐条比对正文才能发现有内容被切掉了尾巴。
         accumulator.truncatedMemories += result.memoriesTruncated

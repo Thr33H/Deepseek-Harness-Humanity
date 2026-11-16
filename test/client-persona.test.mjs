@@ -283,18 +283,6 @@ test('R2 历史遗留的空壳自定义节在读取时就不显示（下一次�
   )
 })
 
-test('警告不拦路：超长值照常保存，但会作为 warning 留在结果里（P-015）', async () => {
-  const { controller, calls } = await boot(seededPersona())
-
-  controller.setIdentityValue(2, '很'.repeat(200))
-  await controller.save()
-
-  assert.equal(calls.replace.length, 1, 'warning 不该拦住保存')
-  assert.ok(
-    controller.getSnapshot().issues.some((issue) => issue.code === 'identity.value-too-long' && issue.severity === 'warning'),
-  )
-})
-
 test('宿主拒绝：原样呈现宿主的说法，草稿保留（用户的改动不丢）', async () => {
   const { controller, calls } = await boot(seededPersona(), { failReplace: 'settings/rejected: 人格底色已对 Agent 封存' })
 

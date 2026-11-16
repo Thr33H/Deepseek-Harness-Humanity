@@ -18,7 +18,7 @@ import { decaySummary, runDecayMaintenance } from '../memory/ops.js'
 import type { ClassifyDeps } from './classify.js'
 import type { LlmAccess } from './llm.js'
 import { createRunRecord } from './model.js'
-import { isPersonaBudgetGuarded, personaBudgetNote, type PersonaBudgetState, type PersonaCardSection } from './prompt.js'
+import type { PersonaCardSection } from './prompt.js'
 import { finalizeRun, runLoop, type RunAccumulator } from './run-loop.js'
 import type { RescanRange } from './scan.js'
 import { collectScanTargets } from './scan.js'
@@ -48,7 +48,6 @@ export interface RunnerDeps {
    * （`persona/render.ts` 的 `personaPromptReport`，与提示词拼装共用同一套拟合）——
    * 在这里重算一遍迟早与真实注入不一致，而那正是对方最不能接受的一类"看起来对"。
    */
-  personaFit?(): PersonaBudgetState | undefined
   /**
    * 免费的**信息整合**：合并近重复条目，返回合并了几条。
    *
@@ -156,10 +155,7 @@ export function createRunner(deps: RunnerDeps): Runner {
       failedSessions: 0,
       capStopped: false,
       truncatedMemories: 0,
-      personaBudget: undefined,
-      personaGuarded: false,
       personaMerged: 0,
-      personaAdditionsDropped: 0,
     }
     inFlight = accumulator.record
     await deps.state.putRun(accumulator.record)
@@ -168,25 +164,10 @@ export function createRunner(deps: RunnerDeps): Runner {
       // 免费步骤先做：信息的重复条目在扫描前就并掉（不花模型调用，也让提示词立刻变干净）。
       const mergedPersona = (await deps.consolidatePersona?.()) ?? 0
       if (mergedPersona > 0) accumulator.notes.push(`信息合并了 ${mergedPersona} 条重复条目`)
-      // A1：本轮**只读一次**人格注入预算（并掉重复条目之后读，读数才是这一轮真正生效的那个）。
-      accumulator.personaBudget = deps.personaFit?.()
-      // A（0.1.11）：同一份读数上判护栏（已超 or 接近上限）—— 提示词与写回层共用这一个结论。
-      accumulator.personaGuarded = isPersonaBudgetGuarded(accumulator.personaBudget)
       // B1：记忆维护同样不花模型调用，且不依赖模型路由 —— 放门禁之前，每轮都跑。
       await sweepMemoryDecay(deps, accumulator)
       const targets = await gateAndScan(deps, accumulator, options)
       if (targets.length > 0) await runLoop(deps, accumulator, targets, options)
-      // A4：把这一轮读到的人格预算账目写进时间线（人格未接上时没有读数，就不记）。
-      if (accumulator.personaBudget !== undefined) {
-        accumulator.notes.push(
-          personaBudgetNote(
-            accumulator.personaBudget,
-            accumulator.personaGuarded,
-            accumulator.personaMerged,
-            accumulator.personaAdditionsDropped,
-          ),
-        )
-      }
     } catch (error) {
       accumulator.record.status = 'failed'
       accumulator.notes.push(error instanceof Error ? error.message : String(error))

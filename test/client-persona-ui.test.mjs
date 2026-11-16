@@ -556,15 +556,6 @@ test('V7 回归：锁定判定不影响 Agent 的常规整理（漏传 = 不动�
   assert.equal(validation.ok, true, `Agent 常规整理照旧放行（实际：${validation.issues.map((issue) => issue.code).join(',')}）`)
 })
 
-test('V7 回归：注入预算没被动过；历史表名与语义不变（只有"保留期"是这轮新增的）', async () => {
-  const { PROMPT_CHAR_BUDGET } = await import('../lib/persona/render.js')
-  const { HISTORY_TABLE } = await import('../lib/store-schema.js')
-  assert.equal(PROMPT_CHAR_BUDGET, 2400, '注入预算一个字没改')
-  // 归档规则的**语义**没动：历史仍然 append-only、不进注入、被取代就留档。
-  // 0.1.13 只在它之上加了一层保留期（用户要求），那条链路由 `persona-history-retention.test.mjs` 覆盖。
-  assert.equal(HISTORY_TABLE, 'persona_history')
-})
-
 test('V7 回归：schema 默认值仍由常量生成（0.1.14 起只预置 4 个原生小节）', () => {
   const persona = createDefaultPersona()
   assert.deepEqual(

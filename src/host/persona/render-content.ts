@@ -1,15 +1,13 @@
 /**
  * 人格内容的**挑选与拆块**（纯函数）：从一份（形状可能残缺的）人格文档里挑出真正要注入的东西，
- * 再拆成"头部原子行 / 信息小节 / 尾部原子行"三块交给预算拟合。
+ * 再拆成"头部行 / 信息小节 / 尾部行"三块交给 `render.ts` 拼成字面文本。
  *
- * 为什么与 `render.ts`（最终字面文本）和 `render-fit.ts`（装不下时牺牲谁）分开：
- * 这三件事的改动理由完全不同 —— 挑内容看的是"哪些字段算数"，拆块看的是"顺序与优先级"，
- * 拟合看的是"预算怎么分"。混在一起时，改任何一件都要先读懂另外两件。
+ * ### 2026-11-16：不再有"装不下时牺牲谁"
+ * 以前这三块是喂给 `render-fit.ts`（注入预算 + 拟合）的；对方要求取消字数限制后，拟合器整套
+ * 删除，这里只负责**挑内容与排序**：头部（谁 + 底色）→ 信息小节 → 兜底条目。一条都不丢。
  * @module humanity/persona/render-content
  */
 import { CORE_IDENTITY_KEYS } from './constants.js'
-import { clip } from './clip.js'
-import type { FitInput, FitSection } from './render-fit.js'
 import { neutralizePromptVars } from '../text.js'
 import type { PersonaDocument } from './types.js'
 
@@ -19,6 +17,14 @@ export interface RenderableContent {
   sections: Array<{ title: string; items: string[] }>
   userDefined: Array<{ key: string; value: string }>
 }
+
+/** 拆好的三块：头部行、信息小节、尾部行。 */
+export interface ContentBlocks {
+  head: string[]
+  sections: Array<{ title: string; items: string[] }>
+  tail: string[]
+}
+
 
 /**
  * 身份行里姓名部分的长度上限。
@@ -207,14 +213,13 @@ export function collectPersonaContent(doc: PersonaDocument): RenderableContent {
 }
 
 /**
- * 把内容拆成"拟合用的块"：头部原子行（身份声明 + 底色）、信息小节、尾部原子行（自定义）。
+ * 把内容拆成三块：头部行（标题 + 底色）、信息小节、尾部行（自定义）。
  *
- * 与旧实现的区别：小节**不再先拼成一整行**。旧写法让"一个小节"在预算面前是不可分割的，
- * 放不下就整节消失（真机上 7 节丢了 3 节）；现在交给 `fitPersonaContent` 逐条装。
+ * 拆块的唯一目的是**顺序**：底色在信息之前，自定义条目垫底。没有预算，也就没有"牺牲谁"。
  * @param content - 已挑好的非空内容。
- * @returns 拟合输入。
+ * @returns 三块内容。
  */
-export function blocksOf(content: RenderableContent): FitInput {
+export function blocksOf(content: RenderableContent): ContentBlocks {
   // 版式（2026-11-15 用户定稿）：
   //   ## 你是{姓名}
   //   - 姓名：…
@@ -230,16 +235,19 @@ export function blocksOf(content: RenderableContent): FitInput {
   const head: string[] = [name === undefined ? '## 你是谁' : `## 你是${name}`]
   for (const field of content.fields) {
     const core = (CORE_IDENTITY_KEYS as readonly string[]).includes(field.key) ? '' : '（自定义）'
-    head.push(`- ${field.key}${core}：${clip(field.value)}`)
+    head.push(`- ${field.key}${core}：${field.value}`)
   }
   if (content.sections.length > 0) head.push('', '## 你的信息')
 
-  const sections: FitSection[] = content.sections.map((section) => ({ title: section.title, items: section.items }))
+  const sections: Array<{ title: string; items: string[] }> = content.sections.map((section) => ({
+    title: section.title,
+    items: section.items,
+  }))
 
   const tail: string[] = []
   if (content.userDefined.length > 0) {
     tail.push('## 自定义')
-    for (const entry of content.userDefined) tail.push(`- ${entry.key}：${clip(entry.value)}`)
+    for (const entry of content.userDefined) tail.push(`- ${entry.key}：${entry.value}`)
   }
 
   return { head, sections, tail }

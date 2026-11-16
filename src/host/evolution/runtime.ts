@@ -10,7 +10,6 @@ import type { Context } from '@deepseek-ai/cordis'
 
 import type { Log } from '../log.js'
 import { applyConsolidation } from '../persona/consolidate-apply.js'
-import { personaPromptReport } from '../persona/render.js'
 import type { PersonaDocument } from '../persona/types.js'
 import type { ActivityTracker } from './activity.js'
 import type { LlmAccess } from './llm.js'
@@ -37,14 +36,6 @@ export interface RuntimeParts {
 /** 用一份已就绪的存储面构建运行入口。 */
 export function buildRunner(parts: RuntimeParts, state: EvolutionState): Runner {
   const { deps, log } = parts
-  // A1 / A-预演（0.1.11）：注入预算的读数**只有一处算得对**
-  // （与提示词拼装共用 `persona/render.ts` 的同一套拟合）。
-  // 2026-11-15：独立判断已拆成独立段（`humanity:judgment`），不再占人格预算，
-  // 所以这里不再需要 `independentJudgment` 参数。
-  // 同一个函数喂给两处：轮首读数（`personaFit()`）与写回层预演（`classify().personaFit(doc)`）——
-  // 预演与真实注入因此不可能分叉。
-  const budgetOf = (doc: PersonaDocument): ReturnType<typeof personaPromptReport> =>
-    personaPromptReport(doc)
   return createRunner({
     state,
     config: () => ({ evolution: deps.config().modules.evolution, dream: deps.config().modules.dream }),
@@ -57,18 +48,12 @@ export function buildRunner(parts: RuntimeParts, state: EvolutionState): Runner 
       persona: deps.personaSection,
       state,
       log,
-      personaFit: budgetOf,
     }),
     personaCard: () =>
       deps
         .personaSection()
         ?.read()
         .mutableLayer.sections.map((section) => ({ title: section.title, items: section.items })) ?? [],
-    personaFit: () => {
-      const persona = deps.personaSection()
-      if (persona === undefined) return undefined
-      return budgetOf(persona.read())
-    },
     consolidatePersona: async () => {
       const persona = deps.personaSection()
       return persona === undefined ? 0 : applyConsolidation(persona, log)

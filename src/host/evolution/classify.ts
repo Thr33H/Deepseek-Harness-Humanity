@@ -22,7 +22,6 @@ import { writePersonaSections } from './classify-persona.js'
 import { addCounted, addFixedProposals } from './classify-proposals.js'
 import { MAX_PROPOSAL_PAYLOAD_BYTES, MAX_PROPOSAL_TEXT_CHARS } from './constants.js'
 import { createProposal, type AnalysisOutput, type ProposalInput } from './model.js'
-import type { PersonaBudgetState } from './prompt.js'
 import type { EvolutionState } from './state.js'
 import type { RunMode } from './types.js'
 
@@ -33,17 +32,6 @@ export interface ClassifyDeps {
   persona(): PersonaSection | undefined
   state: EvolutionState
   log: Log
-  /**
-   * **预算拟合器**（0.1.11 · A，可选）：传入一份候选人格文档，返回它的注入预算读数。
-   *
-   * 为什么要把这个函数喂进来：写回层要做"写入前预演"（把拟新增的条目先合进去看看会不会超），
-   * 而"会不会超"只有一处算得对 —— `persona/render.ts` 的 `personaPromptReport`
-   * （与真实注入同一套拟合，连 `independentJudgment` 占用的预算都一致）。
-   * 写回层自己再算一遍预算，迟早出现"预演说能放、注进去却被截断"的分叉。
-   * 缺席时（旧接线 / 测试替身）回退到同一函数 + 默认 `independentJudgment: true`：
-   * **保守方向**（该口径下预算更小 ⇒ 只会少放一条，不会多放一条），见 `classify-persona.ts`。
-   */
-  personaFit?(doc: PersonaDocument): PersonaBudgetState | undefined
 }
 
 /** 写回上下文（提案溯源用）。 */
@@ -52,15 +40,6 @@ export interface ClassifyContext {
   sessionId: string
   cwd: string
   mode: RunMode
-  /**
-   * 本轮该会话开始时，人格护栏是否已触发（0.1.10 · A3；0.1.11 扩到"接近预算"）。
-   *
-   * 两种触发方式：注入预算**已超**（`truncated`）或**接近上限**（`used/budget ≥ 0.85`）。
-   * 为什么要在写回层再判一次：提示词里那句"禁止追加新条目"是**请求**，不是保证 ——
-   * 模型完全可能忽略它；护栏触发时如果还照单追加，结果就是"越整理越长"（正是要修的病）。
-   * 触发时 `personaSections` 一律不写，只认 `sectionConsolidations`。
-   */
-  personaGuardActive?: boolean
 }
 
 /** 写回结果计数（进运行记录）。 */
@@ -84,13 +63,6 @@ export interface ClassifyResult {
    * 不然"自进化说它整理了人格"只是一句自述，无从核对。
    */
   personaMerged: number
-  /**
-   * 本轮有多少条**拟新增的条目被护栏/预演拦下**（0.1.11 · A）。
-   *
-   * 为什么单独记账：护栏现在会在"接近预算"时就停追加，对方需要能看见"模型提了、但没写进去几条"——
-   * 否则表现是"自进化好像什么都没干"，而真相是它守住了预算。运行记录注记会读这个数。
-   */
-  personaAdditionsDropped: number
 }
 
 /** 提案落表入口（带跨轮去重）；返回是否真的生成了。 */
@@ -160,7 +132,6 @@ export async function applyAnalysis(deps: ClassifyDeps, context: ClassifyContext
     personaUpdated: false,
     memoriesTruncated: 0,
     personaMerged: 0,
-    personaAdditionsDropped: 0,
   }
   const addProposal = createProposalFactory(deps)
 
@@ -168,7 +139,6 @@ export async function applyAnalysis(deps: ClassifyDeps, context: ClassifyContext
   const persona = await writePersonaSections(deps, context, output, addProposal)
   result.personaUpdated = persona.updated
   result.personaMerged = persona.merged
-  result.personaAdditionsDropped = persona.additionsDropped
   result.proposalsCreated += persona.proposals
 
   addCounted(result, addFixedProposals(context, output, addProposal))

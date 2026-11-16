@@ -10,10 +10,8 @@
  */
 import { Button, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 
-import { personaPromptReport } from '../host/persona/render.js'
-import { VALUE_SOFT_LIMIT } from '../host/persona/constants.js'
 import { IndependentJudgmentRow } from './IndependentJudgmentRow.js'
-import { divider, budgetWarning } from './editor-styles.js'
+import { divider } from './editor-styles.js'
 import { InfoHint } from './InfoHint.js'
 import { IdentityFields, MutableFields } from './PersonaFields.js'
 import { isDirty, type PersonaWorkbenchState } from './persona-document.js'
@@ -111,46 +109,21 @@ export function IdentityCardEditor({ t, controller, state }: CardProps) {
  * 与底色分成两张卡（用户 2026-09-23 最终布局）：底色对 Agent 封存、只有用户能改，
  * 信息由 Agent 整理 —— 共用一个标题会让人以为它们是同一种数据。
  *
- * **注入账目就写在这张卡的标题上**（用户 2026-09-26 发现提示词被截断后加的）：
- * 旧实现在工作台上一个字都不说，用户只能去翻系统提示词才知道"写进去的有一半没生效"。
- * 现在按**草稿**实时算（改一个字就重算），装不下时直接给出是哪些小节、还有怎么办。
+ * 2026-11-16：标题上的"注入账目"（进了几条 / 掉了几条 / 被裁到 120 字）整块删除 ——
+ * 对方取消了字数限制，这些提示从此永远为 0，留着只会误导。
  * @param props - 字典座位、控制器与当前快照。
  * @returns 信息卡片。
  */
 export function MutableCardEditor({ t, controller, state }: CardProps) {
   const shared = { t, controller, disabled: state.saving || !state.writable }
-  const report = personaPromptReport(state.draft)
-  const total = (report?.injected ?? 0) + (report?.dropped ?? 0)
-  const overflow = (report?.sections ?? []).filter((section) => section.dropped > 0)
-  const detail = overflow.map((section) => `${section.title} ${section.dropped} 条`).join('、')
-  // 有条目被**单条上限**裁短：它进得去（`injected` 照算），但尾巴不生效 —— 与"整条没进去"是两回事，
-  // 所以分开说，且只在没有整条掉队时显示（两条警告同时挂出来只会让人不知道该做哪件事）。
-  const clippedOnly = report?.truncated === true && overflow.length === 0
 
   return (
     <section style={panel}>
       <h2 style={{ ...panelTitle, ...headingWithHint }}>
         {t('persona.mutableCard')}
-        <InfoHint
-          label={
-            report === undefined
-              ? t('persona.mutableHint')
-              : `${t('persona.mutableHint')} ${t('persona.budget.hint', { budget: String(report.budget) })}`
-          }
-        />
-        {report === undefined ? null : (
-          <Tag tone={overflow.length > 0 ? 'outline' : 'quiet'}>
-            {t('persona.budget.tag', { injected: String(report.injected), total: String(total) })}
-          </Tag>
-        )}
+        <InfoHint label={t('persona.mutableHint')} />
         <CardSaveButton t={t} controller={controller} state={state} />
       </h2>
-      {overflow.length === 0 ? null : (
-        <p style={budgetWarning}>{t('persona.budget.dropped', { dropped: String(report?.dropped ?? 0), sections: detail })}</p>
-      )}
-      {clippedOnly ? (
-        <p style={budgetWarning}>{t('persona.budget.clipped', { limit: String(VALUE_SOFT_LIMIT) })}</p>
-      ) : null}
       <MutableFields {...shared} state={state} />
       {/* ⚠️ 0.1.14：「用户定义」区块已下线（用户："用户自定义可以删了，它跟添加小节重复了"）。
           `mutableLayer.userDefined` 的数据**仍在文档里**、仍随保存原样写回，只是不再渲染。 */}

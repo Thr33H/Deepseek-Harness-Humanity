@@ -33,11 +33,11 @@ import { createDefaultPersona } from '../lib/persona/model.js'
 import { installPersonaInjection, PERSONA_SECTION_NAME, PERSONA_SECTION_ORDER } from '../lib/persona/prompt.js'
 import { renderJudgmentText } from '../lib/persona/prompt-render.js'
 import { INDEPENDENT_JUDGMENT_PROMPT, MUTABLE_OPS_GUIDE, uninitializedPrompt } from '../lib/persona/prompt-texts.js'
+import { renderPersonaPrompt } from '../lib/persona/render.js'
 
 // 未初始化那段开头要写"今天是几号"：测试钉死日期，否则结果随日历漂移。
 const FIXED_NOW = new Date(2026, 10, 14)
 const INIT_TEXT = uninitializedPrompt('2026-11-14')
-import { PROMPT_CHAR_BUDGET, renderPersonaPrompt } from '../lib/persona/render.js'
 import { withSection } from './helpers/persona-fake.mjs'
 import { Config } from '../lib/index.js'
 import { PERSONA_UPDATE_TOOL } from '../lib/persona/update.js'
@@ -100,14 +100,6 @@ test('渲染：开关关掉时连引导语都不注入（可一键关闭）', ()
   assert.equal(renderPersonaPrompt(createDefaultPersona(), { enabled: false }), '')
 })
 
-test('渲染：引导语不受字符预算影响，但仍是有界的一次性文本（与人格内容互斥）', () => {
-  // 它比人格正文长（几百字符，用户已确认可接受），但**提前 return** ⇒ 从不参与预算计算；
-  // 这里只钉"它不会无限增长，且确实明显小于整份人格预算"（2026-09-26 预算涨到 2400 后，
-  // 旧断言拿"预算的 1/4"当尺子 ⇒ 变成要求引导语长到 600 字，那是在追着预算跑，不是在守边界）。
-  assert.ok(INIT_TEXT.length > 300, '引导语要有实质内容（几百字符量级）')
-  assert.ok(INIT_TEXT.length * 2 < PROMPT_CHAR_BUDGET, '它应当远小于整份人格的注入预算')
-})
-
 test('渲染：标题是「你是{姓名}」，底色字段与信息小节都在', () => {
   const text = renderPersonaPrompt(filledPersona(), { enabled: true })
 
@@ -120,33 +112,6 @@ test('渲染：标题是「你是{姓名}」，底色字段与信息小节都在
   assert.doesNotMatch(text, /人格底色/)
   assert.doesNotMatch(text, /运行在 DeepSeek Harness/)
   assert.doesNotMatch(text, /扮演/)
-})
-
-test('渲染：单值按软上限截断；预算之内**一条都不许少**（2026-09-26 删掉"每节最多 6 条"）', () => {
-  const persona = filledPersona()
-  persona.mutableLayer.sections[1].items = ['很长的值'.repeat(50)]
-  persona.mutableLayer.sections[2].items = Array.from({ length: 9 }, (_, index) => `第${index + 1}条`)
-
-  const text = renderPersonaPrompt(persona, { enabled: true })
-
-  assert.match(text, /…/, '超长值必须被截断')
-  // 固定条数上限与成本无关，却造出"第 13 条永远进不去"的悬崖 —— 现在唯一的上限是字符预算。
-  assert.doesNotMatch(text, /未注入/, '预算装得下就不该有任何条目被丢')
-  assert.match(text, /第9条/, '9 条全都要在')
-  assert.ok(text.length <= PROMPT_CHAR_BUDGET, `总长超出预算：${text.length}`)
-})
-
-test('渲染：总量超预算时按整行丢弃并标注（不切断半句话）', () => {
-  const persona = filledPersona()
-  // 每节都塞满 6 条接近上限的长值 ⇒ 8 节合计远超字符预算。
-  for (const section of persona.mutableLayer.sections) {
-    section.items = Array.from({ length: 6 }, () => `长值：${'填充'.repeat(55)}`)
-  }
-
-  const text = renderPersonaPrompt(persona, { enabled: true })
-
-  assert.match(text, /已截断/)
-  assert.ok(text.length <= PROMPT_CHAR_BUDGET + 40, `总长超出预算：${text.length}`)
 })
 
 test('热更新（真实 SystemPrompt）：text 是函数 ⇒ 改内容后**不重新注册**，下一次 assemble 就是新的', async () => {

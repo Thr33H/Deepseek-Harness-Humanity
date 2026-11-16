@@ -13,8 +13,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createDefaultPersona } from '../lib/persona/model.js'
-import { CONFIRMABLE_ISSUES, CORE_IDENTITY_KEYS, STANDARD_SECTION_TITLES, VALUE_SOFT_LIMIT } from '../lib/persona/constants.js'
 import { effectivePersona, normalizePersona } from '../lib/persona/normalize.js'
+import { CONFIRMABLE_ISSUES, CORE_IDENTITY_KEYS, STANDARD_SECTION_TITLES } from '../lib/persona/constants.js'
 import { stripControlChars } from '../lib/text.js'
 import { validatePersona } from '../lib/persona/validate.js'
 import { withSection } from './helpers/persona-fake.mjs'
@@ -86,17 +86,6 @@ test('用户删掉核心身份字段会被拒绝', () => {
 
   assert.equal(validation.ok, false)
   assert.deepEqual(codesOf(validation), ['identity.core-missing'])
-})
-
-test('超长值只警告、不阻断保存', () => {
-  const next = filledPersona()
-  next.identityCard.fields[2].value = '很'.repeat(VALUE_SOFT_LIMIT + 1)
-
-  const validation = validatePersona(next, filledPersona(), 'user')
-
-  assert.equal(validation.ok, true, '长文本不是错误，只是更贵')
-  assert.deepEqual(codesOf(validation), ['identity.value-too-long'])
-  assert.equal(validation.issues[0].severity, 'warning')
 })
 
 test('用户改底色是允许的（只有用户能改）', () => {
@@ -314,13 +303,15 @@ test('打了初始化标记就等于已封存：Agent 不能改（P-002 的标�
 
 test('ok 为假当且仅当存在 rejected 级问题', () => {
   const next = filledPersona()
-  next.identityCard.fields[2].value = '很'.repeat(VALUE_SOFT_LIMIT + 1)
 
-  const warningsOnly = validatePersona(next, filledPersona(), 'user')
-  assert.equal(warningsOnly.issues.every((issue) => issue.severity === 'warning'), true)
-  assert.equal(warningsOnly.ok, true)
+  const clean = validatePersona(next, filledPersona(), 'user')
+  assert.equal(clean.issues.every((issue) => issue.severity === 'warning'), true)
+  assert.equal(clean.ok, true)
 
-  const withRejection = validatePersona(next, filledPersona(), 'agent')
+  // 真的制造一条 rejected：Agent 去改已封存的底色字段。
+  const changed = filledPersona()
+  changed.identityCard.fields[0].value = '小安二号'
+  const withRejection = validatePersona(changed, filledPersona(), 'agent')
   assert.equal(withRejection.ok, false)
 })
 
@@ -412,25 +403,7 @@ test('R3 小标题级问题的 path 一律用名字（不再有的用下标、�
   )
   assert.deepEqual(codesOf(omitted), ['mutable.section-dropped'])
   assert.equal(omitted.issues[0].path, 'mutableLayer.sections.回归测试节')
-
-  // 超长条目（0.1.14：这里原本还断言一条"非标准警告"，该提示已随产品决定删除）
-  const warned = validatePersona(
-    {
-      ...prev,
-      mutableLayer: {
-        ...prev.mutableLayer,
-        sections: prev.mutableLayer.sections.map((section) =>
-          section.title === '回归测试节' ? { title: section.title, items: ['很长'.repeat(80)] } : section,
-        ),
-      },
-    },
-    createDefaultPersona(),
-    'agent',
-  )
-  const paths = warned.issues.map((issue) => issue.path)
-  // 0.1.14：这里原本还有一条 `mutableLayer.sections.回归测试节`（"非标准"警告的 path）——
-  // 那条提示已随产品决定删除，于是只剩超长条目这一条，且它照旧用**名字**定位。
-  assert.deepEqual(paths.sort(), ['mutableLayer.sections.回归测试节.items[0]'])
+  // 2026-11-16：条目长度检查已随"取消字数限制"删除，这里不再有超长条目那一条 path。
 })
 
 // ① —— 缺陷原文：「传两个同名键，第二个无声消失，界面还显示保存成功」。

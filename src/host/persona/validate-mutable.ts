@@ -4,7 +4,7 @@
  * 编排与四组判定分开放：`checkMutable` 只负责顺序与来源短路，具体规则各是一个 ≤40 行的函数。
  * @module humanity/persona/validate-mutable
  */
-import { CORE_IDENTITY_KEYS, LOCKED_SECTION_TITLES, VALUE_SOFT_LIMIT } from './constants.js'
+import { CORE_IDENTITY_KEYS, LOCKED_SECTION_TITLES } from './constants.js'
 import type { MutableSection, PersonaDocument, PersonaIssue, UserDefinedEntry, WriteSource } from './types.js'
 import { checkContentLoss } from './validate-loss.js'
 
@@ -82,12 +82,11 @@ function checkLockedSections(
   }
 }
 
-/** 小标题与条目：重复、冒牌底色字段名、无名小节、非标准集合、超长条目。 */
+/** 小标题与条目：重复、冒牌底色字段名、无名小节。 */
 function checkSections(sections: readonly MutableSection[], issues: PersonaIssue[]): void {
   const seen = new Set<string>()
   for (const [index, section] of sections.entries()) {
     checkTitle(section, index, seen, issues)
-    checkItemLengths(section, index, issues)
   }
 }
 
@@ -149,19 +148,11 @@ function checkTitle(
   // 仍由上面与下面的判定照旧拦下（`mutable.section-title-empty` 等一字未动）。
 }
 
-/** 单个小标题里的条目长度（P-015：只警告、不硬拒绝）。 */
-function checkItemLengths(section: MutableSection, index: number, issues: PersonaIssue[]): void {
-  for (const [itemIndex, item] of section.items.entries()) {
-    if (item.length > VALUE_SOFT_LIMIT) {
-      issues.push({
-        code: 'mutable.item-too-long',
-        path: `${sectionPath(section.title, index)}.items[${itemIndex}]`,
-        severity: 'warning',
-        message: `条目超过 ${VALUE_SOFT_LIMIT} 字，建议拆成多条短句。`,
-      })
-    }
-  }
-}
+/**
+ * 2026-11-16：条目长度检查已删除（`mutable.item-too-long` 退场）。
+ *
+ * 对方要求取消字数限制：条目写多长就注入多长，不再截断、也不再给"建议拆成多条短句"的警告。
+ */
 
 /**
  * 兜底层「自定义」：键不能空、不能重复、不能冒充底色字段名。

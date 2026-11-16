@@ -4,54 +4,31 @@
  * 只做一件事：把一份人格文档变成一段可注入的文本（含未初始化时的引导语）。
  * 纯函数意味着它可以被两侧共用、被单测直接调用，也不会因为"注册时机"而行为不同 ——
  * 注册时机那一半在 `prompt.ts`，两边分开是为了让"渲染规则"和"生命周期"各自可读。
+ *
+ * ### 没有字数上限（2026-11-16 用户裁定）
+ * 这里以前有一套"注入预算"（`PROMPT_CHAR_BUDGET`，2400 字）+ 拟合器（`render-fit.ts`）：
+ * 超预算的条目**整条不注入**，单条超 120 字**截断加省略号**。对方的要求是取消一切字数限制，
+ * 于是整套拟合被删除：**写多少就注入多少**，一条不丢、一字不截。
+ *
+ * 代价必须写在这里，别让下一个人以为是疏忽：人格段每轮都进系统提示词，内容越长，
+ * 每一轮都要付这份 token；一张几万字的卡会挤占上下文窗口，也会稀释注意力。
+ * 这是对方明确选择的取舍（"我自己控制长度"），不是本模块忘了做保护。
  * @module humanity/persona/render
  */
-import { CORE_IDENTITY_KEYS } from './constants.js'
-import { INDEPENDENT_JUDGMENT_PROMPT, MUTABLE_OPS_GUIDE, uninitializedPrompt } from './prompt-texts.js'
-import { collectPersonaContent, blocksOf } from './render-content.js'
-import { fitPersonaContent, type FitStats } from './render-fit.js'
+import { MUTABLE_OPS_GUIDE, uninitializedPrompt } from './prompt-texts.js'
+import { blocksOf, collectPersonaContent } from './render-content.js'
 import type { PersonaDocument } from './types.js'
 
-/**
- * 注入的**硬字符预算**。
- *
- * 为什么不按 token 算：提示词拼装发生在字符层面，而"多少 token"依模型分词器而异，
- * 在这里估一个 token 数只会得到一个**看起来精确、实际会漂**的数字。改用字符预算，
- * 并在注释里给出量级换算（中文约 1–1.5 字符/token ⇒ 2400 字符 ≈ 1600–2400 token）。
- *
- * ⚠️ **2026-09-26 从 1200 上调到 2400**（对方发现某实例的提示词被截断）：1200 里还要扣掉
- * 永不截断的操作约定段（168 字符）与独立判断段（163 字符），留给内容的只剩 ~1030 —— 而一张
- * **写满的信息**（7 个底色字段 + 50 多条信息条目）本来就有 1900+ 字符。旧预算下
- * 她那 7 个小节里有 3 个整节进不去。信息是对方亲手写的东西，"写进去却不生效"是最坏的结果；
- * 2400 让一张正常规模的卡**全部进得去**，超了才降级（降级方式见 `render-fit.ts`）。
- */
-export const PROMPT_CHAR_BUDGET = 2400
-
-/**
- * 人格内容与操作约定段之间那一个 `\n\n` 的长度。
- *
- * 为什么单独写出来（2026-09-26 审计 P5）：旧代码在预算里减的是
- * `(anti === '' ? 0 : 2) + 2`，但 `fixed` 已经用 `join('\n\n')` **含进**了独立判断段与操作约定之间
- * 的分隔符 —— 独立判断段在场时那 2 个字符被算了两次，等于白扣掉两个字符的容量（少得可怜，
- * 但它是个"看起来对、其实没有依据"的数字，留着只会让下一个人再推一遍）。
- */
-const SEPARATOR_LENGTH = 2
-
-/** 人格内容真正可用的字符数（预算 − 永不截断的固定段 − 一个分隔符）。 */
-function contentBudget(fixedLength: number): number {
-  return PROMPT_CHAR_BUDGET - fixedLength - SEPARATOR_LENGTH
-}
 /**
  * 把人格文档渲染成提示词片段。
  *
  * 注入规则（DECISIONS P-028 / §4.2.6）逐条落位：
  * - **可一键关闭**：`enabled === false` ⇒ 空串（上层传的就是 `persona.enabled && 总开关`）；
  * - **低于阈值不注入**：底色没写过、信息也空 ⇒ 空串（占位只会白烧 token 还容易被当成事实）；
- * - **只回摘录/摘要**：单值截断到软上限；总长超预算时按"每节保底一条 + 轮转加条"降级并标注；
- * - **硬上限**：总长不超过 {@link PROMPT_CHAR_BUDGET} 字符（含两个永不截断的固定段）；
+ * - **不截断、不丢弃**：内容原样进提示词（2026-11-16 取消字数限制）；
  * - **只作底层倾向**：不写任何行为命令（P-013），开头一句说明它的地位。
  * @param doc - 当前生效的人格文档。
- * @param options - `enabled`：模块开关是否打开。
+ * @param options - `enabled`：模块开关是否打开；`now`：日期（未初始化那段要写"今天几号"）。
  * @returns 提示词片段；不该注入时返回空串。
  */
 export function renderPersonaPrompt(
@@ -74,19 +51,13 @@ export function renderPersonaPrompt(
  *
  * 拼接顺序（从上到下就是提示词里的先后）：
  * 1. **未初始化** ⇒ 只给引导语（此时没有底色可言，先让流程启动起来）；
- * 2. **底色尚未封存** ⇒ 只给人格内容，**不加独立判断段**（对方 2026-09-24 定）；
- * 3. **已初始化** ⇒ 独立判断底层指令（封存后且开关开着时）+ 人格内容 + 操作约定段。
- *    三者合起来不超过 {@link PROMPT_CHAR_BUDGET}，但**只截人格内容**：两个固定段永不截断。
+ * 2. **已初始化** ⇒ 底色字段 + 信息小节 + 兜底条目，末尾接操作约定段。
  *
- * 为什么独立判断要等封存（2026-10-06 正文换稿后依然成立）：真机教训是初始化阶段模型拿"独立判断"
- * 当理由拒绝对方的设定指令（角色扮演被拒）。封存之前那份身份还不存在，此时先谈"不迎合"容易被
- * 误读成"可以否决对方给你的人格"，因此整段不注入；封存之后身份已定，它才作为行为底线生效。
- * （旧版正文自带"你已经有自己的身份和性格（来自信息）"作锚点，新版正文不含锚点 —— 这条防线
- * 现在**只由注入时机**承担，改这里之前先想清楚。）
+ * 「保持你的独立」不在这里：它要排在「你的记忆」之后，是独立的 `humanity:judgment` 段。
  *
  * 逐层用 `?.`/`??` 兜底：**提示词路径上的输入来自设置文档，我们没有权力假设它一定完整**。
  * @param doc - 当前生效的人格文档（可能是形状不对的值）。
- * @param options - `enabled`：模块开关；`independentJudgment`：是否注入独立判断底层指令（缺省开）。
+ * @param options - `enabled`：模块开关；`now`：日期。
  * @returns 提示词片段；不该注入时返回空串。
  */
 function renderPersonaPromptOrThrow(
@@ -100,16 +71,20 @@ function renderPersonaPromptOrThrow(
   // 日期在**渲染时**算（`{{变量}}` 只有 provider/model，写别的会让整轮组装抛错）。
   if (doc?.identityCard?.initializedAt === '') return uninitializedPrompt(dayText(options.now))
 
-  // ⚠️ 独立判断段**不再**渲染在这里（2026-11-15）：它要排在「你的记忆」之后，
-  // 只好拆成独立段（`humanity:judgment`，order 25）。人格段因此只剩"你是谁 + 你的信息"。
   const content = collectPersonaContent(doc)
   const hasContent = content.fields.length > 0 || content.sections.length > 0 || content.userDefined.length > 0
   if (!hasContent) return ''
 
-  // 操作约定段属于固定成本：预算只截人格内容。
-  const fitted = fitPersonaContent(blocksOf(content), contentBudget(MUTABLE_OPS_GUIDE.length))
-  const persona = fitted.lines.join('\n')
-  return `${persona}\n\n${MUTABLE_OPS_GUIDE}`
+  const blocks = blocksOf(content)
+  const lines: string[] = [...blocks.head]
+  for (const section of blocks.sections) {
+    if (section.items.length === 0) continue
+    // 一个小节就是一行（与旧版一致）；这里不再有"只放前 N 条"的中间态。
+    lines.push(`- ${section.title}：${section.items.join('；')}`)
+  }
+  lines.push(...blocks.tail)
+
+  return `${lines.join('\n')}\n\n${MUTABLE_OPS_GUIDE}`
 }
 
 /** 本地日期 `YYYY-MM-DD`（未初始化那段开头要写"今天是几号"）。 */
@@ -119,29 +94,3 @@ function dayText(now: Date | undefined): string {
   const day = String(at.getDate()).padStart(2, '0')
   return `${at.getFullYear()}-${month}-${day}`
 }
-
-/**
- * 一份人格文档在当前预算下**装得下多少**（供工作台如实显示，不参与提示词拼装）。
- *
- * 为什么要有它（对方 2026-09-26 发现提示词末尾挂着「已截断」）：内容被丢这件事，
- * 旧实现只在**提示词里**说，工作台上一个字都没有 —— 对方在自己的卡片上看不出
- * "写进去的这 20 条里，有 12 条根本不会生效"。这里把同一套拟合账目交给界面，
- * 且**不新增任何投影字段**：文档本来就在客户端手上，算它是纯函数。
- * @param doc - 当前生效的人格文档（可为形状不对的值）。
- * @returns 拟合账目；不该注入时返回 undefined（未初始化 / 内容为空）。
- */
-export function personaPromptReport(doc: PersonaDocument): FitStats | undefined {
-  try {
-    if (doc?.identityCard?.initializedAt === '') return undefined
-    const content = collectPersonaContent(doc)
-    const hasContent = content.fields.length > 0 || content.sections.length > 0 || content.userDefined.length > 0
-    if (!hasContent) return undefined
-    // 独立判断段已拆成独立 section（不占人格预算），这里的固定成本只剩操作约定段。
-    return fitPersonaContent(blocksOf(content), contentBudget(MUTABLE_OPS_GUIDE.length)).stats
-  } catch {
-    // 与渲染同一条纪律：这是给界面看的账，形状不对就当"算不出来"，绝不冒泡。
-    return undefined
-  }
-}
-
-
