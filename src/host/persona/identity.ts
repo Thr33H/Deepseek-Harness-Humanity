@@ -23,6 +23,7 @@ import type { defineTool as defineToolType } from '@deepseek-ai/dsh-tools'
 
 import { CORE_IDENTITY_KEYS } from './constants.js'
 import { isUntouchedIdentityCard } from './predicates.js'
+import { IDENTITY_NAME_LIMIT } from './render-content.js'
 import { PersonaWriteRejected, type PersonaSection } from './section.js'
 import { OUTCOME_REASON, type ApprovalOutcome } from './tool-approval.js'
 import { NOT_INITIALIZED_REASON } from './tool-helpers.js'
@@ -46,6 +47,10 @@ export const IDENTITY_DESCRIPTION =
   '**只在对方明确说出或纠正了底色事实时**使用；不要自己推断、不要为了"更符合设定"而改。' +
   '调用后会在**当前对话**里弹一次确认框：对方点确认才写入，拒绝或没有确认入口时一律不写。' +
   '参数只给要改的那几个键（不是整张卡）：set 逐项改/加，remove 只删**自定义**字段（核心四项删不掉）。' +
+  // ⚠️ 这条是 2026-11-17 真机补的：模型把"旧名已更换"这类说明也塞进了姓名（35 字），
+  // 于是标题退回「## 你是谁」，而且姓名变成了备忘录。姓名是**一个名字**，不是备注框。
+  `「姓名」只写名字本身（不超过 ${IDENTITY_NAME_LIMIT} 字，否则标题用不上它）；` +
+  '来龙去脉（旧名、出处、谁起的）写进记忆或「自定义」字段，不要塞进姓名的值里。' +
   '没提到变化时不要调用。' +
   '若当前会话的系统提示词里没有任何 Humanity 人格段落（例如极简模式），不要调用本工具。'
 
@@ -222,7 +227,27 @@ async function confirmThenWrite(
   }
 
   const written = context.persona.read()
-  return success('identity', written, '已按对方在对话里的确认，更新了底色。', warningsOf(written))
+  return success('identity', written, `已按对方在对话里的确认，更新了底色。${nameMemoHint(written)}`, warningsOf(written))
+}
+
+/**
+ * 姓名写成了"备忘录"时的提示（不拒绝，只提醒）。
+ *
+ * 真机形态（2026-11-17）：模型把「伊瑟（Yseult 的短形；旧名梅露辛已由主人更换，不再使用）」
+ * 整句写进姓名 —— 那是 35 个字，标题的准入门槛是 {@link IDENTITY_NAME_LIMIT}，
+ * 于是它连自己的名字都不显示（退回「## 你是谁」），而姓名成了越积越长的考古笔记。
+ * 这里只提醒：对方的真实名字完全可能超过 24 字，拒绝写入会把正常情况也拦掉。
+ * @param doc - 写入后的文档。
+ * @returns 提示串（不需要提示时为空串）。
+ */
+function nameMemoHint(doc: PersonaDocument): string {
+  const name = doc.identityCard.fields.find((field) => field.key === CORE_IDENTITY_KEYS[0])
+  if (name === undefined || name.value.length <= IDENTITY_NAME_LIMIT) return ''
+  return (
+    `（提示：姓名为 ${name.value.length} 字，超过 ${IDENTITY_NAME_LIMIT} 字的标题上限，` +
+    '提示词里会显示「你是谁」而不是名字。如果那不是有意的，把姓名只留名字本身，' +
+    '来龙去脉写进记忆或「自定义」字段。）'
+  )
 }
 
 /**

@@ -954,3 +954,36 @@ test('底色修正：核心字段删不掉，自定义字段能删', async () =>
     await harness.dispose()
   }
 })
+
+test('姓名写成备忘录时给提示（不拒绝）：超过标题上限 24 字', async () => {
+  const approval = { outcome: 'allowed-once', seen: [] }
+  const harness = await boot({ approval, agent: { id: 'test-agent' } })
+  try {
+    await harness.call(PERSONA_INIT_TOOL, initArgs)
+
+    // 真机形态：名字后面挂着一整句来龙去脉（35 字）。
+    const memo = '伊瑟（Yseult 的短形；旧名梅露辛已由主人更换，不再使用）'
+    const result = await harness.call(PERSONA_IDENTITY_TOOL, { set: [{ key: '姓名', value: memo }], remove: [] })
+
+    assert.equal(result.value.ok, true, '超过上限不是错误，照样写入')
+    assert.equal(harness.persona.read().identityCard.fields[0].value, memo, '写入的是原值，不做截断')
+    assert.match(result.value.message, /超过 24 字的标题上限/, '必须提醒模型它把备注写进了姓名')
+    assert.match(result.value.message, /写进记忆或「自定义」字段/, '还要告诉它该写哪儿')
+  } finally {
+    await harness.dispose()
+  }
+})
+
+test('正常名字不触发那条提示', async () => {
+  const approval = { outcome: 'allowed-once', seen: [] }
+  const harness = await boot({ approval, agent: { id: 'test-agent' } })
+  try {
+    await harness.call(PERSONA_INIT_TOOL, initArgs)
+    const result = await harness.call(PERSONA_IDENTITY_TOOL, { set: [{ key: '姓名', value: '伊瑟' }], remove: [] })
+
+    assert.equal(result.value.ok, true)
+    assert.doesNotMatch(result.value.message, /标题上限/, '短名字不该被唠叨')
+  } finally {
+    await harness.dispose()
+  }
+})

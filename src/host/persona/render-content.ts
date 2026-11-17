@@ -33,7 +33,7 @@ export interface ContentBlocks {
  * 120 字的"姓名"足以把整句身份陈述顶成一条啰嗦的规则，也会让 `head` 的原子行更难装进预算。
  * 24 字够容纳「本名：「示例」；别名：「例子」」这类玩法，又不可能变成一段话。
  */
-const IDENTITY_NAME_LIMIT = 24
+export const IDENTITY_NAME_LIMIT = 24
 
 /**
  * 姓名字段在底色里的键名。
