@@ -205,17 +205,20 @@ test('自进化会在运行开头做免费整合：并掉了就写入，没得�
   })
 
   const dirty = fakeSection(personaWith({ 说话风格: ['台词不加括号，直接写', '台词不加括号、直接写'] }))
-  assert.equal(await applyConsolidation(dirty, log), 1, '有一对可并 ⇒ 返回 1')
+  const dirtyResult = await applyConsolidation(dirty, log)
+  assert.equal(dirtyResult.count, 1, '有一对可并 ⇒ 返回 1 条')
+  assert.equal(dirtyResult.merges[0].title, '说话风格', '要带出是哪一节')
+  assert.equal(dirtyResult.merges[0].dropped, '台词不加括号、直接写', '要带出被并掉的那条原文（对话里那句提醒靠它）')
   assert.equal(dirty.writes.length, 1, '并掉了就要写回')
   assert.equal(dirty.writes[0].source, 'agent', '走正规写入路径，以 agent 身份')
   assert.deepEqual(itemsOf(dirty.writes[0].next, '说话风格'), ['台词不加括号，直接写'])
 
   const clean = fakeSection(personaWith({ 说话风格: ['台词不加括号，直接写'] }))
-  assert.equal(await applyConsolidation(clean, log), 0)
+  assert.equal((await applyConsolidation(clean, log)).count, 0)
   assert.equal(clean.writes.length, 0, '没有可并项时一次写入都不发')
 
   const untouched = fakeSection(createDefaultPersona())
-  assert.equal(await applyConsolidation(untouched, log), 0, '人格未初始化：不谈整理')
+  assert.equal((await applyConsolidation(untouched, log)).count, 0, '人格未初始化：不谈整理')
   assert.equal(untouched.writes.length, 0)
 })
 
@@ -230,7 +233,7 @@ test('整合失败绝不冒泡：写入被拒只记一条警告（不许影响�
     },
   }
 
-  assert.equal(await applyConsolidation(section, log), 0, '失败就当没并')
+  assert.equal((await applyConsolidation(section, log)).count, 0, '失败就当没并')
   assert.equal(warned.length, 1, '如实记一条警告')
 })
 

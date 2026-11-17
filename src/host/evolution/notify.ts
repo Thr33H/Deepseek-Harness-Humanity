@@ -122,22 +122,65 @@ function renderSectionText(context: unknown, runtime: NotifyRuntime): string {
     if (subject === undefined || !isMainAgent(subject)) return ''
     if (!deps.enabled()) return ''
     const state = deps.state()
+    if (state === undefined) return ''
+
+    const parts: string[] = []
+    // ②（2026-11-17）：自动合并删掉的条目，不能只在后台账本里留名 —— 这里让模型在对话里提一句。
+    const merge = renderMergeNotice(state, log)
+    if (merge !== '') parts.push(merge)
+
     const pending = deps.pending()
-    if (state === undefined || pending === undefined) return ''
+    if (pending !== undefined) {
+      const counts = pending.counts()
+      if (counts.total > 0) {
+        const watermark = hashBatch([...pending.proposalIds(), ...pending.memoryFingerprints()].sort())
+        if (state.readState().notifiedWatermark !== watermark) {
+          // 同一批只提醒一次。水位落盘是异步补记（字段级原子合并，不碰别人的字段）：
+          // 写失败最多让下一轮重复提醒一次，不值得毁掉这一轮（try/catch 包裹）。
+          void state
+            .mutateState({ notifiedWatermark: watermark })
+            .catch((error: unknown) => warnSafely(log, '提醒水位落盘失败（下轮可能重复提醒一次）', error))
+          parts.push(renderNotice(counts))
+        }
+      }
+    }
 
-    const counts = pending.counts()
-    if (counts.total === 0) return ''
-    const watermark = hashBatch([...pending.proposalIds(), ...pending.memoryFingerprints()].sort())
-    if (state.readState().notifiedWatermark === watermark) return '' // 同一批只提醒一次
-
-    // 水位落盘是异步补记（字段级原子合并，不碰别人的字段）：写失败最多让下一轮重复提醒一次，
-    // 不值得毁掉这一轮（try/catch 包裹）。
-    void state
-      .mutateState({ notifiedWatermark: watermark })
-      .catch((error: unknown) => warnSafely(log, '提醒水位落盘失败（下轮可能重复提醒一次）', error))
-    return neutralizePromptVars(renderNotice(counts))
+    if (parts.length === 0) return ''
+    return neutralizePromptVars(parts.join('\n\n'))
   } catch (error) {
     warnSafely(log, '提案提醒渲染失败：本轮不提醒（不影响对话继续）', error)
     return ''
   }
+}
+
+/**
+ * 「上次整理并了哪两条」的提醒（2026-11-17 用户裁定：合并没有声音是不行的）。
+ *
+ * 为什么由模型转述而不是宿主直接发消息：DSH 没有"宿主往对话里插一条消息"的接缝，
+ * 而提示词是本插件能可靠触达模型的唯一通道。代价是"它可能选择不说"——所以文案里明写
+ * "照实说、可以顺口提一句"，并把水位落盘，同一批只说一次。
+ * @param state - 进化状态（读合并记录与提醒水位）。
+ * @param log - 日志门面。
+ * @returns 提示词片段；没有待说的合并或已提醒过时返回空串。
+ */
+function renderMergeNotice(state: NonNullable<ReturnType<NotifyDeps['state']>>, log: Log): string {
+  const record = state.readState()
+  const merges = record.mergeNotice
+  if (merges.length === 0) return ''
+
+  const watermark = hashBatch(merges.map((merge) => `${merge.title}\u0000${merge.kept}\u0000${merge.dropped}`).sort())
+  if (record.notifiedMergeWatermark === watermark) return ''
+  void state
+    .mutateState({ notifiedMergeWatermark: watermark })
+    .catch((error: unknown) => warnSafely(log, '合并提醒水位落盘失败（下轮可能重复提一次）', error))
+
+  const lines = merges.map(
+    (merge) => `- 「${merge.title}」：「${merge.kept}」与「${merge.dropped}」说的是同一件事，我留下了前者。`,
+  )
+  return [
+    '## 上次整理动了什么',
+    '你上一轮整理人格信息时，把下面这些几乎一样的说法合并成了一条（被合并掉的那条进了历史，可以回滚）：',
+    ...lines,
+    '如果对方问起你改过什么，照实说；这一轮回复里可以顺口提一句，不要展开解释。',
+  ].join('\n')
 }

@@ -56,7 +56,16 @@ export function buildRunner(parts: RuntimeParts, state: EvolutionState): Runner 
         .mutableLayer.sections.map((section) => ({ title: section.title, items: section.items })) ?? [],
     consolidatePersona: async () => {
       const persona = deps.personaSection()
-      return persona === undefined ? 0 : applyConsolidation(persona, log)
+      if (persona === undefined) return { count: 0, merges: [] }
+      const result = await applyConsolidation(persona, log)
+      // ②（2026-11-17）：合并会删掉被并的那条，不能只在后台账本里说一声 ——
+      // 记进状态，下一次装配时让模型在对话里提一句（`notify.ts` 负责渲染、只提一次）。
+      if (result.count > 0) {
+        void state
+          .mutateState({ mergeNotice: result.merges })
+          .catch((error: unknown) => log.warn('合并提醒落盘失败（这次合并没有告诉对方）', error))
+      }
+      return result
     },
     log,
   })

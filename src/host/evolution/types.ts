@@ -86,6 +86,10 @@ export interface StateRecord {
   baselineAt: string
   /** 已通知的待确认批次水位（pending id 集合的哈希——P-043 同一批只提醒一次）。 */
   notifiedWatermark: string
+  /** 最近一次免费整合合并了哪些条目（空数组 = 没有待说的合并）。 */
+  mergeNotice: Array<{ title: string; kept: string; dropped: string }>
+  /** 上一次已提醒过的合并批次水位（同一批只说一次）。 */
+  notifiedMergeWatermark: string
   /** 下一次定时运行的 epoch 毫秒；0 = 未排程。 */
   nextRunAt: number
   /** 当日用量统计的日期（YYYY-MM-DD，对方时区无关：按 UTC 计即可，预算是量级控制）。 */

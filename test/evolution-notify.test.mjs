@@ -178,3 +178,58 @@ test('水位哈希：同集合同值、顺序无关、异集合异值', () => {
   assert.equal(hashBatch(['a', 'b'].sort()), hashBatch(['b', 'a'].sort()))
   assert.notEqual(hashBatch(['a']), hashBatch(['b']))
 })
+
+/* ───────────────────── ② 合并要出声（2026-11-17）：合并删掉的那条，不能只在后台账本里留名 ───────────────────── */
+
+test('有合并记录：注入「上次整理动了什么」，说明留下了哪条、去掉了哪条', async () => {
+  const harness = await boot()
+  try {
+    await harness.state.mutateState({
+      mergeNotice: [{ title: '说话风格', kept: '台词不加括号，直接写', dropped: '台词不加括号、直接写' }],
+    })
+
+    const text = await harness.turn(harness.main)
+    assert.match(text, /上次整理动了什么/)
+    assert.match(text, /台词不加括号，直接写/)
+    assert.match(text, /台词不加括号、直接写/, '被合并掉的那条也要原文照说')
+    assert.match(text, /可以回滚/, '要说清能回滚，否则对方以为永久丢了')
+    assert.match(text, /照实说/)
+  } finally {
+    await harness.dispose()
+  }
+})
+
+test('同一批合并只说一次：第二次装配为空；换了合并内容再说一次', async () => {
+  const harness = await boot()
+  try {
+    await harness.state.mutateState({
+      mergeNotice: [{ title: '关系', kept: '恋人', dropped: '恋人（已经同居）' }],
+    })
+    assert.notEqual(await harness.turn(harness.main), '')
+    await flush()
+    assert.equal(await harness.turn(harness.main), '', '同一批：不再重复说')
+
+    await harness.state.mutateState({
+      mergeNotice: [{ title: '关系', kept: '恋人', dropped: '情人' }],
+    })
+    assert.match(await harness.turn(harness.main), /情人/, '新的合并：再提一次')
+  } finally {
+    await harness.dispose()
+  }
+})
+
+test('合并提醒与提案提醒互不吞噬：两件事同时在，段落里两段都在', async () => {
+  const harness = await boot()
+  try {
+    await seedProposal(harness.state, 'route', '夜间模型')
+    await harness.state.mutateState({
+      mergeNotice: [{ title: '说话风格', kept: '话少', dropped: '话很少' }],
+    })
+
+    const text = await harness.turn(harness.main)
+    assert.match(text, /上次整理动了什么/)
+    assert.match(text, /待确认提案/)
+  } finally {
+    await harness.dispose()
+  }
+})

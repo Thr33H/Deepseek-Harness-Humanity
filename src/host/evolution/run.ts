@@ -55,7 +55,7 @@ export interface RunnerDeps {
    * 重复条目会把信息顶到注入预算上限，真正的新内容反而进不了提示词（P-056）。
    * 缺席（人格未接上）就是不整合。
    */
-  consolidatePersona?(): Promise<number>
+  consolidatePersona?(): Promise<{ count: number; merges: Array<{ title: string; kept: string; dropped: string }> }>
   log: Log
   now?(): string
 }
@@ -162,8 +162,8 @@ export function createRunner(deps: RunnerDeps): Runner {
 
     try {
       // 免费步骤先做：信息的重复条目在扫描前就并掉（不花模型调用，也让提示词立刻变干净）。
-      const mergedPersona = (await deps.consolidatePersona?.()) ?? 0
-      if (mergedPersona > 0) accumulator.notes.push(`信息合并了 ${mergedPersona} 条重复条目`)
+      const consolidated = (await deps.consolidatePersona?.()) ?? { count: 0, merges: [] }
+      if (consolidated.count > 0) accumulator.notes.push(`信息合并了 ${consolidated.count} 条重复条目`)
       // B1：记忆维护同样不花模型调用，且不依赖模型路由 —— 放门禁之前，每轮都跑。
       await sweepMemoryDecay(deps, accumulator)
       const targets = await gateAndScan(deps, accumulator, options)

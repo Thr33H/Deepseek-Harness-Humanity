@@ -68,6 +68,12 @@ export const CursorRecordSchema = z.object({
 export const StateRecordSchema = z.object({
   baselineAt: z.string().default(''),
   notifiedWatermark: z.string().default(''),
+  /** 最近一次免费整合合并了哪些条目（给对话里那句「我并了 A 和 B」用）。 */
+  mergeNotice: z
+    .array(z.object({ title: z.string(), kept: z.string(), dropped: z.string() }))
+    .default([]),
+  /** 上一次已提醒过的合并批次水位（同一批只说一次）。 */
+  notifiedMergeWatermark: z.string().default(''),
   nextRunAt: z.number().int().nonnegative().default(0),
   dailyDate: z.string().default(''),
   dailyCalls: z.number().int().nonnegative().default(0),
