@@ -5,6 +5,7 @@
  * @module humanity/persona/validate-mutable
  */
 import { CORE_IDENTITY_KEYS, LOCKED_SECTION_TITLES } from './constants.js'
+import { findConflicts } from './conflicts.js'
 import type { MutableSection, PersonaDocument, PersonaIssue, UserDefinedEntry, WriteSource } from './types.js'
 import { checkContentLoss } from './validate-loss.js'
 
@@ -41,7 +42,55 @@ export function checkMutable(
   checkLockedSections(next, prev, issues)
   // 对方在工作台里的编辑是权威输入：删自己写的东西不该被拦（P-010 的高风险清单只针对自动写入）。
   if (source !== 'agent') return
+  // 语义层：同一小节里"做 / 不做"互相打架的两条（2026-11-17）。只拦 Agent 的写入 ——
+  // 对方自己在工作台里写两条矛盾的设定是他的自由（那是他的卡），被拦反而像被管教。
+  checkConflicts(next, prev, issues)
   checkContentLoss(next, prev, issues)
+}
+
+/**
+ * 同一小节内的语义冲突（2026-11-17）。
+ *
+ * ### 为什么在这里拦
+ * 「叫主人」和「不准叫主人」同时存在时，两句都会进提示词，模型的行为就变成随机的 ——
+ * 而工作台只看得到两条并排躺着，看不出它们在打架。判定放在写入路径上：一旦发现就让模型
+ * 当场决定留哪条，而不是把矛盾留到对话里发疯。
+ *
+ * ### 祖父化：**只拦"新引入的"冲突**
+ * 旧数据里可能本来就有互相矛盾的两条。若不加区分，对方任何一个无关的保存都会被这对旧矛盾挡住，
+ * 变成"一个字都存不进去"的死结（与 `checkLockedSections` 的祖父化同一纪律）。
+ * 判据：两条都**原样存在**于 `prev` 的同一小节 ⇒ 不是这次写入引入的，跳过。
+ * `prev` 缺席（首次写入）时不祖父化：那时没有"旧数据"可言。
+ *
+ * ### 只拒绝，不删除
+ * 判定有误报空间，替人删掉是不可逆的；让人/模型选哪条是零风险。
+ * @param next - 规范化后的候选文档。
+ * @param prev - 当前生效文档（首次写入时为 undefined）。
+ * @param issues - 结论收集器。
+ */
+function checkConflicts(
+  next: PersonaDocument,
+  prev: PersonaDocument | undefined,
+  issues: PersonaIssue[],
+): void {
+  for (const [index, section] of next.mutableLayer.sections.entries()) {
+    if (section.items.length < 2) continue
+    const previousItems = prev?.mutableLayer.sections.find((item) => item.title === section.title)?.items ?? []
+    for (const pair of findConflicts(section.items)) {
+      const left = section.items[pair.left] ?? ''
+      const right = section.items[pair.right] ?? ''
+      // 祖父化：两条都在 prev 里原样存在 ⇒ 这是旧账，不是这次写进去的。
+      if (prev !== undefined && previousItems.includes(left) && previousItems.includes(right)) continue
+      issues.push({
+        code: 'mutable.item-conflict',
+        path: `${sectionPath(section.title, index)}.items`,
+        severity: 'rejected',
+        message:
+          `「${section.title}」里有两条互相矛盾：「${left}」／「${right}」。` +
+          '留哪一条？删掉另一条再保存（两条都留着，提示词里会同时生效，行为会随机）。',
+      })
+    }
+  }
 }
 
 /**

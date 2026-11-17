@@ -90,6 +90,7 @@ export const PERSONA_ISSUE_CODES = [
   'mutable.user-defined-duplicate',
   'mutable.user-defined-key-empty',
   'mutable.item-too-long',
+  'mutable.item-conflict',
 ] as const
 
 /** 问题代码。 */

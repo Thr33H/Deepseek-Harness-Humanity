@@ -94,6 +94,7 @@ const personaZh = {
   'persona.issue.mutable.user-defined-duplicate': '「自定义」出现重复键（没有内容被写入）',
   'persona.issue.mutable.user-defined-key-empty': '「自定义」有一项只填了内容、没填名字（请补上键名）',
   'persona.issue.mutable.item-too-long': '有条目超过 120 字，建议拆成多条',
+  'persona.issue.mutable.item-conflict': '同一小节里有两句话互相矛盾（一句让做、一句不让做），只能留一条',
 } as const
 
 /** 英文。键集合必须与中文完全一致，否则 `satisfies` 会在编译期报错。 */
@@ -173,6 +174,7 @@ const personaEn = {
   'persona.issue.mutable.user-defined-duplicate': 'A user-defined key is duplicated (nothing was written)',
   'persona.issue.mutable.user-defined-key-empty': 'A user-defined entry has content but no name (add its key)',
   'persona.issue.mutable.item-too-long': 'An entry exceeds 120 characters; consider splitting it',
+  'persona.issue.mutable.item-conflict': 'Two entries in the same section contradict each other (one says to do it, the other says not to); keep only one',
 } satisfies Record<keyof typeof personaZh, string>
 
 /** 人格 + 记忆 + 自进化三套文案合成同一个字典（对 DSH 仍只是一个 `humanity` 字典；`en` 同键检查照旧）。 */
