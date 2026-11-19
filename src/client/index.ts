@@ -23,10 +23,12 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { createElement } from 'react'
 
 import { EvolutionWorkbenchController } from './evolution-controller.js'
+import { EmotionWorkbenchController } from './emotion-controller.js'
 import { HumanityPanelIconWithBadge } from './HumanityPanelIcon.js'
 import { PANEL_LABEL, PANEL_ORDER, WORKBENCH_ID } from './ids.js'
 import { en, NS, zh } from './locales.js'
 import { EVOLUTION_NAMESPACE } from './evolution-channel.js'
+import { EMOTION_NAMESPACE } from './emotion-channel.js'
 import { MEMORY_NAMESPACE } from './memory-channel.js'
 import { PERSONA_NAMESPACE, PersonaWorkbenchController } from './persona-controller.js'
 import { MemoryWorkbenchController } from './memory-controller.js'
@@ -105,16 +107,18 @@ function registerWorkbench(ctx: Context, seat: ReturnType<typeof createWorkbench
 export function apply(ctx: Context): void {
   registerLocale(ctx)
 
-  // 三个状态机都不含 React，只持有"草稿/投影 + 远程通道"。
+  // 四个状态机都不含 React，只持有"草稿/投影 + 远程通道"。
   const controller = new PersonaWorkbenchController()
+  const emotion = new EmotionWorkbenchController()
   const memory = new MemoryWorkbenchController()
   const evolution = new EvolutionWorkbenchController()
   attachRemoteController(ctx, controller, PERSONA_NAMESPACE, '人格')
+  attachRemoteController(ctx, emotion, EMOTION_NAMESPACE, '情绪')
   attachRemoteController(ctx, memory, MEMORY_NAMESPACE, '记忆')
   attachRemoteController(ctx, evolution, EVOLUTION_NAMESPACE, '自进化')
 
   registerSidebarEntry(ctx, evolution)
-  registerWorkbench(ctx, createWorkbenchSeat(controller, memory, evolution))
+  registerWorkbench(ctx, createWorkbenchSeat(controller, emotion, memory, evolution))
 }
 
 // 这几个符号导出是**给测试用的**（与第一方客户端插件导出自己的控制器同一做法）：
@@ -123,6 +127,9 @@ export { PERSONA_NAMESPACE, PersonaWorkbenchController } from './persona-control
 export { HUMANITY_NAMESPACE } from './persona-channel.js'
 export { MEMORY_NAMESPACE, MEMORY_OPS } from './memory-channel.js'
 export { EVOLUTION_NAMESPACE, EVOLUTION_OPS } from './evolution-channel.js'
+export { EMOTION_NAMESPACE, asEmotionDocument } from './emotion-channel.js'
+export { EmotionWorkbenchController } from './emotion-controller.js'
+export { EmotionPage } from './EmotionPage.js'
 export { asMemoryDocument } from './memory-document.js'
 export { asEvolutionConfig, defaultEvolutionConfig } from './evolution-config-doc.js'
 export { asEvolutionDocument, emptyEvolutionState } from './evolution-document.js'

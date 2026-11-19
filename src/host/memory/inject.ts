@@ -28,13 +28,42 @@ import { memoryIdentityOf, userTextOf } from './identity.js'
 import { canRemember } from './policy.js'
 import { BLOCK_TITLE, renderMemoryBlock } from './render.js'
 import { markMemoriesUsed, rankMemories } from './search.js'
+import type { SearchMood } from './search.js'
 import type { MemoryStore } from './store.js'
 import { MEMORY_REMEMBER_TOOL } from './tools-remember.js'
 import { MEMORY_RECALL_TOOL } from './tools-recall.js'
-import type { MemoryPolicy } from './types.js'
+import type { MemoryEntry, MemoryPolicy } from './types.js'
 
 /** 注入段的名字。 */
 export const MEMORY_SECTION_NAME = 'humanity:memory'
+
+/**
+ * 使用统计的**去重时间窗**（毫秒）。
+ *
+ * 同一轮的多步装配通常在一两秒内完成，15 秒足够覆盖；跨轮时对方几乎不可能在 15 秒内
+ * 发出**一模一样**的一句话，所以"消息 + 时间窗"这个近似不会把两轮误并成一轮。
+ */
+const RECALL_DEDUPE_MS = 15_000
+
+/**
+ * 这一次装配该不该记"用过一次"。
+ *
+ * 抽成纯函数是为了能直接测：`section.text` 的调用方是 DSH，测不到它装配了几次，
+ * 但可以测"同样的输入第二次不该再记"。
+ * @param state - 上一次记录的消息与时刻（会被原地更新，见调用处）。
+ * @param message - 这一次装配时的当前消息。
+ * @param now - 现在（毫秒）。
+ * @param windowMs - 去重时间窗。
+ * @returns 该记则 `true`。
+ */
+export function shouldRecordRecall(
+  state: { message: string; at: number },
+  message: string,
+  now: number,
+  windowMs: number = RECALL_DEDUPE_MS,
+): boolean {
+  return !(state.message === message && now - state.at < windowMs)
+}
 
 /**
  * 注入段在系统提示词里的位置（人格 10、记忆 20：先"是谁"，再"记得什么"）。
@@ -74,6 +103,20 @@ export interface MemoryInjectionDeps {
   policy(): MemoryPolicy
   /** 记忆模块是否启用（配置总开关）。 */
   enabled(): boolean
+  /**
+   * 这一轮**想起了哪几条**（供情绪模块把当时的温度带回来一点）。
+   *
+   * 为什么由记忆侧通知而不是情绪侧去查记忆：召回这件事只有记忆模块知道（它选了哪几条、
+   * 打了几分）；情绪侧如果自己去查，就会变成两套检索。通知是单向的、最窄的一根线。
+   * 缺席时静默跳过（情绪模块被关掉、或旧组合里没接这条线）。
+   */
+  onRecalled?(entries: readonly MemoryEntry[]): void
+  /**
+   * 此刻的心情（"心境一致"：同向的旧事更容易被想起）。
+   *
+   * 缺席时检索行为与没有这个能力时逐位相同 —— 它只是排序上的一个偏向，不是前置条件。
+   */
+  mood?(): SearchMood | undefined
 }
 
 /**
@@ -91,6 +134,18 @@ export function installMemoryInjection(ctx: Context, log: Log, deps: MemoryInjec
   const isMainAgent = createMainAgentJudge(ctx, log)
   /** 每个 agent 最近一次"被 claim 的对方消息"。用 WeakMap：会话结束即随之释放。 */
   const latestMessage = new WeakMap<object, string>()
+  /**
+   * 上一轮的使用统计记在了哪句话上。
+   *
+   * `section.text` 是**每次装配提示词都会调用**的，而一轮多步（工具调用）会装配多次。
+   * 如果每次装配都记一次"用过"，`useCount` 就按步数虚高、`lastUsedAt` 被反复刷新 ——
+   * 而 `lastUsedAt` 是衰减评分的"新鲜度"依据，等于让刚写的记忆永远不比实际旧。
+   * 实测症状：一条记忆创建后 66ms 就被标记使用过（同一轮的第 2 步命中了它）。
+   *
+   * 去重键取"这句话"：同一轮内消息不变，下一轮对方换一句话就自然换了键。
+   * 时间窗只是兜底（对方连续发两句一样的"嗯"时，靠它区分成两轮）。
+   */
+  const recall = { message: '', at: 0 }
 
   // 事件声明在 `dsh-agent` 的类型里，而本插件不依赖那个包（G-002），所以按结构监听：
   // 事件名与 payload 形状都在文件头写明了，改 DSH 版本时对着那里核。
@@ -109,7 +164,7 @@ export function installMemoryInjection(ctx: Context, log: Log, deps: MemoryInjec
     const disposeSection = sctx.systemPrompt.section({
       name: MEMORY_SECTION_NAME,
       order: MEMORY_SECTION_ORDER,
-      text: (context) => renderSectionText(context, { deps, latestMessage, isMainAgent, log }),
+      text: (context) => renderSectionText(context, { deps, latestMessage, isMainAgent, log, recall }),
     })
 
     log.info('记忆注入已接入系统提示词（依赖只声明 systemPrompt；按 agent/inbox/claimed 取当前消息）')
@@ -133,6 +188,8 @@ interface SectionRuntime {
   latestMessage: WeakMap<object, string>
   isMainAgent: (subject: object) => boolean
   log: Log
+  /** 使用统计的去重状态（跨多次装配共享，见 `installMemoryInjection` 里的说明）。 */
+  recall: { message: string; at: number }
 }
 
 /**
@@ -144,7 +201,7 @@ interface SectionRuntime {
  * @returns 提示词片段；不该注入时返回空串。
  */
 function renderSectionText(context: unknown, runtime: SectionRuntime): string {
-  const { deps, latestMessage, isMainAgent, log } = runtime
+  const { deps, latestMessage, isMainAgent, log, recall } = runtime
   try {
     const subject = subjectOf(context)
     if (subject === undefined || !isMainAgent(subject)) return ''
@@ -152,7 +209,7 @@ function renderSectionText(context: unknown, runtime: SectionRuntime): string {
     const policy = deps.policy()
 
     const guidance = canRemember(policy) ? MEMORY_GUIDANCE : ''
-    const block = renderBlock(subject, latestMessage.get(subject) ?? '', deps, policy, log)
+    const block = renderBlock(subject, latestMessage.get(subject) ?? '', deps, policy, log, recall)
     // 中和 `{{`：记忆正文由模型/对方写入，可能是代码片段或模板语法；DSH 的变量插值遇到
     // 解析不了的 `{{…}}` 会抛错，而装配路径没有兜底（审计 S1-3）。
     return neutralizePromptVars([guidance, block].filter((part) => part !== '').join('\n\n'))
@@ -175,6 +232,7 @@ function renderBlock(
   deps: MemoryInjectionDeps,
   policy: MemoryPolicy,
   log: Log,
+  recall: { message: string; at: number },
 ): string {
   if (!policy.autoInject || message === '') return ''
   const store = deps.store()
@@ -185,12 +243,30 @@ function renderBlock(
     message,
     sessionId: identity.sessionId,
     workspaceId: identity.workspaceId,
+    mood: deps.mood?.(),
   })
   const block = renderMemoryBlock(hits, policy.injectTokenBudget, new Date().toISOString())
   if (block === '') return ''
 
+  /**
+   * 同一轮只记一次。判断依据：消息没变、且距上次召回很近（见 `installMemoryInjection`）。
+   * 轮内的第 2、3 步会反复装配提示词，跳过它们，才不会把"一条记忆"记成"三步都用过"。
+   */
+  const now = Date.now()
+  if (!shouldRecordRecall(recall, message, now)) return block
+  recall.message = message
+  recall.at = now
+
   void markMemoriesUsed(store, hits, (error) => {
     log.warn(`记忆使用统计写入失败（不要紧，只影响排序）：${BLOCK_TITLE}`, error)
   })
+
+  // 想起了哪几条 ⇒ 告诉情绪模块，让它把当时的温度带回来一点（单向、失败无害）。
+  try {
+    deps.onRecalled?.(hits)
+  } catch (error) {
+    warnSafely(log, '记忆召回的情绪回声失败（只影响心情，不影响这一轮）', error)
+  }
+
   return block
 }

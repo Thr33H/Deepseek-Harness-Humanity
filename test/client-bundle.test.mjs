@@ -228,7 +228,7 @@ test('remote 走可选注入，且注入的是命名空间服务 remote.settings
   // 旧写法只注入父服务 `remote` 会抢跑（命名空间 `remote.settings` 由 api-remotes 异步挂载）；
   // 0.1.7 起工作台改走自有数据面，调用面是客户端 `connection` 服务（`rpc.call('/api', …)`），
   // 所以这里必须逐个钉住 `['connection']` —— 写成别的（或写回旧值）就是通道又挂错了侧。
-  assert.deepEqual(injected, [['connection'], ['connection'], ['connection']])
+  assert.deepEqual(injected, [['connection'], ['connection'], ['connection'], ['connection']])
 
   assert.deepEqual(
     localeNamespaces.map((entry) => entry.ns),
@@ -337,8 +337,8 @@ test('工作台能渲染：总览四项（无通道时如实说读不到）+ 页
   assert.ok(countHints(markup) >= 5, '卡片与条目旁边都要有「?」入口')
   assert.match(markup, /data-tooltip="[^"]*DSH 设置/, '「?」里必须如实指路：开关在 DSH 设置里调')
 
-  // 页签换成卡片式：三张等宽卡片，当前页只有一张亮着。
-  assert.match(markup, /grid-template-columns:repeat\(3, minmax\(0, 1fr\)\)/, '页签是三张等宽卡片')
+  // 页签换成卡片式：四张等宽卡片，当前页只有一张亮着。
+  assert.match(markup, /grid-template-columns:repeat\(4, minmax\(0, 1fr\)\)/, '页签是四张等宽卡片')
   assert.equal(markup.split('aria-current="page"').length - 1, 1, '当前页只能有一张卡片亮着')
 })
 
@@ -432,23 +432,33 @@ test('崩溃防线：属性兜底、控制器缺失、文档缺数组 —— 三
   const plugin = descriptor.factory(createPlatformRequire())
 
   // ① 完全不传 props（宿主在别的视图里可能这么渲染）：`t` 不是函数时用键名兜底。
-  const bare = render(nodeRequire('react').createElement(plugin.createWorkbenchSeat(new plugin.PersonaWorkbenchController()), {}))
+  const bare = render(
+    nodeRequire('react').createElement(
+      plugin.createWorkbenchSeat(
+        new plugin.PersonaWorkbenchController(),
+        new plugin.EmotionWorkbenchController(),
+        new plugin.MemoryWorkbenchController(),
+        new plugin.EvolutionWorkbenchController(),
+      ),
+      {},
+    ),
+  )
   assert.ok(bare.length > 0, '没有 t 也要渲染出东西，而不是白屏')
 
   // ② 控制器缺失：渲染中性说明，而不是让 `undefined.xxx` 一路炸。
   const missing = render(nodeRequire('react').createElement(plugin.createWorkbenchSeat(undefined), { t: (key) => key }))
   assert.match(missing, /暂时无法显示/)
 
-  // ②b 只缺记忆/自进化控制器（人格那一个在场）：旧写法只查人格，于是工作台带着 `undefined`
+  // ②b 只缺情绪/记忆/自进化控制器（人格那一个在场）：旧写法只查人格，于是工作台带着 `undefined`
   //     继续渲染到 `controller.subscribe` 上抛错，被错误边界接住后显示"渲染出错"——
   //     原因说错了，用户照那句话去关人格模块只会更糟（2026-09-26 审计 C1）。
   const partial = render(
     nodeRequire('react').createElement(
-      plugin.createWorkbenchSeat(new plugin.PersonaWorkbenchController(), undefined, undefined),
+      plugin.createWorkbenchSeat(new plugin.PersonaWorkbenchController(), undefined, undefined, undefined),
       { t: (key) => key },
     ),
   )
-  assert.match(partial, /未完全接上/, '缺记忆/自进化控制器要说"没接上"，不能说"渲染出错"')
+  assert.match(partial, /未完全接上/, '缺情绪/记忆/自进化控制器要说"没接上"，不能说"渲染出错"')
 
   // ③ 错误边界的语义（SSR 渲染器不走错误边界，所以直接验它的两个约定）：
   //    抛错 → 翻标志位；翻了之后渲染 fallback。componentDidCatch 自己也不许抛。
@@ -481,7 +491,15 @@ test('宿主返回缺数组的文档时，工作台照样渲染（render 期不�
 
   assert.equal(controller.getSnapshot().status, 'ready', '缺数组不该被判成失败')
   const markup = render(
-    nodeRequire('react').createElement(plugin.createWorkbenchSeat(controller), { t: (key) => key }),
+    nodeRequire('react').createElement(
+      plugin.createWorkbenchSeat(
+        controller,
+        new plugin.EmotionWorkbenchController(),
+        new plugin.MemoryWorkbenchController(),
+        new plugin.EvolutionWorkbenchController(),
+      ),
+      { t: (key) => key },
+    ),
   )
   assert.ok(markup.length > 0, '残缺文档也要能渲染出界面，而不是把外壳带崩')
 })
@@ -530,6 +548,7 @@ async function bootUiPersona(document = uiPersona()) {
 async function renderPersona(client, controller) {
   const seat = client.createWorkbenchSeat(
     controller,
+    new client.EmotionWorkbenchController(),
     new client.MemoryWorkbenchController(),
     new client.EvolutionWorkbenchController(),
   )
@@ -1258,3 +1277,91 @@ test('V13 界面：重名（同层 / 跨层）都明确报出来，且不许静�
     '「用户定义」的数据仍在草稿里（下线 ≠ 删数据）',
   )
 })
+
+/* ---------------------------------------------------------------------------
+ * 情绪页：磨出来的敏感必须**看得见**
+ *
+ * 敏感化只在"同一处被反复刺痛"时起作用，单看情绪数值几乎看不出来（最多放大一半）。
+ * 值只藏在存储里就等于静默失效：出了问题没人分得清"没被磨到"和"记账坏了"。
+ * ------------------------------------------------------------------------- */
+
+/** 装一个情绪文档进控制器，渲染情绪页，返回静态标记。 */
+async function renderEmotionPage(value) {
+  const client = (await loadBundle()).factory(createPlatformRequire())
+  const { ctx, localeNamespaces } = createFakeContext()
+  client.apply(ctx)
+  const controller = new client.EmotionWorkbenchController()
+  controller.attach({
+    describe: async () => ({
+      ok: true,
+      value: { writable: false, namespaces: [{ ns: 'humanity-emotion', value, revision: 1 }] },
+    }),
+  })
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (controller.getSnapshot().status === 'ready') break
+    await settle()
+  }
+  assert.equal(controller.getSnapshot().status, 'ready', '情绪页没在预期时间内读到文档')
+  return render(
+    nodeRequire('react').createElement(client.EmotionPage, { t: translator(localeNamespaces), controller }),
+  )
+}
+
+test('情绪页：磨出来的敏感按深浅排成条（工作台是这一层唯一的观察窗）', async () => {
+  const markup = await renderEmotionPage({
+    charges: [
+      {
+        kind: 'anger',
+        label: '愤怒',
+        target: 'user',
+        targetLabel: '对TA',
+        intensity: 62,
+        tier: 'clear',
+        cause: '被否定',
+        since: '2026-11-18T00:00:00.000Z',
+      },
+    ],
+    sensitivities: [
+      { kind: 'anger', label: '愤怒', target: 'user', targetLabel: '对TA', level: 0.6 },
+      { kind: 'sadness', label: '悲伤', target: 'self', targetLabel: '对自己', level: 0.2 },
+    ],
+    warmth: 40,
+    warmthCause: '',
+    compositeLabel: '',
+    compositeParts: [],
+    perceived: '',
+    perceivedAt: '',
+    energy: 70,
+    energyLevel: 'fresh',
+    settledAt: '2026-11-18T00:00:00.000Z',
+    updatedAt: '2026-11-18T00:00:00.000Z',
+    notice: '',
+  })
+
+  assert.match(markup, /磨出来的敏感/, '这一栏必须有标题')
+  assert.match(markup, /对TA愤怒/, '带对象前缀')
+  assert.match(markup, /对自己悲伤/)
+  // 条的宽度就是痕迹的深浅（0.6 ⇒ 60%）：不显示数字，但要看得出来有多深。
+  assert.match(markup, /width:60%/)
+  assert.match(markup, /width:20%/)
+  // 深的排前面（宿主已经排好，页面只按顺序画）。
+  assert.ok(markup.indexOf('对TA愤怒') < markup.indexOf('对自己悲伤'), '深的排前面')
+  assert.equal(markup.includes('还没有哪一处被反复磨到'), false, '有痕迹时不该再说没有')
+})
+
+test('情绪页：旧宿主投影里没有这个字段时，照常渲染并明说"还没有"', async () => {
+  // 加这个字段**之前**的投影里只有 charges / warmth / energy 这些字段。
+  const markup = await renderEmotionPage({
+    charges: [],
+    warmth: 50,
+    warmthCause: '',
+    energy: 80,
+    energyLevel: 'fresh',
+    settledAt: '2026-11-18T00:00:00.000Z',
+    updatedAt: '2026-11-18T00:00:00.000Z',
+    notice: '',
+  })
+  assert.match(markup, /磨出来的敏感/)
+  assert.match(markup, /还没有哪一处被反复磨到/)
+})
+

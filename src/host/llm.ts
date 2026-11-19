@@ -1,27 +1,73 @@
 /**
  * 后台模型调用的 seam 封装：**路由解析 + 单次流式调用**。
  *
+ * 两个模块用它：自进化整理（`evolution/analyze.ts`）与情绪评估（`emotion/appraise.ts`）。
+ * 从 `evolution/llm.ts` 提上来的理由就是第二个使用方出现了 —— 后台调用这件事与"整理会话"
+ * 无关，它只关心"用谁的模型、怎么收结果"，留在 evolution 下会让情绪模块反向依赖自进化。
+ *
  * ### 对着 DSH 0.1.5-rc.2 核实过的事实（升级时按 DEV-PLAN §3 的行号重核）
  *
  * 1. `ctx.llm.stream(options)` 是官方公开的模型调用口（编译 `dsh-llm/lib/types/index.d.ts:406`）；
  *    第一方 `dsh-session-title-llm` 就用它做辅助调用（`createUserMessage` + `for await`，
  *    源码 `packages/session/session-title-llm/src/index.ts:255,281`）——本文件是同一模式的窄化。
  * 2. `GenerateOptions.purpose` 只接受 `'compaction' | 'session-title'`（源码 `types.ts:525`），
- *    自进化调用**留空不传**：伪造 purpose 会让重试/回放语义张冠李戴。
+ *    后台调用**留空不传**：伪造 purpose 会让重试/回放语义张冠李戴。
  * 3. 消息必须用 `createUserMessage` 造（内部赋 id 并冻结，编译 `dsh-llm/lib/index.js:37-53`）——
  *    手搓消息对象缺 id 会被适配器的校验拒掉。包本身经 `loadOptional` 载入（G-002：缺席降级不抛）。
  * 4. 路由来自 `ctx.agentDefaultModel.currentSelection()`（编译 `dsh-agent-default-model/.../index.d.ts:47`），
  *    并用 `llm.listProviders()` 核验 provider 已注册——没配模型的部署**不猜不乱选**（P-046 同一精神）。
  *
- * 所有服务都 `ctx.get` 现读不缓存（快照语义，服务后挂载也能用上），失败一律抛给 run.ts
- * 记进运行记录——这里不做"静默降级"，花了钱/没花钱必须留下明确痕迹（P-051）。
- * @module humanity/evolution/llm
+ * 所有服务都 `ctx.get` 现读不缓存（快照语义，服务后挂载也能用上），失败一律抛给调用方
+ * 记进运行记录 / 日志——这里不做"静默降级"，花了钱/没花钱必须留下明确痕迹（P-051）。
+ * @module humanity/llm
  */
 import type { Context } from '@deepseek-ai/cordis'
 
-import { loadOptional } from '../optional.js'
-import type { Log } from '../log.js'
-import type { DefaultModelLike, LlmLike, ModelRoute, StreamChunkLike, StreamTextResult } from './types.js'
+import { loadOptional } from './optional.js'
+import type { Log } from './log.js'
+
+/**
+ * `ctx.llm.stream` 产出的块（结构读取：只消费 type 为 text-delta/usage/finish 的字段，
+ * 其余块型一律忽略。单一接口而非字面量联合——`{type: string}` 兜底成员会让 TS 的
+ * 判别收窄失效，而对"外来数据"来说可选字段 + 运行时判断本来就是更诚实的形状）。
+ */
+export interface StreamChunkLike {
+  type: string
+  text?: string
+  usage?: TokenUsageLike
+  reason?: string
+}
+
+/** `TokenUsage` 的窄面。 */
+export interface TokenUsageLike {
+  inputTokens: number
+  outputTokens: number
+}
+
+/** `ctx.llm` 的窄面（stream + 路由核验用 listProviders；`LlmProviderInfo` = `{id, name}`，编译 `dsh-llm/lib/types/types.d.ts:180-185`——**路由键在 `id` 不在 `provider`**，2026-09-25 TEST 真机抓住的字段名错误）。 */
+export interface LlmLike {
+  stream(options: unknown): AsyncIterable<StreamChunkLike>
+  listProviders(): Array<{ id: string; name?: string }>
+}
+
+/** `ctx.agentDefaultModel` 的窄面。 */
+export interface DefaultModelLike {
+  currentSelection(): { provider: string; model: string; reasoningEffort?: string }
+}
+
+/** 一次模型调用的路由（provider + model）。 */
+export interface ModelRoute {
+  provider: string
+  model: string
+}
+
+/** 一次模型调用的结果（正文 + 用量 + 结束原因）。 */
+export interface StreamTextResult {
+  text: string
+  inputTokens: number
+  outputTokens: number
+  finishReason: string
+}
 
 /** 插件在消息 `source` 里的署名（与第一方辅助调用同款字段）。 */
 const PLUGIN_SOURCE = { kind: 'plugin', plugin: 'deepseek-harness-humanity' } as const

@@ -96,5 +96,5 @@ test('宿主半边导出 loader 需要的全部符号', () => {
   // 零硬依赖：缺任何可选 seam 都只关子功能，而不让插件进入 waiting。
   assert.deepEqual(Humanity.inject, [])
   assert.equal(typeof Humanity.Config, 'function')
-  assert.deepEqual(Humanity.MODULE_IDS, ['persona', 'memory', 'evolution', 'dream'])
+  assert.deepEqual(Humanity.MODULE_IDS, ['persona', 'emotion', 'memory', 'evolution', 'dream'])
 })

@@ -13,6 +13,8 @@ import { reportBootFailure } from './log.js'
 import { createDocumentStore, DOCUMENTS_TABLE, DocumentRecordSchema } from './documents.js'
 import { CURSORS_TABLE, PROPOSALS_TABLE, RUNS_TABLE, STATE_TABLE } from './evolution/constants.js'
 import { CursorRecordSchema, ProposalRecordSchema, RunRecordSchema, StateRecordSchema } from './evolution/model.js'
+import { EMOTION_TABLE } from './emotion/constants.js'
+import { EmotionStateSchema } from './emotion/model.js'
 import { MEMORY_TABLE } from './memory/constants.js'
 import { MemoryEntrySchema } from './memory/model.js'
 import { loadOptional } from './optional.js'
@@ -191,6 +193,7 @@ const ALL_TABLES = [
   CURSORS_TABLE,
   STATE_TABLE,
   DOCUMENTS_TABLE,
+  EMOTION_TABLE,
 ] as const
 
 /**
@@ -275,6 +278,7 @@ export async function openDomain(facility: DomainFacility, log: Log): Promise<Hu
           [CURSORS_TABLE]: module.domainTable(tolerantRecord(CursorRecordSchema)),
           [STATE_TABLE]: module.domainTable(tolerantRecord(StateRecordSchema)),
           [DOCUMENTS_TABLE]: module.domainTable(tolerantRecord(DocumentRecordSchema)),
+          [EMOTION_TABLE]: module.domainTable(tolerantRecord(EmotionStateSchema)),
         },
       } satisfies DomainSpec)
     } catch (error) {
@@ -313,6 +317,7 @@ export async function openDomain(facility: DomainFacility, log: Log): Promise<Hu
     //（`test/store-invalid-records.test.mjs` 逐表验证）。
     const history = domain.table(HISTORY_TABLE)
     const memory = domain.table(MEMORY_TABLE) as unknown as HumanityStore['memory']
+    const emotion = domain.table(EMOTION_TABLE) as unknown as HumanityStore['emotion']
     const evolution: HumanityStore['evolution'] = {
       runs: domain.table(RUNS_TABLE) as unknown as HumanityStore['evolution']['runs'],
       proposals: domain.table(PROPOSALS_TABLE) as unknown as HumanityStore['evolution']['proposals'],
@@ -324,6 +329,7 @@ export async function openDomain(facility: DomainFacility, log: Log): Promise<Hu
     return {
       installedAt: settled.installedAt,
       memory,
+      emotion,
       evolution,
       recordHistory: (entry) => history.put(`${entry.at}#${entry.path}`, entry),
       pruneHistory: (cutoff) => pruneHistoryTable(history, cutoff),

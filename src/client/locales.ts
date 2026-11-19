@@ -7,6 +7,7 @@
  */
 
 import { evolutionEn, evolutionZh } from './evolution-locales.js'
+import { emotionEn, emotionZh } from './emotion-locales.js'
 import { workbenchEn, workbenchZh } from './workbench-locales.js'
 import { memoryEn, memoryZh } from './memory-locales.js'
 
@@ -177,9 +178,9 @@ const personaEn = {
   'persona.issue.mutable.item-conflict': 'Two entries in the same section contradict each other (one says to do it, the other says not to); keep only one',
 } satisfies Record<keyof typeof personaZh, string>
 
-/** 人格 + 记忆 + 自进化三套文案合成同一个字典（对 DSH 仍只是一个 `humanity` 字典；`en` 同键检查照旧）。 */
-export const zh = { ...workbenchZh, ...personaZh, ...memoryZh, ...evolutionZh }
-export const en = { ...workbenchEn, ...personaEn, ...memoryEn, ...evolutionEn } satisfies Record<keyof typeof zh, string>
+/** 人格 + 情绪 + 记忆 + 自进化四套文案合成同一个字典（对 DSH 仍只是一个 `humanity` 字典；`en` 同键检查照旧）。 */
+export const zh = { ...workbenchZh, ...personaZh, ...emotionZh, ...memoryZh, ...evolutionZh }
+export const en = { ...workbenchEn, ...personaEn, ...emotionEn, ...memoryEn, ...evolutionEn } satisfies Record<keyof typeof zh, string>
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {

@@ -15,19 +15,20 @@
 import type { Context } from '@deepseek-ai/cordis'
 
 import type { HumanityConfig } from '../config.js'
+import type { ClockReport } from '../clock.js'
 import type { Log } from '../log.js'
 import type { HumanityStore } from '../store-schema.js'
 import type { MemoryStore } from '../memory/store.js'
 import type { MemoryPolicy } from '../memory/types.js'
 import type { PersonaSection } from '../persona/section.js'
 import { installActivityTracker } from './activity.js'
-import { createLlmAccess } from './llm.js'
+import { createLlmAccess } from '../llm.js'
 import { installProposalNotification } from './notify.js'
 import { createProposalActions } from './proposals.js'
 import type { Runner } from './run.js'
 import type { SchedulerHandle } from './scheduler.js'
 import { installEvolutionSection, type EvolutionSection } from './section.js'
-import { dayKeyOf } from './schedule-time.js'
+import { dayKeyOf, effectiveSchedule } from './schedule-time.js'
 import { createEvolutionState, type EvolutionState } from './state.js'
 import { buildRunner, buildScheduler } from './runtime.js'
 import { pendingFacts, sessionQueryReader, stateReader } from './wiring.js'
@@ -39,6 +40,8 @@ export interface EvolutionDeps {
   memoryStore(): MemoryStore | undefined
   memoryPolicy(): MemoryPolicy | undefined
   personaSection(): PersonaSection | undefined
+  /** 时间基准状态（工作台展示"现在用哪个时区、从哪来的"）。缺席时投影为空串。 */
+  clock?(): ClockReport | undefined
 }
 
 /** 自进化模块句柄。 */
@@ -108,7 +111,13 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     dailyCallCap: () => deps.config().modules.evolution.budget.dailyCallCap,
     // 「今天」按调度时区算，与运行记账共用 `dayKeyOf`（审计 E5：UTC 日期与调度日差 8 小时）。
     dayKey: () =>
-      dayKeyOf(Date.now(), deps.config().modules.evolution.schedule, (message) => log.warn(message)),
+      dayKeyOf(
+        Date.now(),
+        effectiveSchedule(deps.config().modules.evolution.schedule, deps.clock?.()?.effective),
+        (message) => log.warn(message),
+      ),
+    // 时间基准：投影只如实转述（哪个时区、从哪来的、什么时候学到的）。
+    clock: () => deps.clock?.(),
   })
 
   const disposeNotify = installProposalNotification(ctx, log, {

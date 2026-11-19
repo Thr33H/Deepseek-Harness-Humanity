@@ -14,6 +14,8 @@ export interface EvolutionConfigView {
     timeOfDay: string
     weekday: number
     monthDay: number
+    /** 时区自动跟随浏览器（默认 true）。关掉时用 `timezone` 里那个固定值。 */
+    autoTimeZone: boolean
     timezone: string
   }
   scan: { includeSubSessions: boolean }
@@ -29,7 +31,7 @@ export interface EvolutionConfigView {
 /** 配置默认值（与宿主 schema 默认一致；describe 未就绪时表单显示它）。 */
 export function defaultEvolutionConfig(): EvolutionConfigView {
   return {
-    schedule: { mode: 'idle', idleMinutes: 30, timeOfDay: '03:00', weekday: 1, monthDay: 1, timezone: '' },
+    schedule: { mode: 'idle', idleMinutes: 30, timeOfDay: '03:00', weekday: 1, monthDay: 1, autoTimeZone: true, timezone: '' },
     scan: { includeSubSessions: false },
     budget: {
       maxSessionsPerRun: 5,
@@ -58,6 +60,8 @@ export function asEvolutionConfig(value: unknown): EvolutionConfigView {
       timeOfDay: typeof schedule.timeOfDay === 'string' ? schedule.timeOfDay : fallback.schedule.timeOfDay,
       weekday: numOf(schedule.weekday, fallback.schedule.weekday),
       monthDay: numOf(schedule.monthDay, fallback.schedule.monthDay),
+      // 老配置没有这个字段 ⇒ 按"自动"读（与宿主 schema 的默认一致）。
+      autoTimeZone: schedule.autoTimeZone !== false,
       timezone: typeof schedule.timezone === 'string' ? schedule.timezone : '',
     },
     scan: { includeSubSessions: scan.includeSubSessions === true },

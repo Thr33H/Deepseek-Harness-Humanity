@@ -75,6 +75,17 @@ export interface EvolutionDocument {
   status: StatusView
   /** 下一次定时触发的 epoch 毫秒；0 = 未排程。 */
   nextRunAt: number
+  /**
+   * 时间基准：当前生效的时区（`Intl` 的规范名，例如 `Asia/Shanghai`；空串 = 宿主没提供）。
+   *
+   * 为什么工作台必须显示它：时区一错，症状是"她下午才睡醒""用量早上八点才归零"这种
+   * 没人会往时间上想的怪事（2026-11-19 实机现场）。显示出来，错了能一眼看到。
+   */
+  timeZone: string
+  /** 它是怎么来的：`auto` 跟浏览器 / `env` 运维指定 / `default` 还没学到。 */
+  timeZoneSource: string
+  /** 学到它的时刻（ISO 8601；空串 = 没学过）。 */
+  timeZoneLearnedAt: string
   /** 扫描基线（空串 = 尚未建立）。 */
   baselineAt: string
   /** 当日模型调用计数与上限（P-051 花费可见）。 */
@@ -131,6 +142,10 @@ export const EvolutionDocSchema = Schema.object({
     modelReady: Schema.boolean().default(false),
   }),
   nextRunAt: Schema.number().default(0),
+  // 时间基准（0.1.19）：空串 = 宿主没提供或还没学到，客户端据此显示"还没学到"。
+  timeZone: Schema.string().default(''),
+  timeZoneSource: Schema.string().default(''),
+  timeZoneLearnedAt: Schema.string().default(''),
   baselineAt: Schema.string().default(''),
   dailyCalls: Schema.number().default(0),
   /** 今日 token（输入/输出分开记；总览的"消耗"用它）。 */

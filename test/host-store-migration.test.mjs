@@ -191,7 +191,7 @@ test('记忆表：第 2 代旧文件（没有该表）打开后自动补空表�
   }
 })
 
-test('自进化四表：第 3 代旧文件（没有这些表）打开后自动补空表并升到第 4 代', async () => {
+test('自进化四表：第 3 代旧文件（没有这些表）打开后自动补空表并升到当前代', async () => {
   const { dir, root } = await makeRoot('humanity-evolution-')
   // 第 3 代 = M3 收口时的数据代（有历史表与记忆表，没有自进化表）。
   await seedUnit(root, 1, { installedAt: INSTALLED_AT, schemaVersion: 3 })
@@ -206,7 +206,7 @@ test('自进化四表：第 3 代旧文件（没有这些表）打开后自动�
       assert.deepEqual([...table.entries()], [])
     }
 
-    // 写入一条运行记录再重读文件：数据代已盖章为 4，且记录真的落盘。
+    // 写入一条运行记录再重读文件：数据代已盖章为当前代，且记录真的落盘。
     const record = {
       id: 'run-1',
       mode: 'incremental',
@@ -228,7 +228,6 @@ test('自进化四表：第 3 代旧文件（没有这些表）打开后自动�
     await store.evolution.runs.put(record.id, record)
     const unit = await readUnit(root)
     assert.equal(unit.global.schemaVersion, PERSONA_DATA_SCHEMA_VERSION)
-    assert.equal(unit.global.schemaVersion, 5)
     assert.equal(unit.tables.evolution_runs['run-1'].status, 'completed')
     assert.equal(unit.unit.version, 1, '介质格式没变，版本号不该动')
   } finally {

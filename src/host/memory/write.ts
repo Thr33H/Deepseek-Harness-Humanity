@@ -20,7 +20,7 @@ import { attributionIssue } from './identity.js'
 import { createMemoryEntry, buildOwnedKey } from './model.js'
 import { adoptExisting, findNearDuplicate } from './similar.js'
 import type { MemoryStore } from './store.js'
-import type { MemoryEntry, MemoryPolicy } from './types.js'
+import type { MemoryEntry, MemoryAffect, MemoryPolicy } from './types.js'
 import { describeEntry, SCOPE_LABELS } from './write-text.js'
 
 /** 一次写入请求（由调用方从工具参数/后续管线整理而来）。 */
@@ -39,6 +39,13 @@ export interface RememberInput {
   sessionId: string
   /** 来源工作区（`workspace` 作用域用它归属；拿不到时为空串）。 */
   workspaceId?: string
+  /**
+   * 写下这条时的情绪指纹（由宿主从情绪模块现读；拿不到就省略 = 平静）。
+   *
+   * 为什么是调用方传而不是这里自己读：记忆模块不该反向依赖情绪模块（模块互相隔离）。
+   * 情绪是"写下这一刻"的事实，只有写入的调用点知道。
+   */
+  affect?: MemoryAffect
 }
 
 /** 一次写入的结果。失败也是结构化结果（这条路径的读者是模型，"为什么没写"要能进同一段文案）。 */
@@ -182,6 +189,7 @@ export async function remember(
     confidence: input.origin === 'user-stated' ? USER_STATED_CONFIDENCE : DEFAULT_CONFIDENCE,
     // 敏感内容只进待确认（P-033）；其余按低风险稳定信息直接生效（P-025）。
     status: input.sensitivity === 'sensitive' ? 'pending' : 'active',
+    affect: input.affect,
   })
 
   // 两道去重：先精确指纹，再问一次"是不是同一条事实的另一种说法"。

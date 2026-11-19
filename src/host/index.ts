@@ -14,10 +14,12 @@
 import type { Context } from '@deepseek-ai/cordis'
 
 import { Config, type HumanityConfig } from './config.js'
+import { installClock, type Clock } from './clock.js'
 import { installDataPlane } from './data-plane.js'
 import type { DocumentStore } from './documents.js'
-import { evolutionDeps, memoryDeps, personaDeps, type HostState } from './deps.js'
+import { evolutionDeps, emotionDeps, memoryDeps, personaDeps, type HostState } from './deps.js'
 import { installExclusionGuard } from './exclusion-guard.js'
+import { installEmotion } from './emotion/index.js'
 import { installEvolution } from './evolution/index.js'
 import { EVOLUTION_NAMESPACE } from './evolution/constants.js'
 import { createLog, type Log } from './log.js'
@@ -85,6 +87,8 @@ function createModuleSync(ctx: Context, registry: ModuleRegistry): { sync(next: 
  */
 function syncModulesEnabled(state: HostState, next: HumanityConfig): void {
   state.persona?.setEnabled(next.enabled && next.modules.persona.enabled)
+  // 情绪：关掉即停算停投影（数据保留，下次打开接着用）。
+  state.emotion?.setEnabled(next.enabled && next.modules.emotion.enabled)
   // 模式 off = 记忆功能关闭：工具与注入都要下线（P-030 即时生效）。
   state.memory?.setEnabled(next.enabled && next.modules.memory.mode !== 'off')
   // 自进化：总开关 + 模块开关；调度器随开关重排（关掉 = 清除定时器，不后台运行，P-048）。
@@ -108,6 +112,8 @@ function openStore(ctx: Context, log: Log, state: HostState, onDocuments: (docum
     // 文档表一就绪就补迁移：人格文档本体只在旧的 settings 文件里，晚一步都是数据风险。
     onDocuments(opened.documents)
     state.memory?.notifyStoreReady()
+    // 情绪：装载状态并投影一次（存储未就绪时工作台只显示"平静"）。
+    state.emotion?.notifyStoreReady()
     // 自进化的 runner/scheduler 是存储就绪后才懒装的（时序说明见 evolution/index.ts）。
     state.evolution?.notifyStoreReady()
     // 历史保留期（0.1.13）：启动就清一次超期记录 —— 否则"长期没人改人格"会让旧记录永远留着
@@ -153,6 +159,8 @@ export function apply(ctx: Context, config: HumanityConfig): void {
   ctx.effect(() => modules.dispose, 'humanity: 模块卸载')
 
   // 开关即时生效（P-030）：模块批次、人格/记忆工具与注入都由这一条链同步。
+  /** 时间基准句柄；在设置服务之后才装（要用设置读取偏好），这里先占位给 `onChanged` 用。 */
+  let clock: Clock | undefined
   const onChanged = (next: HumanityConfig): void => {
     modules.sync(next)
     syncModulesEnabled(state, next)
@@ -166,6 +174,8 @@ export function apply(ctx: Context, config: HumanityConfig): void {
     }
     // 自进化：调度配置（模式/时刻/时区/预算）变更后立即重排下一次触发并重投影。
     state.evolution?.reconfigure()
+    // 时间基准：用户切了"自动/手动"或改了固定时区，立刻重算并应用（不等下一次对话）。
+    clock?.reconfigure()
     // 历史保留期（0.1.13）：把保留天数调小时立刻生效，不必等到下一次人格写入。
     void state.persona?.pruneHistory()
   }
@@ -183,9 +193,34 @@ export function apply(ctx: Context, config: HumanityConfig): void {
   // 否则同一模块会被挂载两次（第二次注册/订阅会直接报错）。
   if (!settings.attached && !settings.planeAttached) modules.sync(config)
 
+  /**
+   * 时间基准（2026-11-19）：把浏览器报的时区校准到**整个 Node 进程**。
+   *
+   * 为什么在这儿装、而且只装一次：精力、每日归零、"今天是几号"各算各的本地时间，
+   * 容器若是 UTC 就会各错各的；把进程时区校准掉，它们自动一致（详见 `clock.ts`）。
+   * 持久值要等存储打开才读得到 —— 那一步在下面的 `openStore` 回调里。
+   */
+  const clockHandle = installClock(ctx, log, {
+    documents,
+    log,
+    // 用户偏好：自动跟浏览器（默认）/ 固定一个时区。现读，改设置立刻生效。
+    preference: () => {
+      const schedule = settings.read().modules.evolution.schedule
+      return { auto: schedule.autoTimeZone !== false, zone: schedule.timezone }
+    },
+    // 生效时区一变就重投影一次：工作台的"时间基准"必须立刻反映真相。
+    onChanged: () => {
+      void state.evolution?.refresh().catch((error: unknown) => log.warn('时间基准变化后的重投影失败', error))
+    },
+  })
+  clock = clockHandle
+  ctx.effect(() => clockHandle.dispose, 'humanity: 时间基准')
+
   openStore(ctx, log, state, (documents) => {
     // 旧设置 → 文档表的一次性迁移（幂等、只读源文件、失败显式报错）。
     void migrateLegacyDocuments(documents, log, dshHome())
+    // 上次学到的时区：存储一就绪就先应用，不必等第一条消息。
+    clockHandle.restore()
     // ⚠️ 存储打开是"人格文档真的读得到"的那一刻：在此之前 `section.read()` 拿到的是默认文档
     // （`sealedAt` 为空），预设会按"未封存"注册。`presets` 在这之后才会赋值，用 `?.` 兜住。
     presets?.sync()
@@ -204,10 +239,12 @@ export function apply(ctx: Context, config: HumanityConfig): void {
   // 本段是否被 complete 吞掉；探测完成要让工作台重新投影一次，否则警告条要等下一次操作才出现。
   const compat = createCompatState()
   state.persona = installPersona(ctx, log, personaDeps(settings, state), compat, () => void state.memory?.refresh())
+  // 情绪模块：状态 + 存储 + 工作台窗口。**只看存储**，不依赖人格或记忆（模块互相隔离）。
+  state.emotion = installEmotion(ctx, log, emotionDeps(settings, state, clockHandle))
   // 记忆模块：同样一个入口。模式与存储句柄都**现读不缓存**（P-030）。
   state.memory = installMemory(ctx, log, memoryDeps(settings, state, compat))
   // 自进化模块（M5）：整理管线 + 提案系统 + 调度 + 对话内提醒。跨模块句柄现读（P-048）。
-  state.evolution = installEvolution(ctx, log, evolutionDeps(settings, state))
+  state.evolution = installEvolution(ctx, log, evolutionDeps(settings, state, clockHandle))
   syncModulesEnabled(state, settings.read())
 
   // 预设（2026-11-14）：未封存只有"取内容"的工具，封存后换成沉浸式清单。

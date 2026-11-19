@@ -102,6 +102,8 @@ export function defineRememberTool(defineTool: typeof defineToolType, deps: Memo
         origin: (args.origin ?? 'agent-derived') as MemoryOrigin,
         sessionId: caller.sessionId,
         workspaceId: caller.workspaceId,
+        // 写下这一刻的心情：由宿主从情绪模块现读，缺席时记成平静。
+        affect: deps.affect?.(),
       })
       // 真源（存储表）已经变了 ⇒ 让工作台的投影跟上，否则界面上看不到刚写进去的这条。
       if (result.ok) deps.changed?.()

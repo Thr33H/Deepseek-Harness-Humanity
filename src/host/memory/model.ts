@@ -29,7 +29,32 @@ import {
   NEW_ENTRY_STATUS,
   TAG_LIMIT,
 } from './constants.js'
-import type { MemoryEntry, MemoryEntryInput } from './types.js'
+import type { MemoryEntry, MemoryAffect, MemoryEntryInput } from './types.js'
+
+/**
+ * 情绪指纹（见 `types.ts` 的 {@link MemoryAffect}）。
+ *
+ * 全部字段都有默认值：旧条目**没有这个字段**，读出来必须是"平静"而不是让整表解析失败
+ * （坏一条害死整库的教训见 `store-open.ts` 的 F3）。
+ */
+export const MemoryAffectSchema = z.object({
+  kind: z.string().default(''),
+  /**
+   * 这股情绪当时是**冲谁的**（与 `emotion` 的 `EmotionTarget` 同一套取值）。
+   *
+   * 必须记下来：回声要把它加回**同一条**情绪上。只记种类的话，想起"她对我说的那句话"
+   * 会加到"对事"的那一条上 —— 实测抓到的正是这个：trust:user 40 旁边凭空多出 trust:world 5。
+   * 旧数据没有这个字段，读成 `world`（最中性的默认）。
+   */
+  target: z.string().default('world'),
+  intensity: z.number().min(0).max(100).default(0),
+  // 0 = 没有记录。不用 50 是因为"没记录"与"关系温度正好在基线"是两件事，
+  // 混成一个值之后，召回时就分不清"当时的温度"和"当时根本没测"。
+  warmth: z.number().min(0).max(100).default(0),
+})
+
+/** 出厂的情绪指纹：平静、无温度记录。 */
+export const EMPTY_AFFECT: MemoryAffect = { kind: '', target: 'world', intensity: 0, warmth: 0 }
 
 /**
  * 记忆条目的存储契约。**默认值的唯一真源**。
@@ -65,6 +90,8 @@ export const MemoryEntrySchema = z.object({
   conflictWith: z.array(z.string()).default([]),
   confirmedVia: z.enum(['', ...MEMORY_CONFIRM_SOURCES]).default(NOT_CONFIRMED),
   entryVersion: z.number().int().positive().default(MEMORY_ENTRY_VERSION),
+  // 旧条目没有这个字段：默认值让它们读成"平静"，不需要任何迁移。
+  affect: MemoryAffectSchema.default(EMPTY_AFFECT),
 })
 
 /**
@@ -146,5 +173,6 @@ export function createMemoryEntry(input: MemoryEntryInput): MemoryEntry {
     createdAt: input.createdAt ?? at,
     updatedAt: input.updatedAt ?? input.createdAt ?? at,
     status: input.status ?? NEW_ENTRY_STATUS,
+    affect: input.affect ?? EMPTY_AFFECT,
   })
 }

@@ -13,7 +13,7 @@ import { ChoiceSelect } from './ChoiceSelect.js'
 import type { EvolutionConfigView } from './evolution-config-doc.js'
 import { InfoHint } from './InfoHint.js'
 import { NS } from './locales.js'
-import { headingWithHint, panel, panelTitle } from './styles.js'
+import { headingWithHint, hint, panel, panelTitle } from './styles.js'
 import { metricLabel, metricRow } from './metric-styles.js'
 
 type Translate = PropsLocale<typeof NS>['t']
@@ -124,6 +124,39 @@ export function EvolutionSettings(props: EvolutionSettingsProps) {
   const scheduled = mode !== 'idle'
 
   return (
+    <>
+    <section style={panel}>
+      <h2 style={{ ...panelTitle, ...headingWithHint }}>
+        {t('evolution.clock')}
+        <InfoHint label={t('evolution.clock.hint')} />
+      </h2>
+      <div style={metricRow}>
+        <span style={metricLabel}>{t('evolution.clock.mode')}</span>
+        <ChoiceSelect
+          label={t('evolution.clock.mode')}
+          value={config.schedule.autoTimeZone ? 'auto' : 'manual'}
+          choices={[
+            { id: 'auto', label: t('evolution.clock.auto') },
+            { id: 'manual', label: t('evolution.clock.manual') },
+          ]}
+          disabled={disabled}
+          onChange={(next) => onPatch({ schedule: { autoTimeZone: next !== 'manual' } })}
+        />
+      </div>
+      {config.schedule.autoTimeZone ? (
+        <p style={{ ...hint, margin: '8px 0 0' }}>{t('evolution.clock.autoHint')}</p>
+      ) : (
+        <TextRow
+          t={t}
+          labelKey="evolution.clock.zone"
+          value={config.schedule.timezone}
+          disabled={disabled}
+          placeholder="Asia/Shanghai"
+          onCommit={(next) => onPatch({ schedule: { timezone: next } })}
+        />
+      )}
+    </section>
+
     <section style={panel}>
       <h2 style={{ ...panelTitle, ...headingWithHint }}>
         {t('evolution.schedule')}
@@ -156,14 +189,6 @@ export function EvolutionSettings(props: EvolutionSettingsProps) {
           {mode === 'monthly' ? (
             <NumberRow t={t} labelKey="evolution.schedule.monthDay" value={config.schedule.monthDay} disabled={disabled} onCommit={(next) => onPatch({ schedule: { monthDay: next } })} />
           ) : null}
-          <TextRow
-            t={t}
-            labelKey="evolution.schedule.timezone"
-            value={config.schedule.timezone}
-            disabled={disabled}
-            placeholder="Asia/Shanghai"
-            onCommit={(next) => onPatch({ schedule: { timezone: next } })}
-          />
         </div>
       ) : (
         <NumberRow
@@ -196,5 +221,6 @@ export function EvolutionSettings(props: EvolutionSettingsProps) {
       <NumberRow t={t} labelKey="evolution.budget.maxOutputTokensPerCall" value={config.budget.maxOutputTokensPerCall} disabled={disabled} onCommit={(next) => onPatch({ budget: { maxOutputTokensPerCall: next } })} />
       <NumberRow t={t} labelKey="evolution.budget.dailyCallCap" value={config.budget.dailyCallCap} disabled={disabled} onCommit={(next) => onPatch({ budget: { dailyCallCap: next } })} />
     </section>
+    </>
   )
 }

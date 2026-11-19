@@ -15,6 +15,7 @@
  */
 import type { MemoryStore } from './store.js'
 import { maybeRunDecay } from './decay.js'
+import { MOOD_BONUS, MOOD_TONE } from './constants.js'
 import { matchesQuery, scoreEntry, type SearchContext } from './scoring.js'
 import { tokenize } from './tokenize.js'
 import type { MemoryScope } from './constants.js'
@@ -28,6 +29,21 @@ export interface SearchQuery {
   sessionId: string
   /** 当前工作区 id；无工作区时为空串。 */
   workspaceId: string
+  /**
+   * 此刻的心情（"心境一致"用）：同向的旧事更容易被想起。
+   *
+   * 缺省表示调用方不提供 —— 此时检索行为与没有这个能力时**逐位相同**，
+   * 所以它不会影响回忆工具、干跑对比，也不会让老测试变红。
+   */
+  mood?: SearchMood
+}
+
+/** 心境一致的输入面（只读两个事实，不 import 情绪模块）。 */
+export interface SearchMood {
+  /** 当前主导情绪种类（空串 = 平静）。 */
+  kind: string
+  /** 当前关系温度（0–100）。 */
+  warmth: number
 }
 
 /** 检索的可选调整（缺省全部走策略）。 */
@@ -77,6 +93,25 @@ function compareScored(
 }
 
 /**
+ * 心境一致的**排序加成**（同向的旧事更容易浮上来）。
+ *
+ * 只加不减：反向的记忆不会被压下去，只是不会被提前 —— "心情差所以格外想起开心的事"
+ * 是另一个现象，这里不做（那需要一套"对比"语义，容易变成玄学）。
+ * @param entry - 候选条目。
+ * @param mood - 当前心情。
+ * @returns 加成（0 或 `MOOD_BONUS`）。
+ */
+function moodBonus(entry: MemoryEntry, mood: SearchMood | undefined): number {
+  if (mood === undefined || mood.kind === '') return 0
+  const current = MOOD_TONE[mood.kind]
+  const remembered = MOOD_TONE[entry.affect.kind]
+  if (current === undefined || remembered === undefined) return 0
+  // 中性情绪（惊讶）不构成"心境一致"：两边都中性并不等于同一种心情。
+  if (current === 0 || remembered === 0) return 0
+  return current === remembered ? MOOD_BONUS : 0
+}
+
+/**
  * 排序与筛选：**同步**（只读内存里的表快照），不推进使用统计。
  *
  * 为什么必须是同步的：系统提示词的 `section.text` 回调**只能返回字符串**
@@ -109,9 +144,14 @@ export function rankMemories(
     .filter((entry) => options.scope === undefined || entry.scope === options.scope)
     // 先过"有交集"的门，再谈分数：低阈值下质量底噪会淹没相关性（见 `matchesQuery`）。
     .filter((entry) => matchesQuery(entry, tokens))
-    .map((entry) => ({ entry, score: scoreEntry({ entry, queryTokens: tokens, context, now }) }))
+    .map((entry) => {
+      const score = scoreEntry({ entry, queryTokens: tokens, context, now })
+      // `rank` 只用于排序，`score` 仍用于阈值判定 —— 两者分开，
+      // 加成才有资格"只改先后、不改准入"（见 `MOOD_BONUS` 的说明）。
+      return { entry, score, rank: score + moodBonus(entry, query.mood) }
+    })
     .filter((item) => item.score >= threshold)
-    .sort(compareScored)
+    .sort((a, b) => compareScored({ entry: a.entry, score: a.rank }, { entry: b.entry, score: b.rank }))
     .slice(0, limit)
 
   return scored.map((item) => item.entry)

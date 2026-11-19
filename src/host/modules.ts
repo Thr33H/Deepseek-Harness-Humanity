@@ -59,6 +59,12 @@ export const MODULES: readonly HumanityModule[] = [
     isEnabled: (config) => config.modules.persona.enabled,
   },
   {
+    id: 'emotion',
+    title: '情绪',
+    implemented: true,
+    isEnabled: (config) => config.modules.emotion.enabled,
+  },
+  {
     id: 'memory',
     title: '记忆',
     implemented: true,

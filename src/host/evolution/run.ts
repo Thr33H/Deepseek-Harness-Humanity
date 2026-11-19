@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 运行编排：一次整理运行（增量/梦境/回扫）的入口、互斥与门禁（DEV-PLAN §5.1）。
  *
  * 主循环与收尾在 `run-loop.ts`；这里只管"什么时候允许跑、跑砸了怎么收场"：
@@ -16,7 +16,7 @@ import type { HumanityConfig } from '../config.js'
 import type { Log } from '../log.js'
 import { decaySummary, runDecayMaintenance } from '../memory/ops.js'
 import type { ClassifyDeps } from './classify.js'
-import type { LlmAccess } from './llm.js'
+import type { LlmAccess } from '../llm.js'
 import { createRunRecord } from './model.js'
 import type { PersonaCardSection } from './prompt.js'
 import { finalizeRun, runLoop, type RunAccumulator } from './run-loop.js'

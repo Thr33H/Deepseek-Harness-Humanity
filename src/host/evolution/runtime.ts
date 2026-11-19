@@ -12,9 +12,10 @@ import type { Log } from '../log.js'
 import { applyConsolidation } from '../persona/consolidate-apply.js'
 import type { PersonaDocument } from '../persona/types.js'
 import type { ActivityTracker } from './activity.js'
-import type { LlmAccess } from './llm.js'
+import type { LlmAccess } from '../llm.js'
 import type { Runner } from './run.js'
 import { createRunner } from './run.js'
+import { effectiveSchedule } from './schedule-time.js'
 import type { SchedulerHandle } from './scheduler.js'
 import { installScheduler } from './scheduler.js'
 import type { EvolutionState } from './state.js'
@@ -36,9 +37,23 @@ export interface RuntimeParts {
 /** 用一份已就绪的存储面构建运行入口。 */
 export function buildRunner(parts: RuntimeParts, state: EvolutionState): Runner {
   const { deps, log } = parts
+  /**
+   * 生效时区（时间基准校准出来的那个）。
+   *
+   * 显式传给调度与记账：进程的本地时间未必跟着它走（2026-11-19 实机：`Intl` 变了 `Date` 没变），
+   * 所以两处都必须拿到这个字符串自己换算，不能靠"系统时区"这四个字。
+   */
+  const zone = (): string | undefined => deps.clock?.()?.effective
   return createRunner({
     state,
-    config: () => ({ evolution: deps.config().modules.evolution, dream: deps.config().modules.dream }),
+    config: () => {
+      const config = deps.config()
+      return {
+        // 调度段先换算成"实际参与计算"的（自动模式 = 生效时区）。
+        evolution: { ...config.modules.evolution, schedule: effectiveSchedule(config.modules.evolution.schedule, zone()) },
+        dream: config.modules.dream,
+      }
+    },
     enabled: parts.moduleEnabled,
     sessionQuery: parts.sessionQuery,
     llm: parts.llm,
@@ -75,7 +90,7 @@ export function buildRunner(parts: RuntimeParts, state: EvolutionState): Runner 
 export function buildScheduler(ctx: Context, parts: RuntimeParts, state: EvolutionState, runner: Runner): SchedulerHandle {
   const { deps } = parts
   return installScheduler(ctx, {
-    schedule: () => deps.config().modules.evolution.schedule,
+    schedule: () => effectiveSchedule(deps.config().modules.evolution.schedule, deps.clock?.()?.effective),
     enabled: parts.moduleEnabled,
     dreamEnabled: () => parts.moduleEnabled() && deps.config().modules.dream.enabled,
     state,

@@ -78,3 +78,34 @@ export function subjectOf(context: unknown): object | undefined {
   const subject = (context as { agent?: unknown }).agent ?? (context as { scope?: unknown }).scope
   return subject !== null && typeof subject === 'object' ? (subject as object) : undefined
 }
+
+/** 读预设需要的 agent 窄面：只要 session 与其 meta，其余一律不碰（与 guard 同一条纪律）。 */
+interface AgentWithSession {
+  session?: { meta?: { agentPreset?: string } }
+}
+
+/** 会话投影服务的窄 seam：只声明我们真正用到的一个同步读方法。 */
+interface ProjectionSeam {
+  stateOf(session: unknown, key: string): unknown
+}
+
+/**
+ * 读一个 agent 当前**实际运行**的 preset（同步）。
+ *
+ * 优先会话投影 `agentPreset`：它由会话头初始化、并随 `agent-preset/selected` 事件更新 ——
+ * 真机实证（2026-09-25）会话头 meta 只记创建时的值，GUI 切换后 meta 不更新而投影更新，
+ * 所以投影才是「此刻跑的是哪个预设」的真源；投影服务缺席时回退 meta（未切换过的会话两者一致）。
+ *
+ * 为什么放在这里而不是各自模块内部：净室 guard（拒绝工具）与情绪注入（只在沉浸生效）
+ * 用的是**同一个事实**，各写一份迟早有一边先漂（与 `createMainAgentJudge` 同一条教训）。
+ * @param agent - 工具调用 / pre-step 携带的 agent。
+ * @param ctx - 本插件的上下文（用于现取投影服务）。
+ */
+export function presetOfAgent(agent: unknown, ctx: Context): string | undefined {
+  const session = (agent as AgentWithSession | undefined)?.session
+  if (session === undefined) return undefined
+  const projections = ctx.get('sessionProjections') as ProjectionSeam | undefined
+  const projected = projections?.stateOf(session, 'agentPreset')
+  if (typeof projected === 'string') return projected
+  return session.meta?.agentPreset
+}

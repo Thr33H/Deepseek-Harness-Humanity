@@ -20,11 +20,12 @@ in a place you can see, edit and undo.**
 | Module | What you get |
 |---|---|
 | **Persona** | Identity card + persona card. Native sections are locked (the plugin keys off them); everything else is yours: add, rename, delete. Names are fixed text, content is a plain editable field. Changes take effect **immediately** (hot reload) and history is kept for rollback |
+| **Mood** | It has feelings of its own: **eight basic emotions** (joy / trust / fear / surprise / sadness / disgust / anger / anticipation, Plutchik's model), each with **three intensity tiers** (serenity→joy→ecstasy) and its own half-life, all able to coexist; **continuous across sessions** (switching sessions does not reset it). The same emotion is also split by **whom it is aimed at** (you / itself / the situation). Low tiers stay inside the wording; at the threshold it may say it once. Two strong emotions blend into one word (disgust + anger = contempt) and **opposite emotions offset each other** (no joy while angry — and the joy comes back once the anger fades). A spot that keeps getting hit **wears thin**: the next hit of the same kind lands harder (at most half again as hard) and fades on its own within a couple of days. Separate **energy** (tired = shorter answers) and **warmth**. Only in the "Humanity Immersive" preset; the functional preset never reads or writes it |
 | **Memory** | Three scopes (long-term / workspace / session), automatic capture, seven-signal relevance retrieval. Low-risk content is stored automatically; high-risk content only becomes a **proposal you approve**. Entries can be re-scoped, deduplicated, archived and restored — it never grows without bound, and it is **never auto-deleted** |
 | **Self-evolution & dreaming** | Scheduled passes over new sessions → model analysis → memories and proposals, fully metered with a daily cap. "Dreaming" renders each pass as a readable run timeline |
 
-Plus: one master switch and four module switches (effective immediately), registered in DSH's own
-settings service — search for `Humanity` there.
+Plus: one master switch and per-module switches (persona / mood / memory / self-evolution / dreaming,
+effective immediately), registered in DSH's own settings service — search for `Humanity` there.
 
 ## Requirements
 

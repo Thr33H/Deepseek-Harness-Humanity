@@ -30,6 +30,12 @@ export interface EvolutionWorkbenchState {
   /** 顶层配置里 `modules.evolution` 的当前值（设置表单的数据源；宿主 schema 是真源）。 */
   config: EvolutionConfigView
   nextRunAt: number
+  /** 时间基准：当前生效的时区（空串 = 宿主没提供）。 */
+  timeZone: string
+  /** 它是怎么来的：`auto` / `env` / `default`（空串 = 宿主没提供）。 */
+  timeZoneSource: string
+  /** 学到它的时刻（ISO 8601；空串 = 没学过）。 */
+  timeZoneLearnedAt: string
   baselineAt: string
   dailyCalls: number
   /** 今日 token（输入/输出分开记）。 */
@@ -53,6 +59,9 @@ export function emptyEvolutionState(): EvolutionWorkbenchState {
     evolutionStatus: { enabled: true, storeReady: false, scanReady: false, modelReady: false },
     config: defaultEvolutionConfig(),
     nextRunAt: 0,
+    timeZone: '',
+    timeZoneSource: '',
+    timeZoneLearnedAt: '',
     baselineAt: '',
     dailyCalls: 0,
     dailyInputTokens: 0,
@@ -94,6 +103,9 @@ export function asEvolutionDocument(value: unknown): Omit<EvolutionWorkbenchStat
       modelReady: status.modelReady === true,
     },
     nextRunAt: numOf(record.nextRunAt),
+    timeZone: strOf(record.timeZone),
+    timeZoneSource: strOf(record.timeZoneSource),
+    timeZoneLearnedAt: strOf(record.timeZoneLearnedAt),
     baselineAt: strOf(record.baselineAt),
     dailyCalls: numOf(record.dailyCalls),
     dailyInputTokens: numOf(record.dailyInputTokens),

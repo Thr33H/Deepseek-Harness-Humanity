@@ -16,6 +16,8 @@ export const EXPECTED_DEFAULTS = {
     // 0.1.13（用户 2026-10-09）：「删除的进历史，要有个保留天数，而不是永久保留」⇒ 新增这一项，
     // 默认 30 天（值取自 `persona/constants.ts` 的 HISTORY_RETENTION_DAYS，不漂移）。
     persona: { enabled: true, historyRetentionDays: 30 },
+    // 0.1.18（用户 2026-11-17）：「让它有情感」——默认开，只在沉浸模式生效。
+    emotion: { enabled: true },
     memory: {
       mode: 'balanced',
       advanced: {
@@ -32,7 +34,8 @@ export const EXPECTED_DEFAULTS = {
     },
     evolution: {
       enabled: true,
-      schedule: { mode: 'idle', idleMinutes: 30, timeOfDay: '03:00', weekday: 1, monthDay: 1, timezone: '' },
+      // 0.1.19（用户 2026-11-19）：时区默认"自动跟随浏览器"，固定时区留空。
+      schedule: { mode: 'idle', idleMinutes: 30, timeOfDay: '03:00', weekday: 1, monthDay: 1, autoTimeZone: true, timezone: '' },
       scan: { includeSubSessions: false },
       budget: {
         maxSessionsPerRun: 5,

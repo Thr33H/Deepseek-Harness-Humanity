@@ -9,6 +9,7 @@ import type { DomainFacility, DomainSpec, DomainTableSpec } from '@deepseek-ai/d
 import { z } from 'zod'
 
 import type { EvolutionTables } from './evolution/state.js'
+import type { EmotionTableHandle } from './emotion/store.js'
 import type { MemoryTableHandle } from './memory/store.js'
 import { DOCUMENTS_TABLE, DocumentRecordSchema, type DocumentStore } from './documents.js'
 
@@ -48,14 +49,15 @@ export const DOMAIN_VERSION = 1
  * 与介质版本正交：介质版本管"文件能不能读"，这个管"读出来的内容是哪一代、要不要改造"。
  * 1 → 2：新增历史表 `persona_history`；2 → 3：新增记忆表 `memory_entries`；
  * 3 → 4：新增自进化四表（`evolution_runs` / `evolution_proposals` / `evolution_cursors` / `evolution_state`）；
- * 4 → 5：新增文档表 `documents`（0.1.7 起 settings 不再承载任意文档，人格文档与开关覆盖改由我们自己落盘）。
- * 四次都是**加表**，对已有记录没有影响，但都要显式写进 {@link MIGRATIONS}（见那里的说明）。
+ * 4 → 5：新增文档表 `documents`（0.1.7 起 settings 不再承载任意文档，人格文档与开关覆盖改由我们自己落盘）；
+ * 5 → 6：新增情绪表 `emotion_state`（全局一份，键固定 `current`）。
+ * 五次都是**加表**，对已有记录没有影响，但都要显式写进 {@link MIGRATIONS}（见那里的说明）。
  *
  * 名字里的 `PERSONA_` 是历史包袱（M2 时只有人格数据）。现在它覆盖整个套件的数据代数，
  * 但**不改名**：`docs/handoff/QA-M2.md` 与 `docs/reports/VERIFY-M2.md` 的实读记录引用的
  * 就是这个名字，改名会让那些记录对不上，而功能收益为零。数据里存的是数字，不受影响。
  */
-export const PERSONA_DATA_SCHEMA_VERSION = 5
+export const PERSONA_DATA_SCHEMA_VERSION = 6
 
 /**
  * 声明"当前 schema 也接受这些旧版本的已存数据"。
@@ -150,6 +152,7 @@ export const MIGRATIONS: ReadonlyMap<number, (meta: DomainMeta) => DomainMeta> =
   [2, (meta: DomainMeta): DomainMeta => ({ ...meta, schemaVersion: 3 })],
   [3, (meta: DomainMeta): DomainMeta => ({ ...meta, schemaVersion: 4 })],
   [4, (meta: DomainMeta): DomainMeta => ({ ...meta, schemaVersion: 5 })],
+  [5, (meta: DomainMeta): DomainMeta => ({ ...meta, schemaVersion: 6 })],
 ])
 
 /** 已打开的套件存储。 */
@@ -160,6 +163,8 @@ export interface HumanityStore {
   readonly memory: MemoryTableHandle
   /** 自进化四表（运行记录 / 提案 / 游标 / 单值状态）。自进化模块只通过它读写。 */
   readonly evolution: EvolutionTables
+  /** 情绪状态表（全局一份，键固定 `current`）。情绪模块只通过它读写。 */
+  readonly emotion: EmotionTableHandle
   /**
    * 文档表（0.1.7 起承载人格文档与开关覆盖；键 = 命名空间名）。
    *

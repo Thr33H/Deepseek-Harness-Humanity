@@ -115,7 +115,7 @@ test('外部取消：不重试，原样抛出', async () => {
 
 // ---------- 路由解析（createLlmAccess.route，2026-09-25 TEST 真机根因的回归钉） ----------
 
-const { createLlmAccess } = await import('../lib/evolution/llm.js')
+const { createLlmAccess } = await import('../lib/llm.js')
 const { createLog } = await import('../lib/log.js')
 const { Context } = await import('@deepseek-ai/cordis')
 

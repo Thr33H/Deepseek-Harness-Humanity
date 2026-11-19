@@ -20,7 +20,7 @@ export type MemoryMode = (typeof MEMORY_MODES)[number]
 export type ScheduleMode = (typeof SCHEDULE_MODES)[number]
 
 /** 模块标识。数组顺序即工作台的展示顺序。 */
-export const MODULE_IDS = ['persona', 'memory', 'evolution', 'dream'] as const
+export const MODULE_IDS = ['persona', 'emotion', 'memory', 'evolution', 'dream'] as const
 
 /** 模块标识。 */
 export type ModuleId = (typeof MODULE_IDS)[number]
@@ -78,6 +78,10 @@ export interface HumanityConfig {
        */
       historyRetentionDays: number
     }
+    /** 情绪：它此刻怎么样。只在沉浸模式生效，功能模式完全不介入（用户 2026-11-17 定）。 */
+    emotion: {
+      enabled: boolean
+    }
     /** 记忆：长期 / 工作区 / 会话三层，按模式预设 + 可选的高级开关。 */
     memory: { mode: MemoryMode; advanced: MemoryAdvancedConfig }
     /** 自进化：会话整理管线，含梦境模式。调度/扫描/预算都是对方可编辑项（P-035/P-036/P-051）。 */
@@ -94,7 +98,14 @@ export interface HumanityConfig {
         weekday: number
         /** 每月模式：几号（1–28，避开大小月差异）。 */
         monthDay: number
-        /** IANA 时区名；空串 = 跟随系统时区（P-035 对方在工作台确认）。 */
+        /**
+         * 时区**自动跟随浏览器**（默认开）。
+         *
+         * 开：Humanity 把浏览器报的时区校准到整个 Node 进程，定时任务随之跟随系统时区
+         * （= 校准后的进程时区）。关：用下面的 `timezone` 固定一个，不再跟对话变。
+         */
+        autoTimeZone: boolean
+        /** IANA 时区名；只在 `autoTimeZone` 关掉时生效。空串 = 跟随系统时区（P-035 对方在工作台确认）。 */
         timezone: string
       }
       scan: {
@@ -142,6 +153,14 @@ export const Config: Schema<HumanityConfig> = Schema.object({
             + '0 或负数 = 关闭清理（永久保留）。',
         ),
     }),
+    emotion: Schema.object({
+      enabled: Schema.boolean()
+        .default(true)
+        .description(
+          '情绪模块：它此刻的心情。只在「Humanity 沉浸」里生效，功能模式完全不读不写不算；'
+            + '关掉后不再记录、不再注入，已有状态保留。',
+        ),
+    }),
     memory: Schema.object({
       mode: Schema.union(MEMORY_MODES)
         .default('balanced')
@@ -171,7 +190,10 @@ export const Config: Schema<HumanityConfig> = Schema.object({
         timeOfDay: Schema.string().default('03:00').description('定时触发时刻（HH:MM，按下面的时区）'),
         weekday: Schema.number().default(1).description('每周模式：周几触发（1=周一 … 7=周日）'),
         monthDay: Schema.number().default(1).description('每月模式：几号触发（1–28）'),
-        timezone: Schema.string().default('').description('IANA 时区名；留空跟随系统时区'),
+        autoTimeZone: Schema.boolean()
+          .default(true)
+          .description('时区自动跟随浏览器：开=每次对话自动校准（推荐）；关=用下面填的固定时区'),
+        timezone: Schema.string().default('').description('固定时区（IANA 名，例如 Asia/Shanghai）；只在自动跟随关掉时生效'),
       }),
       scan: Schema.object({
         includeSubSessions: Schema.boolean().default(false).description('把子代理/工作流会话纳入扫描（默认只扫主会话）'),

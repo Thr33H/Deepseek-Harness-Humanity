@@ -21,8 +21,32 @@ export interface ScheduleConfig {
   weekday: number
   /** 每月：几号（1–28，schema 层限定，避开大小月与闰月差异）。 */
   monthDay: number
-  /** IANA 时区名；空串 = 系统时区。 */
+  /** 时区自动跟随浏览器（默认开）。开的时候 `timezone` 不参与计算。 */
+  autoTimeZone: boolean
+  /** IANA 时区名；空串 = 系统时区（`autoTimeZone` 关掉时才生效）。 */
   timezone: string
+}
+
+/**
+ * 把配置换成**实际参与计算**的调度配置。
+ *
+ * 为什么需要它：时区只有一处权威 —— 自动模式下是"生效时区"（`clock.ts` 校准出来的那个），
+ * 固定模式下是用户填的那一个。若某些调用点读原始配置、另一些读换算后的，就会出现
+ * "定时按 A 时区触发、每日用量按 B 时区归零"这种自相矛盾（审计 E5 的同类问题）。
+ * 所以凡是按时间算的地方都先过这里。
+ *
+ * 自动模式下把 `timezone` 换成**生效时区**（而不是留空回落到进程时区）：进程的本地时间
+ * 未必跟着时区设置走（2026-11-19 实机：`Intl` 变了、`Date` 没变），显式写死才不会两边分叉。
+ * @param schedule - 配置里的调度段。
+ * @param zone - 自动模式下的生效时区（省略 = 空串 = 跟随进程时区）。
+ * @returns 换算后的副本；固定模式原样返回。
+ */
+export function effectiveSchedule(schedule: ScheduleConfig, zone?: string): ScheduleConfig {
+  // `=== false` 而不是 `!schedule.autoTimeZone`：老配置没有这个字段，缺省必须按"自动"理解。
+  if (schedule.autoTimeZone === false) return schedule
+  const timezone = zone ?? ''
+  if (schedule.timezone === timezone) return schedule
+  return { ...schedule, timezone }
 }
 
 /** 默认触发时刻（与 config.ts schema 的默认值一致：P-035 工程默认）。 */

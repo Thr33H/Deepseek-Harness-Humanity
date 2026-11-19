@@ -32,10 +32,10 @@ function fakeModule(id, { enabled = true, mount, implemented = true } = {}) {
   }
 }
 
-test('生产模块表：四个模块的 id 与顺序与决策日志一致（router 随 M4 裁撤删除）', () => {
+test('生产模块表：五个模块的 id 与顺序与决策日志一致（router 随 M4 裁撤删除）', () => {
   assert.deepEqual(
     MODULES.map((module) => module.id),
-    ['persona', 'memory', 'evolution', 'dream'],
+    ['persona', 'emotion', 'memory', 'evolution', 'dream'],
   )
 })
 
@@ -56,7 +56,7 @@ test('默认配置下：已实现的模块读作 active（不谎报）', () => {
 
   registry.install({}, Config({}))
 
-  // 四个模块 implemented=true 但没有 mount —— 它们由宿主在注册表之外挂载
+  // 五个模块 implemented=true 但没有 mount —— 它们由宿主在注册表之外挂载
   // （需要存储与开关事实），所以状态是 active。
   // 早先这里一律按 mount===undefined 判 skeleton，导致启动日志谎报「人格=skeleton」。
   // M4 裁撤后生产模块表里已无"未实现"模块，那条路径由上面的假模块用例覆盖。
@@ -64,6 +64,7 @@ test('默认配置下：已实现的模块读作 active（不谎报）', () => {
     registry.snapshot().map((state) => [state.id, state.status]),
     [
       ['persona', 'active'],
+      ['emotion', 'active'],
       ['memory', 'active'],
       ['evolution', 'active'],
       ['dream', 'active'],
@@ -76,7 +77,7 @@ test('总开关关闭时所有模块都是 disabled', () => {
   registry.install({}, Config({ enabled: false }))
   assert.deepEqual(
     registry.snapshot().map((state) => state.status),
-    ['disabled', 'disabled', 'disabled', 'disabled'],
+    ['disabled', 'disabled', 'disabled', 'disabled', 'disabled'],
   )
 })
 

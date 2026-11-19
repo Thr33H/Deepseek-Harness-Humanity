@@ -1,0 +1,187 @@
+﻿/**
+ * 评估解析与提醒渲染的回归测试。
+ *
+ * 这两段是"情绪真的会动"的咽喉：
+ * - 解析太脆 ⇒ 模型随便加一句"好的，这是结果："就全丢（于是它永远平静）；
+ * - 渲染太松 ⇒ 它会每句话都宣布心情（于是变成一个复读机）。
+ *
+ * 所以这里钉的不是"正常路径能跑"，而是**两边各自的失败边界**。
+ */
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+
+import { parseAppraisal } from '../lib/emotion/appraise.js'
+import { createInitialEmotionState } from '../lib/emotion/model.js'
+import { apply as applyPulse, settle } from '../lib/emotion/state.js'
+import { renderReminder } from '../lib/emotion/render.js'
+
+const T0 = '2026-01-01T00:00:00.000Z'
+
+/** 这一组用例只关心"情绪增减"，所以把增减数组包成一次脉冲（生产入口是 `pulse`）。 */
+const apply = (state, shifts, now) => applyPulse(state, { shifts }, now)
+
+/* ───────────────────────────── 解析 ───────────────────────────── */
+
+test('解析：标准 JSON 能读出情绪增减、温度与观察', () => {
+  const pulse = parseAppraisal(
+    '{"shifts":[{"kind":"anger","delta":15,"cause":"被否定工作能力"}],"warmth":-2,"warmthCause":"被冷落","perceived":"对方很急躁"}',
+  )
+  assert.ok(pulse !== undefined)
+  assert.deepEqual(pulse.shifts, [{ kind: 'anger', target: 'world', delta: 15, cause: '被否定工作能力' }])
+  assert.equal(pulse.warmth, -2)
+  assert.equal(pulse.perceived, '对方很急躁')
+})
+
+test('解析：模型带 ```json 围栏、或前面加一句解释，仍然能读出来', () => {
+  const fenced = parseAppraisal('```json\n{"shifts":[{"kind":"joy","delta":10}],"warmth":1}\n```')
+  assert.equal(fenced?.shifts[0]?.kind, 'joy')
+
+  const chatty = parseAppraisal('好的，这是结果：\n{"shifts":[{"kind":"joy","delta":5}]}')
+  assert.equal(chatty?.shifts[0]?.delta, 5)
+})
+
+test('解析：完全不认识的输出返回 undefined（这一轮不动情绪）', () => {
+  assert.equal(parseAppraisal('我觉得她应该不太高兴'), undefined)
+  assert.equal(parseAppraisal('{"shifts":'), undefined)
+  assert.equal(parseAppraisal(''), undefined)
+})
+
+test('解析：不存在的情绪名被丢掉，其余照常生效', () => {
+  const pulse = parseAppraisal(
+    '{"shifts":[{"kind":"boredom","delta":20},{"kind":"anger","delta":10}],"warmth":0}',
+  )
+  assert.deepEqual(pulse?.shifts, [{ kind: 'anger', target: 'world', delta: 10, cause: '' }])
+})
+
+test('解析：离谱的增量被夹到 ±40，0 与字符串一律丢弃', () => {
+  const pulse = parseAppraisal(
+    '{"shifts":[{"kind":"anger","delta":999},{"kind":"joy","delta":"10"},{"kind":"sadness","delta":0}]}',
+  )
+  assert.deepEqual(pulse?.shifts, [{ kind: 'anger', target: 'world', delta: 40, cause: '' }])
+})
+
+test('解析：最多只收 3 条情绪（多了也读不懂）', () => {
+  const pulse = parseAppraisal(
+    '{"shifts":[{"kind":"anger","delta":10},{"kind":"joy","delta":10},{"kind":"sadness","delta":10},{"kind":"disgust","delta":10}]}',
+  )
+  assert.equal(pulse?.shifts.length, 3)
+})
+
+test('解析：全空等于"没影响"，返回 undefined 让上层跳过写盘', () => {
+  assert.equal(parseAppraisal('{"shifts":[],"warmth":0,"perceived":""}'), undefined)
+})
+
+/* ───────────────────────────── 渲染 ───────────────────────────── */
+
+/** 造一个"情绪到了某档"的状态。 */
+function withCharge(kind, intensity, cause = '') {
+  return apply(createInitialEmotionState(T0), [{ kind, delta: intensity, cause }], T0)
+}
+
+test('渲染：平静时什么都不说（空串）', () => {
+  const rendered = renderReminder(createInitialEmotionState(T0), new Date(T0))
+  assert.equal(rendered.text, '')
+  assert.equal(rendered.tier, 'calm')
+})
+
+test('渲染：低档位只让它落在措辞里，不写"你在生气"', () => {
+  const rendered = renderReminder(withCharge('disgust', 35, '被打断三次'), new Date(T0))
+  assert.equal(rendered.tier, 'faint')
+  assert.match(rendered.text, /厌烦/)
+  assert.match(rendered.text, /不说出来/)
+  assert.equal(/非常|气死|很委屈/.test(rendered.text), false, '低档位不该出现强词')
+})
+
+test('渲染：最高档才允许直接说，而且明确"只说一次"', () => {
+  const rendered = renderReminder(withCharge('anger', 80, '被反复否定'), new Date(T0))
+  assert.equal(rendered.tier, 'burst')
+  assert.match(rendered.text, /暴怒/)
+  assert.match(rendered.text, /只说一次/)
+})
+
+test('渲染：没有复合名时退回并列（只加一个"也"，不叠程度词）', () => {
+  // 二十四种复合覆盖了所有**非对极**的两两组合，所以唯一没有名字的就是一对对极
+  // （喜悦↔悲伤）。两条同强度：同分不互压，这里能干净地测并列写法。
+  const state = apply(
+    createInitialEmotionState(T0),
+    [
+      { kind: 'joy', delta: 60, cause: '被夸到点上' },
+      { kind: 'sadness', delta: 60, cause: '被当面说中' },
+    ],
+    T0,
+  )
+  const rendered = renderReminder(state, new Date(T0))
+  assert.match(rendered.text, /喜悦/)
+  assert.match(rendered.text, /也悲伤/)
+  assert.match(rendered.text, /被夸到点上/)
+  assert.equal(rendered.text.includes('也也'), false)
+})
+
+test('渲染：不给数字（模型会把百分比念出来）', () => {
+  const rendered = renderReminder(withCharge('anger', 82, '被否定'), new Date(T0))
+  assert.equal(/\d+%|\d{2}/.test(rendered.text), false)
+})
+
+test('渲染：对方的观察会带上，但过期（90 分钟）就不再提', () => {
+  const state = apply(
+    createInitialEmotionState(T0),
+    [{ kind: 'disgust', delta: 40 }],
+    T0,
+  )
+  const fresh = { ...state, perceived: '对方有点累', perceivedAt: T0 }
+  assert.match(renderReminder(fresh, new Date(T0)).text, /你注意到：对方有点累/)
+
+  const stale = new Date(Date.parse(T0) + 3 * 3_600_000).toISOString()
+  const old = settle(fresh, stale)
+  const rendered = renderReminder(old, new Date(stale))
+  assert.equal(rendered.text.includes('你注意到'), false)
+})
+
+/* ───────────────────────────── 合成 ───────────────────────────── */
+
+test('合成：厌恶 + 愤怒都够强时，用"轻蔑"而不是并列', () => {
+  const state = apply(
+    createInitialEmotionState(T0),
+    [
+      { kind: 'disgust', delta: 60, cause: '被冒犯到底线' },
+      { kind: 'anger', delta: 55, cause: '被否定' },
+    ],
+    T0,
+  )
+  const rendered = renderReminder(state, new Date(T0))
+  assert.match(rendered.text, /轻蔑/)
+  assert.equal(rendered.text.includes('也愤怒'), false, '合成之后不该再并列')
+  assert.match(rendered.text, /被冒犯到底线/)
+})
+
+test('合成：只有一条够强时仍是单情绪（不硬凑组合）', () => {
+  const state = apply(
+    createInitialEmotionState(T0),
+    [
+      { kind: 'anger', delta: 50, cause: '被否定' },
+      { kind: 'anger', delta: 10 },
+    ],
+    T0,
+  )
+  const rendered = renderReminder(state, new Date(T0))
+  assert.match(rendered.text, /愤怒/)
+  assert.equal(rendered.text.includes('轻蔑'), false)
+})
+
+/* ───────────────────────────── 精力 ───────────────────────────── */
+
+test('渲染：精力低会单独说一句，与情绪无关', () => {
+  const tired = { ...createInitialEmotionState(T0), energy: 30 }
+  const rendered = renderReminder(tired, new Date(T0))
+  assert.match(rendered.text, /有点累/)
+  assert.equal(rendered.energy, 'tired')
+
+  const exhausted = { ...createInitialEmotionState(T0), energy: 10 }
+  assert.match(renderReminder(exhausted, new Date(T0)).text, /很累/)
+})
+
+test('渲染：状态签名把情绪档位与精力档位都算进去', () => {
+  const calmFresh = renderReminder(createInitialEmotionState(T0), new Date(T0))
+  const calmTired = renderReminder({ ...createInitialEmotionState(T0), energy: 30 }, new Date(T0))
+  assert.notEqual(calmFresh.signature, calmTired.signature, '从有精神变累也算一次跨越')
+})

@@ -29,6 +29,21 @@ export interface EvolutionPageProps extends PropsLocale<typeof NS> {
 /** 回扫的四个范围档（顺序即下拉里的顺序）。 */
 const RESCAN_KINDS = ['days', 'workspace', 'session', 'all'] as const
 
+/**
+ * 浏览器自己的时区（判断"她的钟对不对"的参照）。
+ *
+ * 用浏览器的时间是刻意的：它和 DSH 注入给模型的"按这个时区解释时间"是同一个来源。
+ * 两边不一致就说明 Humanity 没跟着浏览器走 —— 那时候要让人看见，而不是让它静默算错。
+ * @returns 规范时区名；取不到时返回空串（老浏览器 / 受限的渲染环境）。
+ */
+function browserTimeZone(): string {
+  try {
+    return new Intl.DateTimeFormat('en-US').resolvedOptions().timeZone
+  } catch {
+    return ''
+  }
+}
+
 /** 状态行：四项就绪灯（降级原因如实展示，G-002「说清楚」）。 */
 function StatusPanel({ t, state }: { t: Translate; state: EvolutionWorkbenchState }) {
   const flags = [
@@ -38,6 +53,14 @@ function StatusPanel({ t, state }: { t: Translate; state: EvolutionWorkbenchStat
     ['evolution.status.model', state.evolutionStatus.modelReady],
   ] as const
   const nextRun = state.nextRunAt > 0 ? new Date(state.nextRunAt).toLocaleString() : t('evolution.nextRun.none')
+  // 时间基准：三个来源（她的钟 / 浏览器 / 来源说明）摊开写，不一致就明说。
+  const local = browserTimeZone()
+  const sourceKey = state.timeZoneSource === 'auto'
+    ? 'evolution.timeZone.auto'
+    : state.timeZoneSource === 'env'
+      ? 'evolution.timeZone.env'
+      : 'evolution.timeZone.default'
+  const mismatch = local !== '' && state.timeZone !== '' && local !== state.timeZone
   return (
     <section style={panel}>
       <h2 style={{ ...panelTitle, ...headingWithHint }}>
@@ -59,6 +82,13 @@ function StatusPanel({ t, state }: { t: Translate; state: EvolutionWorkbenchStat
         <span style={metricLabel}>{t('evolution.nextRun')}</span>
         <span style={metricValue}>{nextRun}</span>
       </div>
+      <div style={metricRow}>
+        <span style={metricLabel}>{t('evolution.timeZone')}</span>
+        <span style={metricValue}>{state.timeZone === '' ? '—' : state.timeZone}</span>
+        <span style={metricLabel}>{t(sourceKey)}</span>
+      </div>
+      {state.timeZoneSource === 'default' ? <p style={hint}>{t('evolution.timeZone.pending')}</p> : null}
+      {mismatch ? <p style={hint}>⚠️ {t('evolution.timeZone.mismatch', { browser: local, effective: state.timeZone })}</p> : null}
       <div style={metricRow}>
         <span style={metricLabel}>{t('evolution.baseline')}</span>
         <span style={metricValue}>{state.baselineAt === '' ? t('evolution.baseline.none') : state.baselineAt}</span>

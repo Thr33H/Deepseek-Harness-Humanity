@@ -25,9 +25,10 @@ import type { HumanityStore } from '../store.js'
 import { canRemember, isDegenerateAdvanced, overridesOf, resolveMemoryPolicy } from './policy.js'
 import { installMemoryInjection } from './inject.js'
 import { installMemorySection } from './section.js'
+import type { SearchMood } from './search.js'
 import { createMemoryStore, type MemoryStore } from './store.js'
 import { installMemoryTools } from './tools.js'
-import type { MemoryPolicy } from './types.js'
+import type { MemoryAffect, MemoryEntry, MemoryPolicy } from './types.js'
 
 /** 宿主交给记忆模块的外部事实（依赖由宿主注入，记忆内部不去猜）。 */
 export interface MemoryDeps {
@@ -39,6 +40,16 @@ export interface MemoryDeps {
   compat?(): CompatState
   /** 已就绪的套件存储句柄；未就绪时返回 `undefined`。 */
   store(): HumanityStore | undefined
+  /**
+   * 写下这一刻的情绪指纹（宿主从情绪模块现读；缺席时记忆照常写，只是不带温度）。
+   *
+   * 记忆不该因为情绪模块没接上就写不进去 —— 这条线是**可选增益**，不是前置条件。
+   */
+  affect?(): MemoryAffect | undefined
+  /** 这一轮想起了哪几条（宿主转给情绪模块做回声；失败了也只影响心情）。 */
+  onRecalled?(entries: readonly MemoryEntry[]): void
+  /** 此刻的心情（心境一致：同向的旧事更容易被想起；缺席时排序与没有这个能力时相同）。 */
+  mood?(): SearchMood | undefined
 }
 
 /** 记忆模块句柄：宿主、Agent 工具与工作台都由它进入记忆。 */
@@ -103,9 +114,15 @@ export function installMemory(ctx: Context, log: Log, deps: MemoryDeps): MemoryM
   // 工作台通道先建：Agent 工具落盘后要让它重新投影（`changed`），否则工作台会停在旧列表上
   // （真机症状：存储里已有记忆，`entries` 仍是 `[]`）。两者都不依赖对方的构造结果。
   const section = installMemorySection(ctx, log, { store, policy, advanced: deps.advanced, compat: deps.compat })
-  const tools = installMemoryTools(ctx, log, { store, policy, changed: () => void section.refresh() })
+  const tools = installMemoryTools(ctx, log, { store, policy, changed: () => void section.refresh(), affect: deps.affect })
   // 注入只读：开关、当前消息（事件缓存）与检索都在 inject.ts 里闭环。
-  const disposeInjection = installMemoryInjection(ctx, log, { store, policy, enabled: () => enabled })
+  const disposeInjection = installMemoryInjection(ctx, log, {
+    store,
+    policy,
+    enabled: () => enabled,
+    onRecalled: deps.onRecalled,
+    mood: deps.mood,
+  })
 
   /** 开关 + 策略共同决定"工具在不在模型可见集合里"。 */
   const sync = (): void => tools.setEnabled(enabled && canRemember(policy()))

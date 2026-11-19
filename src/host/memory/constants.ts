@@ -208,3 +208,36 @@ export type MemoryConfirmSource = (typeof MEMORY_CONFIRM_SOURCES)[number]
 
 /** 条目从未经过"待确认 → 生效"这一步时的 `confirmedVia` 取值。 */
 export const NOT_CONFIRMED = ''
+
+/**
+ * 情绪的**极性**（`+1` 正面 / `0` 中性 / `-1` 负面）。
+ *
+ * ⚠️ 这张表必须与 `emotion/constants.ts` 的 `EMOTION_KINDS` **逐项对应**：
+ * 记忆侧不 import 情绪模块（模块互相隔离），所以这份"几十个字符的知识"是刻意复制的，
+ * 由 `test/emotion-echo.test.mjs` 钉住两边一致 —— 加一种情绪却忘了这里，测试会红。
+ *
+ * 极性的划分沿用 Plutchik 的轮：喜悦/信任/期待在正面半圈，悲伤/厌恶/愤怒/恐惧在负面半圈，
+ * 惊讶在正中间（它本身不带好坏）。
+ *
+ * 为什么用极性而不是"同一种情绪"：人难过的时候，不光想起难过的事，
+ * 也更容易想起生气的事 —— 起作用的是**同向**，不是同名。
+ */
+export const MOOD_TONE: Readonly<Record<string, 1 | 0 | -1>> = {
+  joy: 1,
+  trust: 1,
+  anticipation: 1,
+  // 惊讶不带好坏：它是"没想到"，本身不构成心情。
+  surprise: 0,
+  sadness: -1,
+  disgust: -1,
+  anger: -1,
+  fear: -1,
+}
+
+/**
+ * 心境一致的**排序加成**（不是阈值加成）。
+ *
+ * 为什么只影响排序、不影响阈值：阈值决定"有没有资格被注入"，加成决定"谁排在前面"。
+ * 让加成参与阈值，等于说"心情差的时候更容易想起无关的旧事"——那是噪声，不是共情。
+ */
+export const MOOD_BONUS = 0.06

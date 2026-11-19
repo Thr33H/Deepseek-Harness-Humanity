@@ -15,7 +15,7 @@ import { installToolsSeam, type ToolsApi } from '../tools-seam.js'
 import type { MemoryStore } from './store.js'
 import { defineRecallTool, MEMORY_RECALL_TOOL } from './tools-recall.js'
 import { defineRememberTool, MEMORY_REMEMBER_TOOL } from './tools-remember.js'
-import type { MemoryPolicy } from './types.js'
+import type { MemoryAffect, MemoryPolicy } from './types.js'
 
 /** 工具运行期需要的外部事实（存储与策略都由调用方现取，避免把死句柄闭进工具）。 */
 export interface MemoryToolDeps {
@@ -29,6 +29,13 @@ export interface MemoryToolDeps {
    * （真机症状：存储里已有记忆，`entries` 仍是 `[]`）。缺失时静默跳过（测试与只读组合）。
    */
   changed?(): void
+  /**
+   * 写下这一刻的情绪指纹（由宿主从情绪模块现读）。
+   *
+   * 缺席时记成"平静"：情绪模块被关掉、或在旧组合里没接这条线，记忆照常写，
+   * 只是不带温度 —— 记忆本身不该因为情绪模块的缺席而写不进去。
+   */
+  affect?(): MemoryAffect | undefined
 }
 
 /** 工具定义助手与工具服务；两者都拿到才谈得上注册。 */

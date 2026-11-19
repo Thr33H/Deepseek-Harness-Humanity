@@ -507,6 +507,7 @@ test('两张卡各有自己的保存按钮（用户 2026-09-26；底栏不再重
   const seat = createElement(
     client.createWorkbenchSeat(
       controller,
+      new client.EmotionWorkbenchController(),
       new client.MemoryWorkbenchController(),
       new client.EvolutionWorkbenchController(),
     ),
@@ -530,9 +531,17 @@ test('封存按钮只在未封存时出现（页面标记层面钉住入口）',
   controller.attach(channel.channel)
   await settle(controller)
   const seat = (c) =>
-    createElement(client.createWorkbenchSeat(c, new client.MemoryWorkbenchController(), new client.EvolutionWorkbenchController()), {
-      t: (key) => String(key),
-    })
+    createElement(
+      client.createWorkbenchSeat(
+        c,
+        new client.EmotionWorkbenchController(),
+        new client.MemoryWorkbenchController(),
+        new client.EvolutionWorkbenchController(),
+      ),
+      {
+        t: (key) => String(key),
+      },
+    )
   const unsealed = render(seat(controller))
   assert.match(unsealed, /persona\.sealAction/, '未封存 ⇒ 有「封存」按钮')
   assert.match(unsealed, /persona\.unsealed/, '标签写的是"未封存"（不是"未初始化"）')

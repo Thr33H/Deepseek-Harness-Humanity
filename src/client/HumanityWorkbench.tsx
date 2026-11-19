@@ -2,6 +2,7 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { useState, useSyncExternalStore } from 'react'
 
 import { EvolutionPage } from './EvolutionPage.js'
+import { EmotionPage } from './EmotionPage.js'
 import { InfoHint } from './InfoHint.js'
 import { MemoryPage } from './MemoryPage.js'
 import { PendingCard } from './PendingCard.js'
@@ -9,6 +10,7 @@ import { OverviewPanel } from './WorkbenchOverview.js'
 import { PersonaEditor } from './PersonaEditor.js'
 import { WorkbenchTabs, type WorkbenchTab } from './WorkbenchTabs.js'
 import type { EvolutionWorkbenchController } from './evolution-controller.js'
+import type { EmotionWorkbenchController } from './emotion-controller.js'
 import type { MemoryWorkbenchController } from './memory-controller.js'
 import { NS } from './locales.js'
 import type { PersonaWorkbenchController } from './persona-controller.js'
@@ -17,6 +19,8 @@ import { column, page, title, titleRow } from './styles.js'
 /** 工作台属性：座位注入的本地化座位，加上闭包递进来的控制器。 */
 export interface HumanityWorkbenchProps extends PropsLocale<typeof NS> {
   controller: PersonaWorkbenchController
+  /** 情绪工作台控制器（只读观察窗）。 */
+  emotion: EmotionWorkbenchController
   /** 记忆工作台控制器（M3 步骤 8b 接入）。 */
   memory: MemoryWorkbenchController
   /** 自进化工作台控制器（M5 接入：时间线 / 提案 / 待确认页共用）。 */
@@ -26,17 +30,19 @@ export interface HumanityWorkbenchProps extends PropsLocale<typeof NS> {
 /**
  * Humanity 主工作台。
  *
- * 结构：标题（说明收进 ?）+ 常驻的待确认卡片 + 总览 + 三个模块卡片页签 + 当前页签的内容。
- * 数据只有一条来源：各命名空间经 `ctx.remote.settings` 读写（裁决 3），
+ * 结构：标题（说明收进 ?）+ 常驻的待确认卡片 + 总览 + 四个模块卡片页签 + 当前页签的内容。
+ * 数据只有一条来源：各控制器经 `connection`（自有数据面）读写，
  * 校验用的是宿主同一个规则模块（`persona/rules.ts`）。
- * @param props - 字典座位与三个工作台控制器。
+ * @param props - 字典座位与四个工作台控制器。
  */
-export function HumanityWorkbench({ t, controller, memory, evolution }: HumanityWorkbenchProps) {
+export function HumanityWorkbench({ t, controller, emotion, memory, evolution }: HumanityWorkbenchProps) {
   const [tab, setTab] = useState<WorkbenchTab>('persona')
   // 人格页自己出两张卡片（底色 / 信息），所以这里不再套一层面板与标题。
   const body =
     tab === 'persona' ? (
       <PersonaEditor t={t} controller={controller} />
+    ) : tab === 'emotion' ? (
+      <EmotionPage t={t} controller={emotion} />
     ) : tab === 'memory' ? (
       <MemoryPage t={t} controller={memory} />
     ) : (

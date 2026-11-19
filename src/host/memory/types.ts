@@ -72,6 +72,36 @@ export interface MemoryEntry {
   confirmedVia: MemoryConfirmSource | ''
   /** 条目结构版本（G-004）。 */
   entryVersion: number
+  /**
+   * 写下这条时的**情绪指纹**（见 {@link MemoryAffect}）。
+   *
+   * 为什么记忆要带情绪：记忆不是冷数据。被骂那天记下的"他今天很生气"，
+   * 和心情好时记下的同一句话，重量不一样。召回时把这份指纹带回一点，
+   * "想起一件事"才会带着当时的温度，而不是一条干巴巴的字符串。
+   */
+  affect: MemoryAffect
+}
+
+/**
+ * 一条记忆上的情绪指纹：**写下它的时候她是什么心情**。
+ *
+ * `kind` 为空串表示"当时没有明显情绪"——平静也是信息：至少说明那不是一次有情绪的对话。
+ */
+export interface MemoryAffect {
+  /** 当时的情绪种类（`emotion/constants.ts` 的 `EMOTION_KINDS` 之一；空串=平静）。 */
+  kind: string
+  /**
+   * 这股情绪当时**冲谁**（`user` / `self` / `world`）。
+   *
+   * 必须记：回声要把它加回**同一条**情绪上。只记种类的话，想起"她对我说的那句话"
+   * 会加到"对事"的那一条上（实测抓到：trust:user 40 旁边凭空多出 trust:world 5）。
+   * 旧条目没有这个字段，读成 `world`（最中性的默认）。
+   */
+  target: string
+  /** 当时的强度 0–100。 */
+  intensity: number
+  /** 当时的关系温度 0–100；**0 表示没有记录**（旧条目与平静写入都是这个值）。 */
+  warmth: number
 }
 
 /**
@@ -117,6 +147,8 @@ export interface MemoryEntryInput {
   ownerId?: string
   /** 状态；省略时取 `NEW_ENTRY_STATUS`（待确认）。 */
   status?: MemoryStatus
+  /** 写下这条时的情绪指纹；省略时是"平静"（见 {@link MemoryAffect}）。 */
+  affect?: MemoryAffect
 }
 
 /**

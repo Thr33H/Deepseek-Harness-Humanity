@@ -12,8 +12,9 @@
  */
 import { AnalysisOutputSchema, type AnalysisOutput } from './model.js'
 import { buildSystemPrompt, buildUserMessage, type PersonaCardSection } from './prompt.js'
-import type { LlmAccess } from './llm.js'
-import type { ModelRoute, RunMode } from './types.js'
+import type { LlmAccess } from '../llm.js'
+import type { ModelRoute } from '../llm.js'
+import type { RunMode } from './types.js'
 
 /** 解析失败（结构化原因；run.ts 把它写进运行记录）。 */
 export class AnalyzeError extends Error {

@@ -11,6 +11,7 @@
  */
 import type { SettingsProvider } from '@deepseek-ai/dsh-settings'
 
+import type { ClockReport } from '../clock.js'
 import type { Log } from '../log.js'
 import { EVOLUTION_NAMESPACE } from './constants.js'
 import { applyEvolutionRequest, EMPTY_REQUEST, type EvolutionOps, type EvolutionRequest } from './ops.js'
@@ -49,6 +50,8 @@ export interface EvolutionSectionDeps {
    * 两处各算一次，时区一换就会出现"界面显示今天用了 0 次、实际已经用满"。
    */
   dayKey?(): string
+  /** 时间基准状态（哪个时区生效、从哪来的）。缺席时投影写成空串，不编默认值。 */
+  clock?(): ClockReport | undefined
 }
 
 /** 运行期的完整依赖（接线状态由 section.ts 补进来）。 */
@@ -102,6 +105,7 @@ function projectionPatch(
   // 跨天归零：账本按日期记，昨天的数字不该显示成"今天用了多少"。
   // 「今天」由宿主按**调度时区**算好传进来（审计 E5）：这里再算一遍就是第二个真源，早晚分叉。
   const today = record.dailyDate === (deps.dayKey?.() ?? utcDateOf(Date.now()))
+  const clock = deps.clock?.()
 
   return {
     runs: store.listRuns().map(runViewOf),
@@ -109,6 +113,10 @@ function projectionPatch(
     pendingCounts: { ...counts, memory: memoryCount, total: counts.total + memoryCount },
     status: deps.status(),
     nextRunAt: deps.nextRunAt(),
+    // 时间基准：三个平铺字段（不是嵌套对象）—— schema 与客户端解析都只需要"有没有"。
+    timeZone: clock?.effective ?? '',
+    timeZoneSource: clock?.source ?? '',
+    timeZoneLearnedAt: clock?.learnedAt ?? '',
     baselineAt: record.baselineAt,
     dailyCalls: today ? record.dailyCalls : 0,
     dailyInputTokens: today ? record.dailyInputTokens : 0,
