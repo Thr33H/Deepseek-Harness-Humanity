@@ -86,9 +86,9 @@ test('同一处第二次明显更重；换对象或换情绪都不算同一处',
   const otherTarget = apply(base, [{ kind: 'anger', target: 'self', delta: 30 }], at(1))
   const otherKind = apply(base, [{ kind: 'sadness', target: 'user', delta: 30 }], at(1))
 
-  // 一小时前那一股愤怒还剩 21.2（半衰期 2 小时）；痕迹剩 0.2914 ⇒ 放大 1.146 倍。
-  // 21.2 + 30×1.146×(1−21.2/100) ≈ 48.3 —— 不比的话只有 44.8。
-  assert.equal(Math.round(intensityOf(same, 'anger', 'user') ?? 0), 48, '同一处的第二次更重')
+  // 一小时前那一股愤怒还剩 17.8（半衰期 2 小时，静默半小时后还会加速）；痕迹剩 0.2914
+  // ⇒ 放大 1.146 倍。17.8 + 30×1.146×(1−17.8/100) ≈ 46 —— 不加敏感化是 42.5。
+  assert.equal(Math.round(intensityOf(same, 'anger', 'user') ?? 0), 46, '同一处的第二次更重')
   assert.equal(Math.round(intensityOf(otherTarget, 'anger', 'self') ?? 0), 30, '换对象就不是同一处')
   assert.equal(Math.round(intensityOf(otherKind, 'sadness', 'user') ?? 0), 30, '换情绪就不是同一处')
 })
@@ -189,6 +189,38 @@ test('回声不算"又发生了一次"：不改痕迹，也不被放大', () => 
 
   const clean = apply(createInitialEmotionState(T0), [{ kind: 'anger', delta: 6, echo: true }], T0)
   assert.deepEqual(clean.sensitivities, [], '从平静里想起一件旧事，不该磨出痕迹')
+})
+
+test('替对方难过（vicarious）：情绪照常升起，但不记账、也不被放大', () => {
+  const state = apply(
+    createInitialEmotionState(T0),
+    [{ kind: 'sadness', target: 'user', delta: 18, cause: '他遇到糟心事', vicarious: true }],
+    T0,
+  )
+  // 情绪本身照常（她确实为他难过），只是这件事不是"她被伤到"。
+  assert.equal(Math.round(intensityOf(state, 'sadness', 'user') ?? 0), 18)
+  assert.deepEqual(state.sensitivities, [], '共情不是被刺，不留痕迹')
+})
+
+test('同样 18 分的悲伤，没标共情时照常记账（这条判据不是恒假的）', () => {
+  const state = apply(
+    createInitialEmotionState(T0),
+    [{ kind: 'sadness', target: 'user', delta: 18, cause: '被你这样说' }],
+    T0,
+  )
+  assert.equal(state.sensitivities.length, 1, '被对方伤到的那一笔要记账')
+})
+
+test('有痕迹时，共情那一笔也不被放大（放大只作用于"被刺"）', () => {
+  const worn = {
+    ...createInitialEmotionState(T0),
+    sensitivities: [{ kind: 'sadness', target: 'user', level: 0.8 }],
+  }
+  const vicarious = apply(worn, [{ kind: 'sadness', target: 'user', delta: 20, vicarious: true }], T0)
+  assert.equal(Math.round(intensityOf(vicarious, 'sadness', 'user') ?? 0), 20, '共情按原值')
+
+  const hurt = apply(worn, [{ kind: 'sadness', target: 'user', delta: 20 }], T0)
+  assert.equal(Math.round(intensityOf(hurt, 'sadness', 'user') ?? 0), 28, '被伤按 1.4 倍')
 })
 
 test('被反复辜负时，信任掉得更快（伤害方向的削减也照常放大）', () => {

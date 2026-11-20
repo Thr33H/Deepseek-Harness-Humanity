@@ -65,6 +65,18 @@ export function isSting(kind: EmotionKind, delta: number): boolean {
 }
 
 /**
+ * 是不是**负面**情绪（升上来就是刺痛的那四种：恐惧 / 悲伤 / 厌恶 / 愤怒）。
+ *
+ * 只回答极性，不回答"这一笔是不是伤害"（那是 {@link isSting}）。自调节只作用于负面情绪：
+ * 好心情本来就该慢慢淡，不需要"冷静"（见 `constants.ts` 的 `SOOTHE_QUIET_MINUTES`）。
+ * @param kind - 哪一种情绪。
+ * @returns 负面情绪时为 `true`。
+ */
+export function isAversive(kind: EmotionKind): boolean {
+  return EMOTION_STING_DIRECTION[kind] === 1
+}
+
+/**
  * 把痕迹按时间变淡，丢掉已经浅到没有意义的那些。
  *
  * 为什么把"比例"作为参数传进来，而不是在这里自己算半衰期：衰减公式只有一份

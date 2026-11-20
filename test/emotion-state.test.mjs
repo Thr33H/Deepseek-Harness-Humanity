@@ -30,12 +30,22 @@ test('出厂状态是平静的，且结算点就是诞生时刻', () => {
   assert.equal(dominantOf(state), undefined)
 })
 
-test('愤怒按自己的半衰期衰减：2 小时后剩一半', () => {
+test('愤怒：静默期之内按自己的半衰期退（20 分钟剩 71）', () => {
   const raised = apply(createInitialEmotionState(T0), [{ kind: 'anger', delta: 80, cause: '被否定' }], T0)
   assert.equal(raised.charges[0]?.intensity, 80)
 
+  const later = settle(raised, at(20 / 60))
+  // 80 × 2^-(20/120) ≈ 71.3 —— 还没过 30 分钟的静默期，自调节不参与。
+  assert.equal(Math.round(later.charges[0]?.intensity ?? 0), 71)
+})
+
+test('愤怒：静默半小时后自己加快，2 小时后剩 24 而不是 40', () => {
+  const raised = apply(createInitialEmotionState(T0), [{ kind: 'anger', delta: 80, cause: '被否定' }], T0)
   const later = settle(raised, at(2))
-  assert.equal(Math.round(later.charges[0]?.intensity ?? 0), 40)
+  // 前 30 分钟按自己的半衰期（×2^-0.25）；之后 90 分钟按加快的半衰期 1 小时（×2^-1.5）
+  // ⇒ 80 × 0.8409 × 0.3536 ≈ 23.8。纯被动衰减会是 40 —— 差的这 16 分就是"她自己冷静下来了"。
+  assert.equal(Math.round(later.charges[0]?.intensity ?? 0), 24)
+  assert.ok((later.charges[0]?.intensity ?? 0) < 40, '必须低于纯半衰期的结果')
 })
 
 test('不同情绪的半衰期互不影响（失落比愤怒耐用）', () => {
@@ -50,15 +60,15 @@ test('不同情绪的半衰期互不影响（失落比愤怒耐用）', () => {
   const later = settle(state, at(2))
   const anger = later.charges.find((charge) => charge.kind === 'anger')
   const sadness = later.charges.find((charge) => charge.kind === 'sadness')
-  // 2 小时：愤怒正好减半；失落（12 小时半衰期）还剩大部分。
-  assert.equal(Math.round(anger?.intensity ?? 0), 40)
-  assert.ok((sadness?.intensity ?? 0) > 70)
+  // 2 小时后：愤怒（2 小时半衰期 + 静默加速）剩 24；失落（12 小时半衰期 + 静默加速）剩 65。
+  assert.equal(Math.round(anger?.intensity ?? 0), 24)
+  assert.ok((sadness?.intensity ?? 0) > 60 && (sadness?.intensity ?? 0) < 80, '失落比愤怒耐用，但也在退')
 })
 
 test('低于地板就消失：不留 0.4 的残渣', () => {
-  const state = apply(createInitialEmotionState(T0), [{ kind: 'annoyance', delta: 2 }], T0)
+  // 用真实的情绪（惊讶，半衰期 60 分钟）：24 小时 = 24 个半衰期，2 × 2^-24 ≈ 1e-7。
+  const state = apply(createInitialEmotionState(T0), [{ kind: 'surprise', delta: 2 }], T0)
   assert.equal(state.charges.length, 1)
-  // 烦恼 3 小时半衰期：经过 24 小时剩 2 * 2^-8 ≈ 0.008，低于地板。
   const later = settle(state, at(24))
   assert.deepEqual(later.charges, [])
 })
@@ -76,8 +86,58 @@ test('结算点丢失（空串）时补上它，而不是永远不衰减', () =>
   const fixed = settle(broken, at(2))
   assert.equal(fixed.settledAt, at(2), '缺失的起点要被补成"现在"')
   // 起点未知 ⇒ 这一次不衰减（没法定区间），但下一次就正常了。
+  // 这条愤怒最后一次被碰到是 T0，结算起点（2 小时）早就过了静默期 ⇒ 这两小时全按加快的半衰期：
+  // 60 × 2^-2 = 15（纯半衰期会是 30）。
   const next = settle(fixed, at(4))
-  assert.equal(Math.round(next.charges[0]?.intensity ?? 0), 30, '补上起点之后按半衰期正常衰减')
+  assert.equal(Math.round(next.charges[0]?.intensity ?? 0), 15, '补上起点之后按（可能已加速的）半衰期正常衰减')
+})
+
+/* ───────────────────────── 自调节：没人再戳，气消得快一倍 ─────────────────────────
+ * 这一组钉的是"它会自己冷静"的三条性质：
+ * 1. 静默期内**不**加速（不能在对话进行中偷偷打折）；
+ * 2. 过了静默期才按加快的半衰期退，而且只作用于负面情绪；
+ * 3. 结果只取决于时间、不取决于被结算了几次（工作台每 30 秒读一次）。
+ */
+
+test('自调节：再被戳一次，静默期重新计时（不该提前进入加速档）', () => {
+  let state = apply(createInitialEmotionState(T0), [{ kind: 'anger', delta: 80 }], T0)
+  // 30 分钟时又被戳了一下：lastAt 刷新到这一刻，静默期要从这里重新数。
+  state = apply(state, [{ kind: 'anger', delta: 10 }], at(0.5))
+  const atHalf = state.charges[0]?.intensity ?? 0
+
+  const later = settle(state, at(1))
+  // 从 30 分钟到 1 小时都在新的静默期内 ⇒ 只按正常半衰期退（愤怒 2 小时 ⇒ 30 分钟 ×2^-0.25）。
+  assert.ok(Math.abs((later.charges[0]?.intensity ?? 0) - atHalf * Math.pow(0.5, 30 / 120)) < 1e-9)
+})
+
+test('自调节：结算次数不影响结果（拆成两次结算 == 一次算完）', () => {
+  const state = apply(createInitialEmotionState(T0), [{ kind: 'anger', delta: 80 }], T0)
+  const once = settle(state, at(2))
+  const split = settle(settle(state, at(1.5)), at(2))
+  // 如果实现成"每次结算打一次折"，这里会差出一截（工作台读得勤就会先消气）。
+  assert.ok(Math.abs((once.charges[0]?.intensity ?? 0) - (split.charges[0]?.intensity ?? 0)) < 1e-9)
+})
+
+test('自调节只作用于负面情绪：好心情照自己的半衰期退', () => {
+  const state = apply(createInitialEmotionState(T0), [{ kind: 'joy', delta: 80 }], T0)
+  const later = settle(state, at(4))
+  // 喜悦半衰期 4 小时：4 小时后正好一半，不参与"冷静"（好心情本来就该慢慢淡）。
+  assert.equal(Math.round(later.charges[0]?.intensity ?? 0), 40)
+})
+
+test('旧数据没有 lastAt：按原半衰期算，不猜', () => {
+  const raised = apply(createInitialEmotionState(T0), [{ kind: 'anger', delta: 80 }], T0)
+  const legacy = { ...raised, charges: [{ ...raised.charges[0], lastAt: '' }] }
+  const later = settle(legacy, at(2))
+  // 不知道最后一次被碰到是什么时候 ⇒ 不用加速档：纯半衰期 = 40。
+  assert.equal(Math.round(later.charges[0]?.intensity ?? 0), 40)
+})
+
+test('每次被戳都会刷新 lastAt（自调节的计时起点）', () => {
+  let state = apply(createInitialEmotionState(T0), [{ kind: 'anger', delta: 30 }], T0)
+  assert.equal(state.charges[0]?.lastAt, T0)
+  state = apply(state, [{ kind: 'anger', delta: 30 }], at(0.1))
+  assert.equal(state.charges[0]?.lastAt, at(0.1))
 })
 
 test('同一时刻重复结算不会把强度越算越小', () => {

@@ -306,6 +306,31 @@ export const SENSITIVITY_FLOOR = 0.02
 export const MAX_SENSITIVITIES = 6
 
 /**
+ * **自调节**：没人再戳的时候，气会自己消得快一些。
+ *
+ * 要解决的问题：情绪只会按半衰期被动衰减 —— 吵架之后她那股火要按"愤怒 2 小时"慢慢退，
+ * 中途你换个话题、不再提了，它退得还是一样慢。真实的人不是这样：**同一件事不再被重复提起，
+ * 它反而退得更快**；一直闷头琢磨才会把情绪拖长（Verduyn & Lavrijsen 2015，
+ * *Which emotions last longest and why: The role of event importance and rumination*,
+ * Motivation and Emotion 39, 119–127，[doi:10.1007/s11031-014-9445-y](https://doi.org/10.1007/s11031-014-9445-y)）。
+ *
+ * 所以规则只有一条，作用在**结算**里、与调用频率无关：
+ * - 一条**负面**情绪超过 {@link SOOTHE_QUIET_MINUTES} 分钟没有被新的刺痛碰到，它之后的衰减
+ *   按 {@link SOOTHE_HALF_LIFE_FACTOR} 倍半衰期算（即"消得快一倍"）；
+ * - 只有负面情绪（{@link EMOTION_STING_DIRECTION} 为 `+1` 的那四种）享受这条；
+ *   好心情本来就该慢慢淡，不需要"冷静"。
+ *
+ * 为什么按"区间切分"而不是"一次性打折"：结算会被读很多次（工作台每 30 秒读一次），
+ * 一次性打折会在每次读/写时重复生效 —— 那会变成"谁读得勤谁先消气"。
+ * 按"没被碰到的那段区间"算，结果只取决于时间，不取决于被算了多少次。
+ *
+ * 两个数都是自定的工程参数（没有权威给"多少分钟"），取整是为了好解释：
+ * 半小时是"这一轮对话里他不再提了"的粗粒度；一半是"明显能看出来、但不至于一句话就没事"。
+ */
+export const SOOTHE_QUIET_MINUTES = 30
+export const SOOTHE_HALF_LIFE_FACTOR = 0.5
+
+/**
  * 精力（独立一维，不是情绪）。
  *
  * 为什么单独一维：**"累"和"不高兴"是两件事**。累的人话少、懒得展开，但不一定生气；

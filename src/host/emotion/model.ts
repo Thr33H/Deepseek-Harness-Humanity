@@ -35,6 +35,9 @@ export const EmotionChargeSchema = z.object({
   intensity: z.number().min(0).max(EMOTION_MAX),
   cause: z.string().default(''),
   since: z.string().default(''),
+  // 旧条目没有这个字段：读成空串 = "不知道最近一次被碰到是什么时候"，
+  // 自调节于是不生效（按原来的半衰期算）—— 宁可少算，也不要拿一个猜的时刻去加速衰减。
+  lastAt: z.string().default(''),
 })
 
 /**

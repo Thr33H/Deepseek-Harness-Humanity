@@ -24,13 +24,15 @@ import {
   ENERGY_SLEEP_HOURS,
   MAX_CHARGES,
   SENSITIVITY_HALF_LIFE_MINUTES,
+  SOOTHE_HALF_LIFE_FACTOR,
+  SOOTHE_QUIET_MINUTES,
   WARMTH_BASELINE,
   WARMTH_HALF_LIFE_DAYS,
   type EmotionKind,
   type EmotionTarget,
   type EmotionTierId,
 } from './constants.js'
-import { decaySensitivity, isSting, recordSting, sensitivityFactor } from './sensitivity.js'
+import { decaySensitivity, isAversive, isSting, recordSting, sensitivityFactor } from './sensitivity.js'
 import type { EmotionCharge, EmotionState } from './types.js'
 
 /** 一次情绪变化（由事件评估产出，或由对方在对话里直接触发）。 */
@@ -57,6 +59,15 @@ export interface EmotionShift {
    * 于是"想起过一件事"在这份状态里完全看不出来。
    */
   echo?: boolean
+  /**
+   * 这一笔是不是**替对方**感到的（OCC 的 happy-for / sorry-for）。
+   *
+   * 为什么需要标记：`sadness + target=user` 既可能是"我为你难过"（共情），也是"被你弄难过"（受伤），
+   * 两者在情绪值上是同一条，但对敏感化的意义相反 —— 共情不是"被伤"。
+   * 有标记就不记账、也不放大（见 `sensitivity.ts`）；模型漏标时按"被伤"处理，
+   * 失败方向是保守的：最多回到加这个标记之前的行为。
+   */
+  vicarious?: boolean
 }
 
 /**
@@ -215,7 +226,7 @@ export function settle(state: EmotionState, now: string, timeZone?: string): Emo
   const minutes = (to - from) / 60_000
   const charges: EmotionCharge[] = []
   for (const charge of state.charges) {
-    const intensity = charge.intensity * remainingRatio(minutes, EMOTION_HALF_LIFE_MINUTES[charge.kind])
+    const intensity = charge.intensity * decayRatioOf(charge, from, minutes)
     // 低于地板就丢掉：留着一条 0.4 的残渣会让"平静"永远不成立。
     if (intensity < EMOTION_FLOOR) continue
     charges.push({ ...charge, intensity })
@@ -240,6 +251,33 @@ export function settle(state: EmotionState, now: string, timeZone?: string): Emo
     energy: settleEnergy(state.energy, minutes, from, to, timeZone),
     settledAt: now,
   }
+}
+
+/**
+ * 一条情绪在这段时间里该乘多少剩余比例（含**自调节**）。
+ *
+ * 把区间在「最后一次被碰到 + 静默阈值」处切一刀：前一段按自己的半衰期慢慢退，
+ * 后一段按加快的半衰期退（参数与依据见 `constants.ts` 的 `SOOTHE_QUIET_MINUTES`）。
+ *
+ * 为什么是**区间切分**而不是一次性打折：结算会被读很多次（工作台每 30 秒读一次），
+ * 一次性打折会在每次读/写时重复生效 —— 那会变成"谁读得勤谁先消气"。
+ * 只切区间，结果就只取决于时间。
+ *
+ * 只有负面情绪、且记过 `lastAt` 的才切；旧数据没有这个字段就按原来的半衰期算（宁可少算）。
+ * @param charge - 一条情绪（含强度、种类与最后一次被碰到的时刻）。
+ * @param fromMs - 本次结算的起点（epoch 毫秒）。
+ * @param minutes - 经过的分钟数。
+ * @returns 0–1 的剩余比例。
+ */
+function decayRatioOf(charge: EmotionCharge, fromMs: number, minutes: number): number {
+  const halfLife = EMOTION_HALF_LIFE_MINUTES[charge.kind]
+  const touchedAt = Date.parse(charge.lastAt)
+  if (!isAversive(charge.kind) || !Number.isFinite(touchedAt)) return remainingRatio(minutes, halfLife)
+  // 静默从"最后一次被碰到"开始算；起点已经过了静默期就整段都算冷静之后的那一档。
+  const fastFrom = touchedAt + SOOTHE_QUIET_MINUTES * 60_000
+  const normalMinutes = Math.min(minutes, Math.max(0, (fastFrom - fromMs) / 60_000))
+  const fastMinutes = minutes - normalMinutes
+  return remainingRatio(normalMinutes, halfLife) * remainingRatio(fastMinutes, halfLife * SOOTHE_HALF_LIFE_FACTOR)
 }
 
 /**
@@ -285,11 +323,14 @@ export function apply(state: EmotionState, pulse: EmotionPulse, now: string, tim
     /**
      * **敏感化**：同一处被反复刺痛之后，这一笔增量会更重（`sensitivity.ts` 说明依据与边界）。
      *
-     * 两条限制都写在这一行里：
+     * 三条限制都写在这一行里：
      * - 只放大"被刺痛"的那一向 —— 被哄好的那一笔不该放大，好事更不该；
-     * - 回声不放大，也不记账 —— 想起一件事不是又发生了一次。
+     * - 回声不放大，也不记账 —— 想起一件事不是又发生了一次；
+     * - **替对方感到的**（我为你难过 / 我替你气）不放大、也不记账 —— 共情不是"被伤"。
      */
-    const sting = shift.echo !== true && isSting(shift.kind, shift.delta)
+    const sting = shift.echo !== true
+      && shift.vicarious !== true
+      && isSting(shift.kind, shift.delta)
     const delta = sting ? shift.delta * sensitivityFactor(settled.sensitivities, shift.kind, target) : shift.delta
     /**
      * **边际递减**：强度越高，同样的好话效果越小。
@@ -338,6 +379,8 @@ export function apply(state: EmotionState, pulse: EmotionPulse, now: string, tim
       cause,
       // `since` 只在新建或原因变化时刷新：同一件事持续加强不该显示成"刚刚发生"。
       since: existing !== undefined && cause === existing.cause ? existing.since : now,
+      // `lastAt` 每次被碰到都刷新：自调节要靠它判断"这段时间里有没有被重新戳过"。
+      lastAt: now,
     })
   }
 

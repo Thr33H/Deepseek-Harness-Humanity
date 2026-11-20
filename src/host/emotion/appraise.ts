@@ -76,12 +76,17 @@ const APPRAISE_SYSTEM = [
   '- target="world"：冲事情本身，没有具体的人可以怪（"这事儿真烦"、"今天运气不错"）',
   '',
   'target 最容易判错的一类，单独说清楚（OCC 把这叫 happy-for / sorry-for）：',
-  '- **替对方高兴**（他升职了、他今天很好）→ joy + target="user"，不是 world。',
-  '- **替对方难过**（他遇到糟心事）→ sadness + target="user"，不是 world。',
+  '- **替对方高兴**（他升职了、他今天很好）→ joy + target="user"，**并且加 "vicarious": true**。',
+  '- **替对方难过**（他遇到糟心事）→ sadness + target="user"，**并且加 "vicarious": true**。',
   '- 对方让你高兴（夸你、信你、想着你）→ joy + target="user"。',
   '- 对方冒犯你 → anger + target="user"。',
   '- 只有"这件事本身"让你高兴/难过、跟具体的人无关时才用 world（比如天气、运气、一个客观消息）。',
   '判断口诀：问一句「这是冲谁的」。能换成"你让我…"或"我为你…"就是 user；能换成"我对自己…"就是 self；都换不进去才是 world。',
+  '',
+  '**"vicarious" 只加在"替对方"的那一种上**（我为你高兴 / 我替你难过 / 我替你气）——',
+  '它告诉下游"这是共情，不是我被对方伤到"。除此之外一律不写这个字段（省 token）。',
+  '带标记的例子（其余字段照常）：',
+  '{"shifts":[{"kind":"sadness","target":"user","delta":18,"cause":"他遇到糟心事","vicarious":true}],"warmth":-1,"warmthCause":"替他难受","perceived":"对方很低落"}',
   '',
   '规则：',
   '- shifts 最多 3 条，delta 取 -30 到 30 的整数，表示这句话让该情绪增强或减弱多少（百分制）。没有明显影响就给空数组。',
@@ -229,7 +234,18 @@ export function parseAppraisal(raw: string): EmotionPulse | undefined {
     if (!isKind(item.kind)) continue
     const delta = clampDelta(item.delta)
     if (delta === undefined) continue
-    shifts.push({ kind: item.kind, target: asTarget(item.target), delta, cause: shortText(item.cause) })
+    const shift: EmotionShift = {
+      kind: item.kind,
+      target: asTarget(item.target),
+      delta,
+      cause: shortText(item.cause),
+    }
+    /**
+     * 只有模型**明确**写了 `true` 才算共情；写 `"true"`（字符串）、写 1、漏写一律按"被伤"处理。
+     * 方向是保守的：看错的最坏结果是回到加这个标记之前的行为（该记账的照记账）。
+     */
+    if (item.vicarious === true) shift.vicarious = true
+    shifts.push(shift)
   }
 
   const warmthValue = typeof source.warmth === 'number' && Number.isFinite(source.warmth)

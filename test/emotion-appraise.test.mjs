@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 评估解析与提醒渲染的回归测试。
  *
  * 这两段是"情绪真的会动"的咽喉：
@@ -69,6 +69,21 @@ test('解析：最多只收 3 条情绪（多了也读不懂）', () => {
 
 test('解析：全空等于"没影响"，返回 undefined 让上层跳过写盘', () => {
   assert.equal(parseAppraisal('{"shifts":[],"warmth":0,"perceived":""}'), undefined)
+})
+
+test('解析：共情标记 vicarious 只在明确写了 true 时才生效（其余一律按"被伤"处理）', () => {
+  const pulse = parseAppraisal(
+    '{"shifts":['
+    + '{"kind":"sadness","target":"user","delta":18,"cause":"他遇到糟心事","vicarious":true},'
+    + '{"kind":"joy","target":"user","delta":10,"vicarious":"true"},'
+    + '{"kind":"anger","delta":12}'
+    + '],"warmth":0}',
+  )
+  assert.ok(pulse !== undefined)
+  assert.equal(pulse.shifts[0]?.vicarious, true, '明确 true 才算')
+  // 字符串 "true" 不算 —— 模型最容易在这里写错；按"被伤"处理是保守方向。
+  assert.deepEqual(pulse.shifts[1], { kind: 'joy', target: 'user', delta: 10, cause: '' })
+  assert.equal('vicarious' in (pulse.shifts[2] ?? {}), false, '没写就没有这个键（不塞 false 进状态）')
 })
 
 /* ───────────────────────────── 渲染 ───────────────────────────── */
