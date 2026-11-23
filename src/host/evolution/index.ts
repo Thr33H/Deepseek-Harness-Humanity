@@ -1,180 +1,239 @@
 /**
- * 自进化模块的**唯一入口**（与人格/记忆同一条约定：宿主只调 `installEvolution(...)` 一行）。
+ * 自进化模块（她自己的时间）——**唯一入口**。
  *
- * ### 装配时序（为什么 runner/scheduler 是"存储就绪后懒装"）
- * 存储（storageDomain）是**异步打开**的，而调度器一装就要读写单值状态（nextRunAt、补跑对账）。
- * 与其让调度器处处判空，不如等 `notifyStoreReady()` 一次到位——与记忆模块"存储就绪后
- * 补消费命令 + 重投影"是同一种时序处理。存储没就绪前：工作台投影为空、命令被跳过、
- * 调度不排程；就绪那一刻：对账错过的定时、投影一次。
+ * 与人格/记忆同一条约定：宿主只调 `installEvolution(...)` 一行。
  *
- * ### 模块独立（P-048）
- * 记忆/人格句柄都是宿主喂进来的**现读函数**：那边关了或未就绪，这边对应分类自动跳过，
- * 绝不替关掉的模块写数据，也不因为别人缺席而自己崩溃。
+ * ### 这一版做了什么（第 0 期）
+ *
+ * 1. 她的房间：一个只属于她的会话（第一次投递时由调度服务自动创建）；
+ * 2. 一次一约：每次醒来结束时，把**下一次**排到未来某个随机时刻；
+ * 3. 醒来的那一轮，她自己决定做什么（提示词只说清"没有人在等你"）。
+ *
+ * 还没做：精力（按 token 算累不累）、线索账、睡前收账（日记/记忆/性格）。见设计方案的分期。
+ *
+ * ### 时序纪律（这一条以前踩过三次）
+ *
+ * 存储是**异步打开**的，状态文档在打开之前读不到。所以：
+ * - 装配期什么都不排（读了也是空文档）；
+ * - `notifyStoreReady()` 才第一次排程；
+ * - 开关/配置变化只调 `reconfigure()`（内部重排），不缓存任何"就绪"快照。
  * @module humanity/evolution
  */
 import type { Context } from '@deepseek-ai/cordis'
 
-import type { HumanityConfig } from '../config.js'
-import type { ClockReport } from '../clock.js'
+import type { DocumentStore } from '../documents.js'
 import type { Log } from '../log.js'
-import type { HumanityStore } from '../store-schema.js'
-import type { MemoryStore } from '../memory/store.js'
-import type { PersonaSection } from '../persona/section.js'
-import { installActivityTracker } from './activity.js'
-import { createLlmAccess } from '../llm.js'
-import { installProposalNotification } from './notify.js'
-import { createProposalActions } from './proposals.js'
-import type { Runner } from './run.js'
-import type { SchedulerHandle } from './scheduler.js'
-import { installEvolutionSection, type EvolutionSection } from './section.js'
-import { dayKeyOf, effectiveSchedule } from './schedule-time.js'
-import { createEvolutionState, type EvolutionState } from './state.js'
-import { buildRunner, buildScheduler } from './runtime.js'
-import { pendingFacts, sessionQueryReader, stateReader } from './wiring.js'
+import { afterWake, nextGapSeconds, readState, writeState, type WakeRhythm } from './state.js'
+import { ensureTask, reschedule, setActive, type RoomDeps, type ScheduleServiceLike } from './room.js'
+import { WAKE_MARKER } from './constants.js'
+import { buildWakePrompt } from './wake.js'
 
-/** 宿主交给自进化模块的外部事实（全部现读，不缓存死句柄）。 */
+/** 宿主交给自进化模块的外部事实（全部现读，不缓存句柄）。 */
 export interface EvolutionDeps {
-  store(): HumanityStore | undefined
-  config(): HumanityConfig
-  memoryStore(): MemoryStore | undefined
-  personaSection(): PersonaSection | undefined
-  /** 时间基准状态（工作台展示"现在用哪个时区、从哪来的"）。缺席时投影为空串。 */
-  clock?(): ClockReport | undefined
+  /** 文档表（存储未就绪时 `undefined`）。 */
+  documents(): DocumentStore | undefined
+  /** 模块开关：总开关 × 自进化开关 × 人格已封存。 */
+  enabled(): boolean
+  /** 醒来的节奏参数（现读配置）。 */
+  wake(): WakeRhythm
+  /** 生效时区（`undefined` = 跟随进程时区）。 */
+  timeZone(): string | undefined
+  /** `$DSH_HOME`（房间目录要用）。 */
+  homeDir(): string | undefined
 }
 
-/** 自进化模块句柄。 */
+/** 模块句柄。 */
 export interface EvolutionModule {
-  /** 配置开关驱动（宿主 syncModulesEnabled 调）。 */
+  /** 开关变化（宿主 `syncModulesEnabled` 调）。 */
   setEnabled(enabled: boolean): void
-  /** 设置变更：重排调度并重投影（宿主 onChanged 调）。 */
+  /** 配置变化：重排下一次（宿主 `onChanged` 调）。 */
   reconfigure(): void
-  /** 重新投影一次。 */
+  /** 时间基准变化后重排一次（宿主 `clock.onChanged` 调）。 */
   refresh(): Promise<void>
-  /** 存储刚就绪：懒装 runner/scheduler、补消费命令、重投影。 */
+  /** 存储就绪：第一次排程。 */
   notifyStoreReady(): void
+  /** 卸载。 */
   dispose(): void
 }
 
-/** 模块内部状态（懒装件 + 开关）。 */
-interface EvolutionStateful {
-  enabled: boolean
-  runner?: Runner
-  scheduler?: SchedulerHandle
-  /** 懒装件对应的存储表组：存储服务摘除再挂回时表是新对象，懒装件必须跟着重建。 */
-  installedTables?: unknown
+/** 一条消息里模型能看到的所有文本（只取 text 块）。 */
+function textOf(message: unknown): string {
+  const content = (message as { content?: unknown } | undefined)?.content
+  if (!Array.isArray(content)) return ''
+  return content
+    .map((block) => {
+      const candidate = block as { type?: unknown; text?: unknown }
+      return candidate?.type === 'text' && typeof candidate.text === 'string' ? candidate.text : ''
+    })
+    .join('\n')
+}
+
+/** 这条消息是不是"她自己的时间"那一条（导出给测试：醒来判据写错会让你的提醒也算她醒来）。 */
+export function isWakeMessage(message: unknown): boolean {
+  const source = (message as { source?: { kind?: unknown } } | undefined)?.source
+  if (source?.kind !== 'schedule') return false
+  return textOf(message).includes(WAKE_MARKER)
 }
 
 /**
  * 装配自进化模块。
  * @param ctx - 宿主上下文。
  * @param log - 日志门面。
- * @param deps - 宿主注入的外部事实。
+ * @param deps - 外部事实。
+ * @returns 模块句柄。
  */
 export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): EvolutionModule {
-  const internal: EvolutionStateful = { enabled: true }
-  const readState = stateReader(deps.store)
-  const sessionQuery = sessionQueryReader(ctx)
-  const llm = createLlmAccess(ctx, log)
-  const activity = installActivityTracker(ctx)
-  const pending = pendingFacts(readState)
-  const moduleEnabled = (): boolean => {
-    const config = deps.config()
-    return internal.enabled && config.enabled && config.modules.evolution.enabled
-  }
-
-  const section: EvolutionSection = installEvolutionSection(ctx, log, {
-    state: readState,
-    ops: () => {
-      const state = readState()
-      if (state === undefined || internal.runner === undefined) return undefined
-      return {
-        runner: internal.runner,
-        proposals: createProposalActions({ state, persona: deps.personaSection, log }),
-        refresh: () => void section.refresh(),
-        warn: (message, error) => log.warn(message, error),
+  let enabled = true
+  /** 排程进行中的标记：防止启动、配置变更、存储就绪三件事同时排程。 */
+  let arming = false
+  /** "调度服务不在"只提醒一次：它每个配置变更都会被重试，逐次告警会刷屏。 */
+  let warnedNoSchedule = false
+  const moduleEnabled = (): boolean => enabled && deps.enabled()
+  const schedule = (): ScheduleServiceLike | undefined => {
+    const service = ctx.get('schedule') as ScheduleServiceLike | undefined
+    if (service === undefined || typeof service.create !== 'function') {
+      if (!warnedNoSchedule) {
+        warnedNoSchedule = true
+        log.warn('没有调度服务（DSH 的 schedule 未启用）：她不会有自己的时间；其余功能不受影响')
       }
-    },
-    status: () => ({
-      enabled: moduleEnabled(),
-      // ⚠️ 0.1.9：这一位**由真实句柄现算**，不再由投影层写死 `true`。
-      // 旧写法是 `section-runtime` 里 `{ ...deps.status(), storeReady: true }` —— 一句**断言**，
-      // 不是**测量**：2026-10-05 排查时就出现过"工作台显示存储就绪，而所有状态写入都在抛错"的局面，
-      // 差点被当成"存储是好的"的证据。现在值从 `readState()`（存储域句柄）来，改不动就改不动。
-      storeReady: readState() !== undefined,
-      scanReady: sessionQuery() !== undefined,
-      modelReady: llm.route() !== undefined,
-    }),
-    nextRunAt: () => internal.scheduler?.nextRunAt() ?? 0,
-    dailyCallCap: () => deps.config().modules.evolution.budget.dailyCallCap,
-    // 「今天」按调度时区算，与运行记账共用 `dayKeyOf`（审计 E5：UTC 日期与调度日差 8 小时）。
-    dayKey: () =>
-      dayKeyOf(
-        Date.now(),
-        effectiveSchedule(deps.config().modules.evolution.schedule, deps.clock?.()?.effective),
-        (message) => log.warn(message),
-      ),
-    // 时间基准：投影只如实转述（哪个时区、从哪来的、什么时候学到的）。
-    clock: () => deps.clock?.(),
-  })
-
-  const disposeNotify = installProposalNotification(ctx, log, {
-    state: readState,
-    pending,
-    enabled: moduleEnabled,
-  })
-
-  // 模型适配器（凭据解析后）注册得比启动首投影**晚**：不跟着适配器清单变化重投影的话，
-  // 工作台的「模型解析」就绪灯会停在启动时的旧值 false（TEST 真机 2026-09-25 实拍）。
-  // 事件在运行时发射（编译 `dsh-llm/lib/index.js:1753`）但类型面未声明 ⇒ 按结构监听，
-  // 与 `agent/status` 同一纪律（不声明依赖、事件缺席只是不刷新）。
-  const on = ctx.on as unknown as (name: string, listener: (payload: unknown) => void) => () => void
-  const disposeAdapterListener = on('llm/adapters-updated', () => {
-    void section.refresh().catch((error: unknown) => log.warn('适配器变化后的重投影失败', error))
-  })
-
-  /** 存储就绪后的一次性懒装：runner + scheduler；存储重开时重建懒装件。 */
-  const ensureInstalled = (): void => {
-    const opened = deps.store()
-    if (opened === undefined) return
-    if (internal.runner !== undefined && internal.installedTables === opened.evolution) return
-    if (internal.runner !== undefined) {
-      // 存储服务摘除又挂回：旧表句柄已经死了，调度器与 runner 必须换到新表上。
-      internal.scheduler?.dispose()
-      internal.runner = undefined
-      internal.scheduler = undefined
+      return undefined
     }
-    internal.installedTables = opened.evolution
-    const state = createEvolutionState(opened.evolution)
-    const parts = { deps, moduleEnabled, sessionQuery, llm, activity, log, refresh: () => void section.refresh() }
-    internal.runner = buildRunner(parts, state)
-    internal.scheduler = buildScheduler(ctx, parts, state, internal.runner)
+    return service
+  }
+  const roomDeps: RoomDeps = { schedule, homeDir: deps.homeDir, log }
+
+  /**
+   * 把下一次醒来排好。
+   *
+   * 三种情况：
+   * 1. 没有任务 ⇒ 建一个（第一次投递时顺带开出她的房间）；
+   * 2. 有任务、但下一次已经过期/没排 ⇒ 重新排；
+   * 3. 有任务、下一次还在未来 ⇒ **不动它**（重启不该把已定的时刻推翻）。
+   * @param reason - 日志里说明是谁触发的。
+   */
+  const arm = async (reason: string): Promise<void> => {
+    if (arming) return
+    if (!moduleEnabled()) return
+    const documents = deps.documents()
+    if (documents === undefined) return
+    arming = true
+    try {
+      const state = readState(documents)
+      const now = new Date().toISOString()
+      const timeZone = deps.timeZone()
+      const hasFuture =
+        state.taskId !== ''
+        && state.nextAt !== ''
+        && Number.isFinite(Date.parse(state.nextAt))
+        && Date.parse(state.nextAt) > Date.parse(now)
+      if (hasFuture) {
+        await setActive(roomDeps, state.taskId, true)
+        return
+      }
+      const gap = nextGapSeconds(state, deps.wake(), now, timeZone)
+      if (gap === undefined) {
+        await setActive(roomDeps, state.taskId, false)
+        return
+      }
+      const outcome = state.taskId === ''
+        ? await ensureTask(roomDeps, state.taskId, gap, buildWakePrompt(now, timeZone))
+        : await reschedule(roomDeps, state.taskId, gap)
+      if (!outcome.ok) {
+        log.warn(`${reason}：没有排上——${outcome.reason}`)
+        return
+      }
+      await writeState(documents, {
+        taskId: outcome.room.taskId,
+        roomSessionId: outcome.room.sessionId,
+        nextAt: outcome.room.nextAt,
+      })
+      log.info(`${reason}：她下一次醒来 ${outcome.room.nextAt === '' ? '（时间未回报）' : outcome.room.nextAt}`)
+    } finally {
+      arming = false
+    }
   }
 
-  const cleanup = (): void => {
-    internal.scheduler?.dispose()
-    activity.dispose()
-    disposeAdapterListener()
-    disposeNotify()
-    log.info('自进化模块已卸载')
+  /**
+   * 一次醒来之后：记账 + 排下一次。
+   *
+   * 为什么触发了就立刻排，而不是等她这一轮跑完：我们拿不到"这一轮结束"这个时刻，
+   * 而"下一次该来"是必须成立的承诺 —— 宁可早排（多一次醒来），不可漏排（她从此不再醒）。
+   * @param at - 醒来的时刻。
+   */
+  const settleWake = async (at: string): Promise<void> => {
+    const documents = deps.documents()
+    if (documents === undefined) return
+    const timeZone = deps.timeZone()
+    const before = readState(documents)
+    const patch = afterWake(before, at, timeZone)
+    await writeState(documents, patch)
+    const after = { ...before, ...patch }
+    const gap = nextGapSeconds(after, deps.wake(), at, timeZone)
+    if (gap === undefined) {
+      await setActive(roomDeps, after.taskId, false)
+      log.info('她醒了一次；今天的次数到了上限，不再排下一次')
+      return
+    }
+    const outcome = await reschedule(roomDeps, after.taskId, gap)
+    if (outcome.ok) {
+      await writeState(documents, { nextAt: outcome.room.nextAt, roomSessionId: outcome.room.sessionId })
+    }
+    log.info(`她醒了一次（今天第 ${after.dayCount} 次）；下一次 ${outcome.ok ? outcome.room.nextAt : '没排上'}`)
   }
-  ctx.effect(() => cleanup, 'humanity: 自进化模块卸载')
 
-  log.info('自进化模块已装配（扫描/解析/提案/调度就绪；等待存储打开后排程）')
+  const on = ctx.on as unknown as (
+    name: string,
+    listener: (payload: unknown, next: () => Promise<unknown>) => Promise<unknown>,
+  ) => () => void
+
+  const disposeStep = on('agent/pre-step', async (payload, next) => {
+    const decision = (await next()) as { kind?: string; messages?: unknown[] } | null
+    if (decision === null || decision.kind !== 'enter') return decision
+    const { step } = (payload ?? {}) as { step?: number }
+    // 只看每一步的第一步：一次醒来是一轮对话，不是每一步都要记一次。
+    if (step !== 1) return decision
+    if (!moduleEnabled()) return decision
+    const messages = Array.isArray(decision.messages) ? decision.messages : []
+    if (!messages.some(isWakeMessage)) return decision
+    // 落账放在异步尾巴上：她这一轮不必等一次调度写入。
+    void settleWake(new Date().toISOString()).catch((error: unknown) => {
+      log.warn('醒来之后没能排下一次（这一次不影响对话）', error)
+    })
+    return decision
+  })
+
+  ctx.effect(
+    () => () => {
+      disposeStep()
+      log.info('自进化模块已卸载')
+    },
+    'humanity: 自进化卸载',
+  )
+
+  log.info('自进化模块已装配（等存储就绪后第一次排程）')
 
   return {
     setEnabled(next) {
-      internal.enabled = next
-      internal.scheduler?.reconfigure()
+      enabled = next
+      if (next && moduleEnabled()) {
+        void arm('开关打开').catch((error: unknown) => log.warn('开关打开后没能排程', error))
+        return
+      }
+      const documents = deps.documents()
+      if (documents !== undefined) {
+        const state = readState(documents)
+        void setActive(roomDeps, state.taskId, false)
+      }
     },
     reconfigure() {
-      internal.scheduler?.reconfigure()
-      void section.refresh().catch((error: unknown) => log.warn('配置变更后的重投影失败', error))
+      void arm('配置变更').catch((error: unknown) => log.warn('配置变更后没能重排', error))
     },
-    refresh: section.refresh,
+    refresh: () => arm('时间基准变化'),
     notifyStoreReady() {
-      ensureInstalled()
-      section.notifyStoreReady()
+      void arm('存储就绪').catch((error: unknown) => log.warn('存储就绪后没能排程', error))
     },
-    dispose: cleanup,
+    dispose() {
+      enabled = false
+    },
   }
 }

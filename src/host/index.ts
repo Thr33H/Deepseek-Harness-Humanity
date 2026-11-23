@@ -24,7 +24,6 @@ import type { EmotionPulse } from './emotion/state.js'
 import { accumulate, applyDrift, DRIFT_FLUSH_MS, dueToFlush, nudgesOf } from './persona/drift.js'
 import type { CharacterAxisKey } from './persona/constants.js'
 import { installEvolution } from './evolution/index.js'
-import { EVOLUTION_NAMESPACE } from './evolution/constants.js'
 import { createLog, type Log } from './log.js'
 import { createModuleRegistry, describeModules, MODULES, type Disposer, type ModuleRegistry } from './modules.js'
 import { migrateLegacyDocuments } from './migrate.js'
@@ -39,7 +38,6 @@ import { installHumanityStore } from './store.js'
 
 export { Config, MODULE_IDS } from './config.js'
 export { PERSONA_NAMESPACE } from './persona/section.js'
-export { EVOLUTION_NAMESPACE } from './evolution/constants.js'
 export type { HumanityConfig, ModuleId } from './config.js'
 export type { HumanityModule, ModuleRuntimeState, ModuleStatus } from './modules.js'
 
@@ -115,7 +113,7 @@ function syncModulesEnabled(state: HostState, next: HumanityConfig): void {
 function openStore(ctx: Context, log: Log, state: HostState, onDocuments: (documents: DocumentStore) => void): void {
   installHumanityStore(ctx, log, (opened) => {
     state.store = opened
-    log.info('存储已就绪（历史表 + 记忆表 + 自进化四表 + 文档表可用）')
+    log.info('存储已就绪（历史表 + 记忆表 + 情绪表 + 文档表可用）')
     // 文档表一就绪就补迁移：人格文档本体只在旧的 settings 文件里，晚一步都是数据风险。
     onDocuments(opened.documents)
     // 人格：**必须等这一刻**。命名空间注册得比存储早，那期间 `get()` 返回的是默认文档
@@ -216,8 +214,8 @@ export function apply(ctx: Context, config: HumanityConfig): void {
     log,
     // 用户偏好：自动跟浏览器（默认）/ 固定一个时区。现读，改设置立刻生效。
     preference: () => {
-      const schedule = settings.read().modules.evolution.schedule
-      return { auto: schedule.autoTimeZone !== false, zone: schedule.timezone }
+      const zone = settings.read().timeZone
+      return { auto: zone.auto !== false, zone: zone.fixed }
     },
     // 生效时区一变就重投影一次：工作台的"时间基准"必须立刻反映真相。
     onChanged: () => {
@@ -288,8 +286,8 @@ export function apply(ctx: Context, config: HumanityConfig): void {
   state.emotion = installEmotion(ctx, log, emotionDeps(settings, state, clockHandle, onEmotionApplied))
   // 记忆模块：同样一个入口。模式与存储句柄都**现读不缓存**（P-030）。
   state.memory = installMemory(ctx, log, memoryDeps(settings, state, clockHandle))
-  // 自进化模块（M5）：整理管线 + 提案系统 + 调度 + 对话内提醒。跨模块句柄现读（P-048）。
-  state.evolution = installEvolution(ctx, log, evolutionDeps(settings, state, clockHandle))
+  // 自进化（第 0 期）：她的房间 + 一次一约的醒来。跨模块事实全部现读（P-048）。
+  state.evolution = installEvolution(ctx, log, evolutionDeps(settings, state, clockHandle, dshHome))
   syncModulesEnabled(state, settings.read())
 
   // 预设（2026-11-14）：未封存只有"取内容"的工具，封存后换成沉浸式清单。

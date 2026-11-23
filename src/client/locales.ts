@@ -1,12 +1,11 @@
 /**
- * 工作台文案（人格部分；记忆与自进化分别在 `memory-locales.ts` / `evolution-locales.ts`，末尾合并）。
+ * 工作台文案（人格部分；情绪与记忆分别在 `emotion-locales.ts` / 记忆页自带，末尾合并）。
  *
  * 为什么用 DSH 的 locale 字典而不是写死中文：套件要求「公开、通用」，面板文案随 DSH 的语言
  * 设置切换是原生行为；DSH 的语言注入是**编译期**检查的 —— 文末 `declare module` 把本命名空间
  * 并入 `LocaleNamespaceMap`，`PropsLocale<'humanity'>` 才有带类型的 `t`，缺键或多键编译期报错。
  */
 
-import { evolutionEn, evolutionZh } from './evolution-locales.js'
 import { emotionEn, emotionZh } from './emotion-locales.js'
 import { workbenchEn, workbenchZh } from './workbench-locales.js'
 
@@ -287,9 +286,9 @@ const personaEn = {
   'persona.characterAxisMissing': 'Missing (not provided at initialization)',
 } satisfies Record<keyof typeof personaZh, string>
 
-/** 人格 + 情绪 + 记忆 + 自进化四套文案合成同一个字典（对 DSH 仍只是一个 `humanity` 字典；`en` 同键检查照旧）。 */
-export const zh = { ...workbenchZh, ...personaZh, ...emotionZh, ...memoryZh, ...evolutionZh }
-export const en = { ...workbenchEn, ...personaEn, ...emotionEn, ...memoryEn, ...evolutionEn } satisfies Record<keyof typeof zh, string>
+/** 人格 + 情绪 + 记忆三套文案合成同一个字典（对 DSH 仍只是一个 `humanity` 字典；`en` 同键检查照旧）。 */
+export const zh = { ...workbenchZh, ...personaZh, ...emotionZh, ...memoryZh }
+export const en = { ...workbenchEn, ...personaEn, ...emotionEn, ...memoryEn } satisfies Record<keyof typeof zh, string>
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {

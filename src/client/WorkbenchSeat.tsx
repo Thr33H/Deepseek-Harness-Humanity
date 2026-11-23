@@ -4,7 +4,6 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { HumanityWorkbench } from './HumanityWorkbench.js'
 import { NS } from './locales.js'
 import { PersonaBoundary } from './PersonaBoundary.js'
-import type { EvolutionWorkbenchController } from './evolution-controller.js'
 import type { EmotionWorkbenchController } from './emotion-controller.js'
 import type { MemoryWorkbenchController } from './memory-controller.js'
 import type { PersonaWorkbenchController } from './persona-controller.js'
@@ -49,26 +48,19 @@ function FallbackNote({ kind }: { kind: 'broken' | 'unwired' }) {
  * 1. **属性规范化**：`t` 不是函数就用键名兜底，不抛；
  * 2. **错误边界**：子树渲染抛错只影响我们这一块，不卸载整个 React 根；
  * 3. **控制器缺失**：渲染中性说明，而不是让 `undefined.xxx` 一路炸下去。
- *
- * ⚠️ 第 3 条**三个控制器都查**（2026-09-26 审计 C1）：旧写法只查了人格那一个，而记忆/自进化
- * 控制器缺席时（通道未接上/模块被关）工作台照样带着 `undefined` 往下渲染 ——
- * 页面在 `controller.subscribe` 上抛错，被第 2 条接住，用户看到的是"渲染出错"那句**诊断错误**的话。
- * 现在缺哪个都走同一条中性说明，并且说明的是真实原因。
  * @param controller - 人格工作台控制器（由 `apply()` 在插件挂载时创建）。
  * @param emotion - 情绪工作台控制器（只读观察窗）。
  * @param memory - 记忆工作台控制器。
- * @param evolution - 自进化工作台控制器（M5：运行时间线、提案与待确认页共用它）。
  * @returns 可直接注册进 `main` 槽位的组件。
  */
 export function createWorkbenchSeat(
   controller: PersonaWorkbenchController,
   emotion: EmotionWorkbenchController,
   memory: MemoryWorkbenchController,
-  evolution: EvolutionWorkbenchController,
 ) {
   return function WorkbenchSeat(props: SeatProps) {
     const t = (typeof props?.t === 'function' ? props.t : fallbackTranslate) as PropsLocale<typeof NS>['t']
-    const unwired = [controller, emotion, memory, evolution].some((seat) => seat === undefined || seat === null)
+    const unwired = [controller, emotion, memory].some((seat) => seat === undefined || seat === null)
     return (
       // `PersonaBoundary` 是**产品级防御**，不是排查用的脚手架：工作台里任何一次渲染抛错，
       // React 会把**整个根**卸载（真机现象：点会话 → 会话列表全没了）。边界把爆炸半径收到
@@ -77,7 +69,7 @@ export function createWorkbenchSeat(
         {unwired ? (
           <FallbackNote kind="unwired" />
         ) : (
-          <HumanityWorkbench t={t} controller={controller} emotion={emotion} memory={memory} evolution={evolution} />
+          <HumanityWorkbench t={t} controller={controller} emotion={emotion} memory={memory} />
         )}
       </PersonaBoundary>
     )

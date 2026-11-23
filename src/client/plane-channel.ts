@@ -76,7 +76,7 @@ export interface RpcCaller {
 const COMMAND_SETTLE_MS = 250
 
 /** 命令槽类命名空间（需要等宿主消费完再读）。 */
-const COMMAND_NAMESPACES = ['humanity-memory', 'humanity-evolution']
+const COMMAND_NAMESPACES = ['humanity-memory']
 
 /** 等一会儿；`setTimeout` 在浏览器与 Node 里都有。 */
 function delay(ms: number): Promise<void> {

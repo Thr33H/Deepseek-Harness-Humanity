@@ -1,15 +1,12 @@
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-import { useState, useSyncExternalStore } from 'react'
+import { useState } from 'react'
 
-import { EvolutionPage } from './EvolutionPage.js'
 import { EmotionPage } from './EmotionPage.js'
 import { InfoHint } from './InfoHint.js'
 import { MemoryPage } from './MemoryPage.js'
-import { PendingCard } from './PendingCard.js'
 import { OverviewPanel } from './WorkbenchOverview.js'
 import { PersonaEditor } from './PersonaEditor.js'
 import { WorkbenchTabs, type WorkbenchTab } from './WorkbenchTabs.js'
-import type { EvolutionWorkbenchController } from './evolution-controller.js'
 import type { EmotionWorkbenchController } from './emotion-controller.js'
 import type { MemoryWorkbenchController } from './memory-controller.js'
 import { NS } from './locales.js'
@@ -21,21 +18,18 @@ export interface HumanityWorkbenchProps extends PropsLocale<typeof NS> {
   controller: PersonaWorkbenchController
   /** 情绪工作台控制器（只读观察窗）。 */
   emotion: EmotionWorkbenchController
-  /** 记忆工作台控制器（M3 步骤 8b 接入）。 */
+  /** 记忆工作台控制器。 */
   memory: MemoryWorkbenchController
-  /** 自进化工作台控制器（M5 接入：时间线 / 提案 / 待确认页共用）。 */
-  evolution: EvolutionWorkbenchController
 }
 
 /**
  * Humanity 主工作台。
  *
- * 结构：标题（说明收进 ?）+ 常驻的待确认卡片 + 总览 + 四个模块卡片页签 + 当前页签的内容。
- * 数据只有一条来源：各控制器经 `connection`（自有数据面）读写，
- * 校验用的是宿主同一个规则模块（`persona/rules.ts`）。
- * @param props - 字典座位与四个工作台控制器。
+ * 结构：标题（说明收进 ?）+ 总览 + 三张模块卡片页签 + 当前页签的内容。
+ * 数据只有一条来源：各控制器经 `connection`（自有数据面）读写。
+ * @param props - 字典座位与三个工作台控制器。
  */
-export function HumanityWorkbench({ t, controller, emotion, memory, evolution }: HumanityWorkbenchProps) {
+export function HumanityWorkbench({ t, controller, emotion, memory }: HumanityWorkbenchProps) {
   const [tab, setTab] = useState<WorkbenchTab>('persona')
   // 人格页自己出两张卡片（底色 / 信息），所以这里不再套一层面板与标题。
   const body =
@@ -43,10 +37,8 @@ export function HumanityWorkbench({ t, controller, emotion, memory, evolution }:
       <PersonaEditor t={t} controller={controller} />
     ) : tab === 'emotion' ? (
       <EmotionPage t={t} controller={emotion} />
-    ) : tab === 'memory' ? (
-      <MemoryPage t={t} controller={memory} />
     ) : (
-      <EvolutionPage t={t} controller={evolution} />
+      <MemoryPage t={t} controller={memory} />
     )
 
   return (
@@ -60,10 +52,7 @@ export function HumanityWorkbench({ t, controller, emotion, memory, evolution }:
           </div>
         </header>
 
-        {/* 待确认常驻顶部：有积压时一眼看到，展开就能处理 */}
-        <PendingCard t={t} evolution={evolution} memory={memory} />
-
-        <OverviewPanel t={t} memory={memory} evolution={evolution} persona={controller} />
+        <OverviewPanel t={t} memory={memory} persona={controller} />
 
         {/* 切换页签只影响显示哪一块，不动任何数据。 */}
         <WorkbenchTabs t={t} tab={tab} onSelect={setTab} />

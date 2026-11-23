@@ -11,8 +11,6 @@ import { z } from 'zod'
 import type { Log } from './log.js'
 import { reportBootFailure } from './log.js'
 import { createDocumentStore, DOCUMENTS_TABLE, DocumentRecordSchema } from './documents.js'
-import { CURSORS_TABLE, PROPOSALS_TABLE, RUNS_TABLE, STATE_TABLE } from './evolution/constants.js'
-import { CursorRecordSchema, ProposalRecordSchema, RunRecordSchema, StateRecordSchema } from './evolution/model.js'
 import { EMOTION_TABLE } from './emotion/constants.js'
 import { EmotionStateSchema } from './emotion/model.js'
 import { MEMORY_TABLE } from './memory/constants.js'
@@ -188,10 +186,6 @@ async function purgeUnreadable(domain: { table(name: string): unknown }, log: Lo
 const ALL_TABLES = [
   HISTORY_TABLE,
   MEMORY_TABLE,
-  RUNS_TABLE,
-  PROPOSALS_TABLE,
-  CURSORS_TABLE,
-  STATE_TABLE,
   DOCUMENTS_TABLE,
   EMOTION_TABLE,
 ] as const
@@ -273,10 +267,6 @@ export async function openDomain(facility: DomainFacility, log: Log): Promise<Hu
         tables: {
           [HISTORY_TABLE]: module.domainTable(tolerantRecord(PersonaHistorySchema)),
           [MEMORY_TABLE]: module.domainTable(tolerantRecord(MemoryRecordSchema)),
-          [RUNS_TABLE]: module.domainTable(tolerantRecord(RunRecordSchema)),
-          [PROPOSALS_TABLE]: module.domainTable(tolerantRecord(ProposalRecordSchema)),
-          [CURSORS_TABLE]: module.domainTable(tolerantRecord(CursorRecordSchema)),
-          [STATE_TABLE]: module.domainTable(tolerantRecord(StateRecordSchema)),
           [DOCUMENTS_TABLE]: module.domainTable(tolerantRecord(DocumentRecordSchema)),
           [EMOTION_TABLE]: module.domainTable(tolerantRecord(EmotionStateSchema)),
         },
@@ -318,19 +308,12 @@ export async function openDomain(facility: DomainFacility, log: Log): Promise<Hu
     const history = domain.table(HISTORY_TABLE)
     const memory = domain.table(MEMORY_TABLE) as unknown as HumanityStore['memory']
     const emotion = domain.table(EMOTION_TABLE) as unknown as HumanityStore['emotion']
-    const evolution: HumanityStore['evolution'] = {
-      runs: domain.table(RUNS_TABLE) as unknown as HumanityStore['evolution']['runs'],
-      proposals: domain.table(PROPOSALS_TABLE) as unknown as HumanityStore['evolution']['proposals'],
-      cursors: domain.table(CURSORS_TABLE) as unknown as HumanityStore['evolution']['cursors'],
-      state: domain.table(STATE_TABLE) as unknown as HumanityStore['evolution']['state'],
-    }
     const documents = domain.table(DOCUMENTS_TABLE) as unknown as Parameters<typeof createDocumentStore>[0]
     const settled = await settleMeta(domain, log)
     return {
       installedAt: settled.installedAt,
       memory,
       emotion,
-      evolution,
       recordHistory: (entry) => history.put(`${entry.at}#${entry.path}`, entry),
       pruneHistory: (cutoff) => pruneHistoryTable(history, cutoff),
       historyCount: () => history.size,

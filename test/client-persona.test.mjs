@@ -509,7 +509,6 @@ test('两张卡各有自己的保存按钮（用户 2026-09-26；底栏不再重
       controller,
       new client.EmotionWorkbenchController(),
       new client.MemoryWorkbenchController(),
-      new client.EvolutionWorkbenchController(),
     ),
     { t: (key) => String(key) },
   )
@@ -536,7 +535,6 @@ test('封存按钮只在未封存时出现（页面标记层面钉住入口）',
         c,
         new client.EmotionWorkbenchController(),
         new client.MemoryWorkbenchController(),
-        new client.EvolutionWorkbenchController(),
       ),
       {
         t: (key) => String(key),

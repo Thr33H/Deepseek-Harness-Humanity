@@ -8,7 +8,6 @@
 import type { DomainFacility, DomainSpec, DomainTableSpec } from '@deepseek-ai/dsh-storage-domain'
 import { z } from 'zod'
 
-import type { EvolutionTables } from './evolution/state.js'
 import type { EmotionTableHandle } from './emotion/store.js'
 import type { MemoryTableHandle } from './memory/store.js'
 import { DOCUMENTS_TABLE, DocumentRecordSchema, type DocumentStore } from './documents.js'
@@ -48,16 +47,20 @@ export const DOMAIN_VERSION = 1
  *
  * 与介质版本正交：介质版本管"文件能不能读"，这个管"读出来的内容是哪一代、要不要改造"。
  * 1 → 2：新增历史表 `persona_history`；2 → 3：新增记忆表 `memory_entries`；
- * 3 → 4：新增自进化四表（`evolution_runs` / `evolution_proposals` / `evolution_cursors` / `evolution_state`）；
+ * 3 → 4：新增自进化四表（旧引擎的 run / proposal / cursor / state）；
  * 4 → 5：新增文档表 `documents`（0.1.7 起 settings 不再承载任意文档，人格文档与开关覆盖改由我们自己落盘）；
- * 5 → 6：新增情绪表 `emotion_state`（全局一份，键固定 `current`）。
- * 五次都是**加表**，对已有记录没有影响，但都要显式写进 {@link MIGRATIONS}（见那里的说明）。
+ * 5 → 6：新增情绪表 `emotion_state`（全局一份，键固定 `current`）；
+ * 6 → 7：**移除自进化四表**（2026-11-23 拆除旧引擎：她自己的时间换成了另一套机制，
+ *        占用的是文档表里的一份状态）。旧文件里那四张表的记录会随下一次写入消失 ——
+ *        这是有意的：旧引擎的提案与运行记录已经没有读者。
+ *
+ * 除 6 → 7 之外都是**加表**，对已有记录没有影响，但都要显式写进 {@link MIGRATIONS}（见那里的说明）。
  *
  * 名字里的 `PERSONA_` 是历史包袱（M2 时只有人格数据）。现在它覆盖整个套件的数据代数，
  * 但**不改名**：`docs/handoff/QA-M2.md` 与 `docs/reports/VERIFY-M2.md` 的实读记录引用的
  * 就是这个名字，改名会让那些记录对不上，而功能收益为零。数据里存的是数字，不受影响。
  */
-export const PERSONA_DATA_SCHEMA_VERSION = 6
+export const PERSONA_DATA_SCHEMA_VERSION = 7
 
 /**
  * 声明"当前 schema 也接受这些旧版本的已存数据"。
@@ -140,12 +143,12 @@ export interface DomainMeta {
 /**
  * 数据 schema 的迁移链：键是**来源**代数，值把该代数据升到下一代。
  *
- * 1 → 2（加历史表）、2 → 3（加记忆表）、3 → 4（加自进化四表）与 4 → 5（加文档表）都是空操作：
- * 新增的表在旧文件里不存在，打开时由 storage-domain 自动补成空表
- * （`records === undefined → 空 Map`），对已有记录没有任何影响。
+ * 1 → 2（加历史表）、2 → 3（加记忆表）、3 → 4（加旧引擎四表）、4 → 5（加文档表）与
+ * 6 → 7（移除旧引擎四表）都是空操作：新增的表在旧文件里不存在，打开时由 storage-domain
+ * 自动补成空表（`records === undefined → 空 Map`）；移除的表不再声明，解析时被忽略、
+ * 下一次写入即消失。
  * 但**必须显式写出来**：迁移链的意义是让每一次代数跳跃都有人负责；
  * 缺一步就应当在打开时报错，而不是默许一个没人担保的数据形状继续跑。
- * （链条也不能跳代：将来若要做真转换，第 2 代的老文件正是靠这几步走过来的。）
  */
 export const MIGRATIONS: ReadonlyMap<number, (meta: DomainMeta) => DomainMeta> = new Map([
   [1, (meta: DomainMeta): DomainMeta => ({ ...meta, schemaVersion: 2 })],
@@ -153,6 +156,7 @@ export const MIGRATIONS: ReadonlyMap<number, (meta: DomainMeta) => DomainMeta> =
   [3, (meta: DomainMeta): DomainMeta => ({ ...meta, schemaVersion: 4 })],
   [4, (meta: DomainMeta): DomainMeta => ({ ...meta, schemaVersion: 5 })],
   [5, (meta: DomainMeta): DomainMeta => ({ ...meta, schemaVersion: 6 })],
+  [6, (meta: DomainMeta): DomainMeta => ({ ...meta, schemaVersion: 7 })],
 ])
 
 /** 已打开的套件存储。 */
@@ -161,8 +165,6 @@ export interface HumanityStore {
   readonly installedAt: string
   /** 记忆条目表（键 = 去重指纹）。记忆模块只通过它读写条目。 */
   readonly memory: MemoryTableHandle
-  /** 自进化四表（运行记录 / 提案 / 游标 / 单值状态）。自进化模块只通过它读写。 */
-  readonly evolution: EvolutionTables
   /** 情绪状态表（全局一份，键固定 `current`）。情绪模块只通过它读写。 */
   readonly emotion: EmotionTableHandle
   /**

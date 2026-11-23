@@ -228,7 +228,7 @@ test('remote 走可选注入，且注入的是命名空间服务 remote.settings
   // 旧写法只注入父服务 `remote` 会抢跑（命名空间 `remote.settings` 由 api-remotes 异步挂载）；
   // 0.1.7 起工作台改走自有数据面，调用面是客户端 `connection` 服务（`rpc.call('/api', …)`），
   // 所以这里必须逐个钉住 `['connection']` —— 写成别的（或写回旧值）就是通道又挂错了侧。
-  assert.deepEqual(injected, [['connection'], ['connection'], ['connection'], ['connection']])
+  assert.deepEqual(injected, [['connection'], ['connection'], ['connection']])
 
   assert.deepEqual(
     localeNamespaces.map((entry) => entry.ns),
@@ -283,16 +283,15 @@ test('侧栏字形只画图标，不包按钮（按钮由侧栏外壳负责）',
   const panel = registrations.find((entry) => entry.options.name === 'sidebar.panellist')
   const markup = render(nodeRequire('react').createElement(panel.component, { size: 16, active: false }))
 
-  // 要守的三件事：① 图标在最外层 span 里（M5 起外面多一层相对定位容器，用来放 P-042 的
-  // 待确认红点——槽位契约没有徽标字段，红点只能画在我们自己注册的组件内部）；
-  // ② 图标本体仍是 svg，不夹带任何调试标记；③ 没有自己包一层 button。
-  assert.match(markup, /^<span/)
+  // 要守的两件事：① 图标本体就是 svg，不夹带任何调试标记；② 没有自己包一层 button
+  // （旧引擎拆除后，「待确认红点」那张相对定位容器也一起消失了）。
+  assert.match(markup, /^<svg/)
   assert.match(markup, /<svg/)
   assert.doesNotMatch(markup, /DEBUG/, '调试标记必须已经清理干净')
   assert.doesNotMatch(markup, /<button/)
 })
 
-test('工作台能渲染：总览四项（无通道时如实说读不到）+ 页面清单', async () => {
+test('工作台能渲染：总览两项（无通道时如实说读不到）+ 页签', async () => {
   const descriptor = await loadBundle()
   const plugin = descriptor.factory(createPlatformRequire())
   const { ctx, registrations, localeNamespaces } = createFakeContext()
@@ -308,22 +307,22 @@ test('工作台能渲染：总览四项（无通道时如实说读不到）+ 页
   for (const jargon of ['M6', 'M5', '占位', '已裁撤', '未接入']) {
     assert.ok(!markup.includes(jargon), `界面里不该出现开发黑话「${jargon}」`)
   }
-  assert.match(markup, /待确认/, '待确认卡片常驻顶部（用户 2026-09-26 定的信息架构）')
-  assert.match(markup, /没有积压/, '没积压时也要明确说一句，让人一眼知道不用管')
+  // 旧引擎的「待确认」常驻卡片随引擎一起删除：没有东西可确认了。
+  assert.ok(!markup.includes('待确认'), '旧引擎拆除后不该再有待确认卡片')
 
-  // 总览四项（用户 2026-09-26 定的口径）：姓名 / 当前策略 / 最近行为 / 消耗。
+  // 总览两项：姓名 / 记忆条数（2026-11-23 起不再有"策略摘要/最近行为/消耗"）。
   assert.match(markup, /总览/)
-  for (const label of ['姓名', '当前策略摘要', '最近行为', '消耗']) {
+  for (const label of ['姓名', '记忆']) {
     assert.ok(markup.includes(label), `总览区缺少指标：${label}`)
   }
   // 姓名来自信息：测试里没设过 ⇒ 如实说"还没设置"，不编一个名字。
   assert.match(markup, /还没设置/, '没设姓名时不许编')
-  // 其余三项来自宿主投影（控制器未接通道 ⇒ 如实说读不到）。
-  assert.equal(markup.split('暂时读不到').length - 1, 3, '三项指标无通道时如实说读不到')
+  // 记忆来自宿主投影（控制器未接通道 ⇒ 如实说读不到）。
+  assert.equal(markup.split('暂时读不到').length - 1, 1, '记忆指标无通道时如实说读不到')
   assert.ok(!markup.includes('后续版本提供'), '不再有"后续版本提供"这种空头承诺')
 
-  // 页面清单整段已按用户的决定**删除**（不可交互的重复列表只是噪音）；页签与总览仍在。
-  for (const label of ['总览', '记忆', '自进化', '待确认']) {
+  // 三张模块页签（人格 / 情绪 / 记忆）仍在。
+  for (const label of ['总览', '记忆', '情绪']) {
     assert.ok(markup.includes(label), `工作台缺少页面/页签：${label}`)
   }
   assert.ok(!markup.includes('计划中的页面') && !markup.includes('数据 / 设置'), '不该再有页面清单与占位项')
@@ -337,38 +336,25 @@ test('工作台能渲染：总览四项（无通道时如实说读不到）+ 页
   assert.ok(countHints(markup) >= 5, '卡片与条目旁边都要有「?」入口')
   assert.match(markup, /data-tooltip="[^"]*DSH 设置/, '「?」里必须如实指路：开关在 DSH 设置里调')
 
-  // 页签换成卡片式：四张等宽卡片，当前页只有一张亮着。
-  assert.match(markup, /grid-template-columns:repeat\(4, minmax\(0, 1fr\)\)/, '页签是四张等宽卡片')
+  // 页签换成卡片式：三张等宽卡片，当前页只有一张亮着。
+  assert.match(markup, /grid-template-columns:repeat\(3, minmax\(0, 1fr\)\)/, '页签是三张等宽卡片')
   assert.equal(markup.split('aria-current="page"').length - 1, 1, '当前页只能有一张卡片亮着')
 })
 
-test('总览四项：接上投影后显示真实策略 / 最近活动 / 预算（真数据优先于空态）', async () => {
+test('总览：接上投影后显示真实记忆条数（真数据优先于空态）', async () => {
   const client = (await loadBundle()).factory(createPlatformRequire())
   const { ctx, localeNamespaces } = createFakeContext()
   client.apply(ctx)
   const translate = translator(localeNamespaces)
 
   const memory = fakeSnapshotController({ status: 'ready', doc: { entries: [], stats: { total: 9 }, projectedAt: '', storeReady: true } })
-  const evolution = fakeSnapshotController({
-    status: 'ready',
-    config: { schedule: { mode: 'idle' } },
-    runs: [
-      { startedAt: '2026-09-25T17:21:00.001Z', status: 'completed' },
-      { startedAt: '2026-09-26T02:54:59.966Z', status: 'failed' },
-    ],
-    dailyCalls: 5,
-    dailyCallCap: 20,
-  })
-  const markup = render(nodeRequire('react').createElement(client.OverviewPanel, { t: translate, memory, evolution }))
+  const markup = render(nodeRequire('react').createElement(client.OverviewPanel, { t: translate, memory }))
 
-  assert.match(markup, /记忆 共 9 条 · 自进化 空闲自动/, '策略摘要读记忆条数与调度方式')
-  assert.match(markup, /09-26 02:54 · 失败/, '最近活动取时间线里最后一条（不是第一条）')
-  assert.match(markup, /今日 5 \/ 20 次调用/, '预算读宿主账本')
+  assert.match(markup, /9 条/, '记忆指标读宿主投影里的条数')
   assert.ok(!markup.includes('暂时读不到'), '有数据时不该再说读不到')
   // 字体口径（用户 2026-09-26）：左侧指标名小一号，右侧取值大一号并加粗。
   assert.match(markup, /font-size:13px/, '指标名要小一号')
   assert.match(markup, /font-size:17px;font-weight:600/, '取值要大一号且加粗')
-  assert.match(markup, /data-tooltip="[^"]*余额查不到/, '消耗行的「?」要交代余额为什么查不到')
 })
 
 test('人格页在通道就绪时渲染出可编辑的底色与信息（M2 步 6）', async () => {
@@ -438,7 +424,6 @@ test('崩溃防线：属性兜底、控制器缺失、文档缺数组 —— 三
         new plugin.PersonaWorkbenchController(),
         new plugin.EmotionWorkbenchController(),
         new plugin.MemoryWorkbenchController(),
-        new plugin.EvolutionWorkbenchController(),
       ),
       {},
     ),
@@ -496,7 +481,6 @@ test('宿主返回缺数组的文档时，工作台照样渲染（render 期不�
         controller,
         new plugin.EmotionWorkbenchController(),
         new plugin.MemoryWorkbenchController(),
-        new plugin.EvolutionWorkbenchController(),
       ),
       { t: (key) => key },
     ),
@@ -550,7 +534,6 @@ async function renderPersona(client, controller) {
     controller,
     new client.EmotionWorkbenchController(),
     new client.MemoryWorkbenchController(),
-    new client.EvolutionWorkbenchController(),
   )
   // `t` 只回键名：这一组断言看的是**结构与标记**，不是文案（文案由字典测试单独钉住）。
   return render(nodeRequire('react').createElement(seat, { t: (key) => key }))

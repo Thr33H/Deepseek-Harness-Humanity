@@ -22,12 +22,10 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { createElement } from 'react'
 
-import { EvolutionWorkbenchController } from './evolution-controller.js'
 import { EmotionWorkbenchController } from './emotion-controller.js'
-import { HumanityPanelIconWithBadge } from './HumanityPanelIcon.js'
+import { HumanityPanelIcon } from './HumanityPanelIcon.js'
 import { PANEL_LABEL, PANEL_ORDER, WORKBENCH_ID } from './ids.js'
 import { en, NS, zh } from './locales.js'
-import { EVOLUTION_NAMESPACE } from './evolution-channel.js'
 import { EMOTION_NAMESPACE } from './emotion-channel.js'
 import { MEMORY_NAMESPACE } from './memory-channel.js'
 import { PERSONA_NAMESPACE, PersonaWorkbenchController } from './persona-controller.js'
@@ -76,15 +74,9 @@ function safeRegister(what: string, register: () => unknown): void {
 }
 
 /** 侧栏入口。list 槽位：新增一个 id 是"并排多一个"，而不是顶掉别人。 */
-function registerSidebarEntry(ctx: Context, evolution: EvolutionWorkbenchController): void {
-  // 红点计数订阅面（P-042）：图标组件闭包持有控制器的订阅与快照读取。
-  // index.ts 是 .ts 不是 .tsx：用 createElement 包一层，槽位契约本身不动。
+function registerSidebarEntry(ctx: Context): void {
   const icon = (props: { size?: number; active?: boolean }): ReturnType<typeof createElement> =>
-    createElement(HumanityPanelIconWithBadge, {
-      ...props,
-      subscribe: evolution.subscribe,
-      getCount: () => evolution.getSnapshot().pendingCounts.total,
-    })
+    createElement(HumanityPanelIcon, props)
   safeRegister('侧栏入口', () =>
     ctx.slots.inject('sidebar.panellist', () =>
       ctx.slots.register({ name: 'sidebar.panellist', id: WORKBENCH_ID, order: PANEL_ORDER, label: PANEL_LABEL }, icon),
@@ -107,18 +99,16 @@ function registerWorkbench(ctx: Context, seat: ReturnType<typeof createWorkbench
 export function apply(ctx: Context): void {
   registerLocale(ctx)
 
-  // 四个状态机都不含 React，只持有"草稿/投影 + 远程通道"。
+  // 三个状态机都不含 React，只持有"草稿/投影 + 远程通道"。
   const controller = new PersonaWorkbenchController()
   const emotion = new EmotionWorkbenchController()
   const memory = new MemoryWorkbenchController()
-  const evolution = new EvolutionWorkbenchController()
   attachRemoteController(ctx, controller, PERSONA_NAMESPACE, '人格')
   attachRemoteController(ctx, emotion, EMOTION_NAMESPACE, '情绪')
   attachRemoteController(ctx, memory, MEMORY_NAMESPACE, '记忆')
-  attachRemoteController(ctx, evolution, EVOLUTION_NAMESPACE, '自进化')
 
-  registerSidebarEntry(ctx, evolution)
-  registerWorkbench(ctx, createWorkbenchSeat(controller, emotion, memory, evolution))
+  registerSidebarEntry(ctx)
+  registerWorkbench(ctx, createWorkbenchSeat(controller, emotion, memory))
 }
 
 // 这几个符号导出是**给测试用的**（与第一方客户端插件导出自己的控制器同一做法）：
@@ -126,20 +116,13 @@ export function apply(ctx: Context): void {
 export { PERSONA_NAMESPACE, PersonaWorkbenchController } from './persona-controller.js'
 export { HUMANITY_NAMESPACE } from './persona-channel.js'
 export { MEMORY_NAMESPACE } from './memory-channel.js'
-export { EVOLUTION_NAMESPACE, EVOLUTION_OPS } from './evolution-channel.js'
 export { EMOTION_NAMESPACE, asEmotionDocument } from './emotion-channel.js'
 export { EmotionWorkbenchController } from './emotion-controller.js'
 export { EmotionPage } from './EmotionPage.js'
 export { asMemoryDocument } from './memory-document.js'
-export { asEvolutionConfig, defaultEvolutionConfig } from './evolution-config-doc.js'
-export { asEvolutionDocument, emptyEvolutionState } from './evolution-document.js'
-export { EvolutionWorkbenchController } from './evolution-controller.js'
 export { MemoryWorkbenchController } from './memory-controller.js'
 export { MemoryPage } from './MemoryPage.js'
-export { PendingDetails } from './PendingPage.js'
-export { PendingCard } from './PendingCard.js'
-export { EvolutionPage } from './EvolutionPage.js'
-export { HumanityPanelIcon, HumanityPanelIconWithBadge } from './HumanityPanelIcon.js'
+export { HumanityPanelIcon } from './HumanityPanelIcon.js'
 export { PersonaBoundary } from './PersonaBoundary.js'
 
 export { OverviewPanel } from './WorkbenchOverview.js'

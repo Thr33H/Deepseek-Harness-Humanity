@@ -76,13 +76,6 @@ export const MODULES: readonly HumanityModule[] = [
     implemented: true,
     isEnabled: (config) => config.modules.evolution.enabled,
   },
-  {
-    id: 'dream',
-    title: '梦境',
-    implemented: true,
-    // 梦境是自进化的一种运行模式，自进化关掉时它没有载体（P-034）。
-    isEnabled: (config) => config.modules.evolution.enabled && config.modules.dream.enabled,
-  },
 ]
 
 /** 模块挂载器。 */

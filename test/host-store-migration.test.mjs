@@ -27,10 +27,10 @@ import { DOMAIN_NAME, HISTORY_TABLE, installHumanityStore, PERSONA_DATA_SCHEMA_V
 const INSTALLED_AT = '2026-01-01T00:00:00.000Z'
 
 /** 手写一份存储单元文件，模拟某个版本留下的数据。 */
-async function seedUnit(root, version, global) {
+async function seedUnit(root, version, global, tables = {}) {
   await writeFile(
     path.join(root, 'humanity.json'),
-    JSON.stringify({ unit: { name: DOMAIN_NAME, version }, global, tables: {} }, null, 2),
+    JSON.stringify({ unit: { name: DOMAIN_NAME, version }, global, tables }, null, 2),
     'utf8',
   )
 }
@@ -189,45 +189,28 @@ test('记忆表：第 2 代旧文件（没有该表）打开后自动补空表�
   }
 })
 
-test('自进化四表：第 3 代旧文件（没有这些表）打开后自动补空表并升到当前代', async () => {
-  const { dir, root } = await makeRoot('humanity-evolution-')
-  // 第 3 代 = M3 收口时的数据代（有历史表与记忆表，没有自进化表）。
-  await seedUnit(root, 1, { installedAt: INSTALLED_AT, schemaVersion: 3 })
+test('旧引擎四表：第 6 代旧文件（还带着自进化四表）打开后升到当前代，那四张表不再被读出', async () => {
+  const { dir, root } = await makeRoot('humanity-evolution-drop-')
+  // 第 6 代 = 情绪表落地时的数据代：文件里还留着旧引擎的四张表。
+  await seedUnit(root, 1, { installedAt: INSTALLED_AT, schemaVersion: 6 }, {
+    evolution_runs: { 'run-1': { id: 'run-1', mode: 'incremental', status: 'completed' } },
+    evolution_proposals: { 'p-1': { id: 'p-1', kind: 'persona', status: 'pending' } },
+    evolution_cursors: { 's-1': { sessionId: 's-1' } },
+    evolution_state: { main: { dayKey: '2026-11-22', dayCount: 3 } },
+  })
 
   const harness = await boot(root)
   try {
     const store = await harness.waitReady()
     assert.equal(store.installedAt, INSTALLED_AT, '首次安装时间必须原样保留')
+    // 旧引擎拆了：句柄上没有 `evolution` 这一组，也没有任何读者会再去读那四张表。
+    assert.equal('evolution' in store, false, '旧引擎的四表句柄必须随引擎一起消失')
 
-    // 四张新表都拿到句柄、初始为空（缺表由 storage-domain 打开时补空——零迁移的机械保证）。
-    for (const table of Object.values(store.evolution)) {
-      assert.deepEqual([...table.entries()], [])
-    }
-
-    // 写入一条运行记录再重读文件：数据代已盖章为当前代，且记录真的落盘。
-    const record = {
-      id: 'run-1',
-      mode: 'incremental',
-      trigger: 'manual',
-      status: 'completed',
-      startedAt: '2026-09-25T00:00:00.000Z',
-      finishedAt: '2026-09-25T00:00:01.000Z',
-      scannedSessions: 1,
-      parsedEvents: 2,
-      memoriesWritten: 0,
-      proposalsCreated: 0,
-      inputTokens: 0,
-      outputTokens: 0,
-      calls: 0,
-      narrative: '',
-      insights: [],
-      error: '',
-    }
-    await store.evolution.runs.put(record.id, record)
+    // 迁移把它盖章到当前代；下一次写入时，那四张没人声明的表被丢掉（有意的删数据）。
     const unit = await readUnit(root)
     assert.equal(unit.global.schemaVersion, PERSONA_DATA_SCHEMA_VERSION)
-    assert.equal(unit.tables.evolution_runs['run-1'].status, 'completed')
     assert.equal(unit.unit.version, 1, '介质格式没变，版本号不该动')
+    assert.deepEqual(Object.keys(unit.tables).sort(), ['documents', 'emotion_state', 'memories', 'persona_history'])
   } finally {
     await harness.dispose()
     await rm(dir, { recursive: true, force: true })

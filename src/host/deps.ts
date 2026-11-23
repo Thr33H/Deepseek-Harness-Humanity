@@ -11,15 +11,15 @@
  */
 import type { HumanityConfig } from './config.js'
 import type { Clock } from './clock.js'
+import type { DocumentStore } from './documents.js'
 import type { EmotionDeps, EmotionModule } from './emotion/index.js'
 import { EMOTION_LABELS, type EmotionKind } from './emotion/constants.js'
 import { dominantOf } from './emotion/state.js'
-import type { EvolutionDeps } from './evolution/index.js'
+import type { EvolutionDeps, EvolutionModule } from './evolution/index.js'
 import type { MemoryDeps } from './memory/index.js'
 import type { MemoryModule } from './memory/index.js'
 import { MOOD_TONE } from './memory/constants.js'
 import type { PersonaDeps, PersonaModule } from './persona/index.js'
-import type { EvolutionModule } from './evolution/index.js'
 import type { CompatState } from './preset-compat.js'
 import type { SettingsBridge } from './settings.js'
 import type { HumanityStore } from './store-schema.js'
@@ -154,14 +154,36 @@ export function memoryDeps(settings: SettingsBridge, state: HostState, clock?: C
   }
 }
 
-/** 自进化模块的外部事实：配置全量 + 跨模块句柄（记忆写入管线、人格读写段）+ 时间基准。 */
-export function evolutionDeps(settings: SettingsBridge, state: HostState, clock?: Clock): EvolutionDeps {
+/**
+ * 自进化模块的外部事实：她的状态文档、开关、醒来的节奏参数、生效时区。
+ *
+ * 全部现读：节奏参数改了要立刻影响"下一次排在哪"，缓存一份旧值会让改动看起来没生效。
+ * @param settings - 设置桥。
+ * @param state - 宿主状态（要现读存储句柄：存储比配置晚就绪）。
+ * @param clock - 时间基准（"今天"按它的时区算）。
+ */
+export function evolutionDeps(
+  settings: SettingsBridge,
+  state: HostState,
+  clock?: Clock,
+  homeDir?: () => string | undefined,
+): EvolutionDeps {
   return {
-    store: () => state.store,
-    config: (): HumanityConfig => settings.read(),
-    memoryStore: () => state.memory?.store(),
-    personaSection: () => state.persona?.section,
-    // 时间基准的状态：工作台靠它显示"这个钟是哪个时区、从哪来的"（见 `clock.ts`）。
-    clock: () => clock?.report(),
+    documents: (): DocumentStore | undefined => state.store?.documents,
+    enabled: () => {
+      const current = settings.read()
+      // 人格没封存 = 还没正式启动：她不该有"自己的一天"（见 `humanityStarted`）。
+      return current.enabled && current.modules.evolution.enabled && humanityStarted(state)
+    },
+    wake: () => {
+      const current = settings.read().modules.evolution
+      return {
+        maxPerDay: current.maxWakesPerDay,
+        minGapMinutes: current.minGapMinutes,
+        maxGapMinutes: current.maxGapMinutes,
+      }
+    },
+    timeZone: () => clock?.report().effective,
+    homeDir: () => homeDir?.(),
   }
 }

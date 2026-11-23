@@ -316,11 +316,11 @@ test('设置服务在插件之后挂载时，用户写入同样即时生效（�
     await ctx.plugin(SettingsFile, { path: path.join(dir, 'settings.yml') })
 
     const settings = ctx.get('settings')
-    await settings.update(SETTINGS_NAMESPACE, { modules: { dream: { enabled: false } } })
+    await settings.update(SETTINGS_NAMESPACE, { modules: { evolution: { maxWakesPerDay: 3 } } })
 
     const descriptor = descriptorOf(ctx)
-    assert.equal(descriptor.value.modules.dream.enabled, false)
-    assert.deepEqual(descriptor.user, { modules: { dream: { enabled: false } } })
+    assert.equal(descriptor.value.modules.evolution.maxWakesPerDay, 3)
+    assert.deepEqual(descriptor.user, { modules: { evolution: { maxWakesPerDay: 3 } } })
   } finally {
     await ctx.fiber.dispose()
     await rm(dir, { recursive: true, force: true })

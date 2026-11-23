@@ -1,0 +1,195 @@
+/**
+ * 她的房间：一个**只属于她**的会话，和一个按约叫醒她的单次任务。
+ *
+ * ### 为什么是"一次一约"而不是循环任务
+ *
+ * 循环任务（每 N 分钟一次）会把"什么时候醒"交给闹钟；而觉醒的时机应当由她的状态决定
+ * （累不累、手上有没有事）。所以这个任务永远只有**一个未来时点**：每次她醒来、收工，
+ * 我们把它的下一次改成新的时刻。整个流程里只有一个任务、一个 id，不会越积越多。
+ *
+ * ### 房间是怎么长出来的
+ *
+ * 用 DSH 调度服务的 `new_once` 目标：**第一次投递时才创建会话**，并指定目录与预设；
+ * 之后一直复用同一个会话（target 会被改写成 `session`）。所以"她的房间"不需要你手动开。
+ *
+ * ### 拿不到调度服务怎么办
+ *
+ * 安静降级：记一条警告，不排程、不喊醒。她只是这段时间"没有自己的日子"，对话与其余模块
+ * 一概不受影响（G-002 停功能、不停 DSH）。
+ * @module humanity/evolution/room
+ */
+import type { Log } from '../log.js'
+import { HUMANITY_PRESET_ID } from '../presets.js'
+import { ROOM_TASK_TITLE } from './constants.js'
+
+/** 调度服务里我们用到的那部分（结构化声明，不固化 DSH 的类型面）。 */
+interface ScheduleTaskLike {
+  id?: string
+  active?: string
+  nextScheduledAt?: string
+  target?: { kind?: string; sessionId?: string }
+  code?: string
+}
+
+/** `ctx.get('schedule')` 读到的服务。 */
+export interface ScheduleServiceLike {
+  create(request: unknown, actorSessionId?: string, signal?: AbortSignal): Promise<ScheduleTaskLike>
+  view(request: { id: string }): Promise<ScheduleTaskLike>
+  edit(request: unknown, actorSessionId?: string, signal?: AbortSignal): Promise<ScheduleTaskLike>
+}
+
+/** 房间的外部事实。 */
+export interface RoomDeps {
+  /** 调度服务（现读：它可能比我们晚挂上，也可能根本不存在）。 */
+  schedule(): ScheduleServiceLike | undefined
+  /** `$DSH_HOME`（现读）。 */
+  homeDir(): string | undefined
+  /** 日志。 */
+  log: Log
+}
+
+/** 房间当前的样子。 */
+export interface RoomState {
+  /** 任务 id；空串 = 还没有任务。 */
+  taskId: string
+  /** 会话 id；空串 = 第一次投递还没发生。 */
+  sessionId: string
+  /** 下一次预定时刻（ISO）；空串 = 没排。 */
+  nextAt: string
+  /** 任务是否处于活动状态。 */
+  active: boolean
+}
+
+/** 结果：成功时带上房间状态，失败时带一句人话（调用方决定记不记）。 */
+export type RoomOutcome = { ok: true; room: RoomState } | { ok: false; reason: string }
+
+/** 房间目录（`$DSH_HOME/humanity/room`）。 */
+export function roomDirOf(deps: RoomDeps): string | undefined {
+  const home = deps.homeDir()
+  if (home === undefined || home.trim() === '') return undefined
+  return `${home.replace(/[\\/]+$/, '')}/humanity/room`
+}
+
+/** 我们用到的那两个 `node:fs/promises` 函数（宿主编译没有 `@types/node`）。 */
+interface FsPromisesModule {
+  mkdir(path: string, options: { recursive: boolean }): Promise<string | undefined>
+}
+
+/** 确保房间目录存在；失败只记日志（目录没建成也不阻止排程）。 */
+async function ensureRoomDir(deps: RoomDeps): Promise<string | undefined> {
+  const dir = roomDirOf(deps)
+  if (dir === undefined) {
+    deps.log.warn('读不到 $DSH_HOME，她的房间没有固定目录（将使用 Host 默认目录）')
+    return undefined
+  }
+  try {
+    const specifier: string = 'node:fs/promises'
+    const fs = (await import(specifier)) as FsPromisesModule
+    await fs.mkdir(dir, { recursive: true })
+    return dir
+  } catch (error) {
+    deps.log.warn('她的房间目录建不出来（排程照常，文件可能写不进）', error)
+    return undefined
+  }
+}
+
+/**
+ * 把一次视图结果读成房间状态。
+ * @param task - `view` / `create` / `edit` 返回的任务；找不到时带 `code`。
+ * @returns 房间状态；`undefined` = 任务不存在。
+ */
+function roomOf(task: ScheduleTaskLike | undefined): RoomState | undefined {
+  if (task === undefined) return undefined
+  if (typeof task.code === 'string') return undefined
+  const id = typeof task.id === 'string' ? task.id : ''
+  if (id === '') return undefined
+  return {
+    taskId: id,
+    sessionId: typeof task.target?.sessionId === 'string' ? task.target.sessionId : '',
+    nextAt: typeof task.nextScheduledAt === 'string' ? task.nextScheduledAt : '',
+    active: task.active !== 'paused' && task.active !== 'ended',
+  }
+}
+
+/**
+ * 确保房间里有一个任务，并把它排到下一次。
+ *
+ * 顺序：已有任务 → 直接沿用；没有 → 新建（第一次投递时自动开房间）。
+ * @param deps - 外部事实。
+ * @param taskId - 已知的任务 id（空串 = 认为还没有）。
+ * @param gapSeconds - 下一次隔多少秒。
+ * @param prompt - 醒来时她要看到的那段话。
+ * @returns 结果。
+ */
+export async function ensureTask(
+  deps: RoomDeps,
+  taskId: string,
+  gapSeconds: number,
+  prompt: string,
+): Promise<RoomOutcome> {
+  const service = deps.schedule()
+  if (service === undefined) return { ok: false, reason: '调度服务不在（DSH 没装或没启用它会话调度）' }
+  const existing = taskId === '' ? undefined : roomOf(await service.view({ id: taskId }).catch(() => undefined))
+  if (existing !== undefined) return { ok: true, room: existing }
+  const cwd = await ensureRoomDir(deps)
+  try {
+    const created = await service.create({
+      title: ROOM_TASK_TITLE,
+      prompt,
+      timing: { kind: 'after', after_seconds: gapSeconds },
+      target: {
+        kind: 'new_once',
+        ...(cwd === undefined ? {} : { create: { cwd, agentPreset: HUMANITY_PRESET_ID } }),
+      },
+    })
+    const room = roomOf(created)
+    if (room === undefined) return { ok: false, reason: '调度服务没有返回新建的任务' }
+    return { ok: true, room }
+  } catch (error) {
+    deps.log.warn('她的房间没建成（这次不排程）', error)
+    return { ok: false, reason: '新建定时任务被拒绝（详见日志）' }
+  }
+}
+
+/**
+ * 把下一次醒来排到 `gapSeconds` 之后。
+ * @param deps - 外部事实。
+ * @param taskId - 任务 id。
+ * @param gapSeconds - 间隔秒数。
+ * @returns 结果（成功时带刷新后的房间状态）。
+ */
+export async function reschedule(deps: RoomDeps, taskId: string, gapSeconds: number): Promise<RoomOutcome> {  const service = deps.schedule()
+  if (service === undefined) return { ok: false, reason: '调度服务不在' }
+  if (taskId === '') return { ok: false, reason: '还没有房间任务' }
+  try {
+    const edited = await service.edit({
+      id: taskId,
+      action: 'update',
+      patch: { timing: { kind: 'after', after_seconds: gapSeconds }, active: true },
+    })
+    const room = roomOf(edited)
+    if (room === undefined) return { ok: false, reason: '任务已经不存在（下次醒来时会重建）' }
+    return { ok: true, room }
+  } catch (error) {
+    deps.log.warn('下一次醒来的时间没排上（这次不排程）', error)
+    return { ok: false, reason: '修改定时任务被拒绝（详见日志）' }
+  }
+}
+
+/**
+ * 让任务进入/退出活动状态。
+ *
+ * 关掉模块时**暂停**任务而不是删掉：重开时不用重建房间，会话与 id 都还在。
+ * @param deps - 外部事实。
+ * @param taskId - 任务 id。
+ * @param active - 是否活动。
+ */
+export async function setActive(deps: RoomDeps, taskId: string, active: boolean): Promise<void> {
+  const service = deps.schedule()
+  if (service === undefined || taskId === '') return
+  try {
+    await service.edit({ id: taskId, action: 'update', patch: { active } })
+  } catch (error) {
+    deps.log.warn(active ? '房间任务没能恢复' : '房间任务没能暂停', error)
+  }
+}
