@@ -23,7 +23,7 @@ import {
   saveState,
 } from '../lib/evolution/state.js'
 import { buildWakePrompt } from '../lib/evolution/wake.js'
-import { isWakeMessage } from '../lib/evolution/index.js'
+import { continuityOf, isWakeMessage } from '../lib/evolution/index.js'
 import { WAKE_MARKER } from '../lib/evolution/constants.js'
 
 /** 不打印的日志门面。 */
@@ -132,6 +132,30 @@ test('醒来那一段话：带标记、带时间、并且说清"没有人在等�
   assert.match(prompt, /15:04/, '时间按她的时区渲染（UTC 07:04 = 北京 15:04）')
   assert.match(prompt, /没有人在叫你/, '第一句就要否掉"有人来了"的误解')
   assert.match(prompt, /不用向谁汇报/, '要点明这一段时间不产出汇报')
+  assert.ok(!prompt.includes('上一次'), '第一次醒来时不该凭空说"上一次"')
+})
+
+test('醒来那一段话可以接上"上次做到哪"：连续，但标明那是她自己的记录', () => {
+  const prompt = buildWakePrompt('2026-11-23T07:04:00.000Z', 'Asia/Shanghai', '我在看一篇讲潮汐的文章，看到一半')
+  assert.match(prompt, /我在看一篇讲潮汐的文章/, '要带上上次的尾巴')
+  assert.match(prompt, /不是别人说的话/, '必须说清这不是"有人对她说"')
+})
+
+test('接续摘要：压成一行、只留尾巴（太长会把唤醒词撑爆）', () => {
+  assert.equal(continuityOf('  第一行\n\n第二行  '), '第一行 第二行')
+  assert.equal(continuityOf('   '), '')
+  const long = 'x'.repeat(400)
+  const capped = continuityOf(long, 300)
+  assert.ok(capped.startsWith('…'), '截断要留痕迹')
+  assert.equal(capped.length, 301)
+})
+
+test('重排下一次时可以顺带换掉提示词（连续性靠它）', async () => {
+  const service = fakeSchedule()
+  const deps = { schedule: () => service, agents: () => undefined, homeDir: () => undefined, log: quietLog }
+  await reschedule(deps, 'task-1', 600, '新的一段话')
+  assert.equal(service.calls.edit[0].patch.prompt, '新的一段话')
+  assert.deepEqual(service.calls.edit[0].patch.timing, { kind: 'after', after_seconds: 600 })
 })
 
 test('只有我们自己的调度消息算醒来：你给自己排的提醒不算', () => {

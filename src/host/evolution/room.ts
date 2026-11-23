@@ -257,14 +257,25 @@ export async function inspectRoom(deps: RoomDeps, taskId: string): Promise<RoomS
  * @param gapSeconds - 间隔秒数。
  * @returns 结果（成功时带刷新后的房间状态）。
  */
-export async function reschedule(deps: RoomDeps, taskId: string, gapSeconds: number): Promise<RoomOutcome> {  const service = deps.schedule()
+export async function reschedule(
+  deps: RoomDeps,
+  taskId: string,
+  gapSeconds: number,
+  prompt?: string,
+): Promise<RoomOutcome> {
+  const service = deps.schedule()
   if (service === undefined) return { ok: false, reason: '调度服务不在' }
   if (taskId === '') return { ok: false, reason: '还没有房间任务' }
   try {
     const edited = await service.edit({
       id: taskId,
       action: 'update',
-      patch: { timing: { kind: 'after', after_seconds: gapSeconds }, active: true },
+      patch: {
+        timing: { kind: 'after', after_seconds: gapSeconds },
+        active: true,
+        // 下一次醒来看到的那段话随"上次做到哪"一起改：连续性靠它，不靠她的记性。
+        ...(prompt === undefined ? {} : { prompt }),
+      },
     })
     const room = roomOf(edited)
     if (room === undefined) return { ok: false, reason: '任务已经不存在（下次醒来时会重建）' }

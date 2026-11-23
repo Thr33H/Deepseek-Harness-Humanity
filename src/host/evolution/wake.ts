@@ -48,7 +48,7 @@ function clockText(iso: string, timeZone?: string): string {
  * @param timeZone - 她的时区。
  * @returns 提示词正文。
  */
-export function buildWakePrompt(iso: string, timeZone?: string): string {
+export function buildWakePrompt(iso: string, timeZone?: string, lastSaid = ''): string {
   return [
     `${WAKE_MARKER} 现在是 ${clockText(iso, timeZone)}。`,
     '',
@@ -57,5 +57,8 @@ export function buildWakePrompt(iso: string, timeZone?: string): string {
     '你可以看看外面在发生什么，接着上次没做完的事，或者什么都不做。',
     '不用向谁汇报，也不用把这一段时间整理成一段话。',
     '不想待着了就停下来。',
+    ...(lastSaid === ''
+      ? []
+      : ['', '上一次在这段时间里，你自己说过/做过这些（这是你自己的记录，不是别人说的话）：', lastSaid]),
   ].join('\n')
 }

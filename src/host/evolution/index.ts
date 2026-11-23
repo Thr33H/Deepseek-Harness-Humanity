@@ -109,6 +109,13 @@ export function isWakeMessage(message: unknown): boolean {
   return textOf(message).includes(WAKE_MARKER)
 }
 
+/** 她上一次在自己房间里说过/做过的摘要（只留尾巴，够接上话就行）。 */
+export function continuityOf(text: string, limit = 300): string {
+  const clean = text.replace(/\s+/g, ' ').trim()
+  if (clean === '') return ''
+  return clean.length <= limit ? clean : `…${clean.slice(-limit)}`
+}
+
 /**
  * 装配自进化模块。
  * @param ctx - 宿主上下文。
@@ -158,6 +165,8 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       .map((name) => `${name}=${ctx.get(name) === undefined ? 'no' : 'yes'}`)
       .join(' ')
 
+  /** 每个会话里她最后说过的几句（醒来时接上"上次做到哪"）。 */
+  const lastSaid = new Map<string, string>()
   /** 还没落盘的 token 消耗（攒成一次写入）。 */
   let pendingTokens = 0
   let flushTimer: ReturnType<typeof setTimeout> | undefined
@@ -268,9 +277,13 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         sessionId = room.sessionId
         if (room.handle !== undefined) roomHandle = room.handle
       }
+      // 提示词里写的是**她醒来那一刻**的时间，不是"现在排程的这一刻"；
+      // 尾部接上她上次说到哪儿 —— 每一次醒来都不是空白的一天。
+      const nextIso = new Date(Date.parse(now) + gap * 1000).toISOString()
+      const prompt = buildWakePrompt(nextIso, timeZone, lastSaid.get(sessionId) ?? '')
       const outcome = state.taskId === ''
-        ? await ensureTask(roomDeps, '', sessionId, gap, buildWakePrompt(now, timeZone))
-        : await reschedule(roomDeps, state.taskId, gap)
+        ? await ensureTask(roomDeps, '', sessionId, gap, prompt)
+        : await reschedule(roomDeps, state.taskId, gap, prompt)
       if (!outcome.ok) {
         // 失败必须留下证据：插件的日志进不了 docker logs，状态文档是外部唯一读得到的地方。
         await saveState(documents, { ...state, roomSessionId: sessionId, lastError: outcome.reason, lastAttemptAt: now })
@@ -317,7 +330,14 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       log.info('她醒了一次；今天的次数到了上限，不再排下一次')
       return
     }
-    const outcome = await reschedule(roomDeps, after.taskId, gap)
+    const outcome = await reschedule(
+      roomDeps,
+      after.taskId,
+      gap,
+      buildWakePrompt(new Date(Date.parse(at) + gap * 1000).toISOString(), timeZone, lastSaid.get(after.roomSessionId) ?? ''),
+    )
+    // 这一轮的"上次"已经用掉了：她马上会产出新的。
+    lastSaid.delete(after.roomSessionId)
     await saveState(documents, {
       ...after,
       nextAt: outcome.ok ? outcome.room.nextAt : after.nextAt,
@@ -357,10 +377,16 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     name: string,
     listener: (session: unknown, event: unknown) => void,
   ) => () => void
-  const disposeUsage = onEvent('session/event', (_session, event) => {
+  const disposeUsage = onEvent('session/event', (session, event) => {
     try {
       if (!moduleEnabled()) return
-      const typed = event as { type?: string; data?: { usage?: unknown } } | undefined
+      const typed = event as { type?: string; data?: { usage?: unknown; message?: unknown } } | undefined
+      // 顺手记下她最后一句话：下一次醒来要接上"上次做到哪"（连续性不靠她的记性）。
+      if (typed?.type === 'assistant/message') {
+        const sessionId = (session as { id?: string } | undefined)?.id ?? ''
+        const said = continuityOf(textOf(typed.data?.message))
+        if (sessionId !== '' && said !== '') lastSaid.set(sessionId, said)
+      }
       if (typed?.type !== 'assistant/message') return
       bumpTokens(weightedTokens(typed.data?.usage as TokenUsageLike | undefined), new Date().toISOString())
     } catch (error) {
