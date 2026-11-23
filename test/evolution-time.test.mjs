@@ -144,35 +144,39 @@ test('只有我们自己的调度消息算醒来：你给自己排的提醒不�
   assert.equal(isWakeMessage({ content: 'not-an-array' }), false)
 })
 
-test('房间：先用会话服务开出房间，再把任务投进这个已有会话', async () => {
+test('房间：从 Agent 注册表开出，再把任务投进这个已有会话', async () => {
   const service = fakeSchedule()
-  const sessions = []
-  const sessionController = {
-    async create(request) {
-      sessions.push(request)
-      return { sessionId: 'room-9' }
+  const created = []
+  const agents = {
+    async create(options) {
+      created.push(options)
+      return { agent: { session: { id: options.sessionId } } }
+    },
+    get: () => undefined,
+    async resume() {
+      throw new Error('not stored')
     },
   }
   const dir = await mkdtemp(path.join(tmpdir(), 'humanity-room-'))
   try {
-    const deps = { schedule: () => service, session: () => sessionController, homeDir: () => dir, log: quietLog }
+    const deps = { schedule: () => service, agents: () => agents, homeDir: () => dir, log: quietLog }
     assert.equal(roomDirOf(deps), `${dir.replace(/[\\/]+$/, '')}/humanity/room`)
 
-    const room = await ensureRoom(deps)
+    const room = await ensureRoom(deps, '')
     assert.equal(room.ok, true)
-    assert.equal(room.sessionId, 'room-9')
-    assert.equal(sessions[0].agentPreset, 'humanity', '房间用「Humanity 沉浸」这一档')
-    assert.match(sessions[0].cwd, /humanity[\\/]room$/, '房间落在她自己的目录')
+    assert.match(room.sessionId, /^session-[0-9a-f-]{36}$/, '会话 id 用 session-<uuid>')
+    assert.equal(created[0].meta.agentPreset, 'humanity', '房间用「Humanity 沉浸」这一档')
+    assert.match(created[0].meta.cwd, /humanity[\\/]room$/, '房间落在她自己的目录')
 
-    const created = await ensureTask(deps, '', 'room-9', 600, '醒来')
-    assert.equal(created.ok, true)
-    assert.equal(created.room.taskId, 'task-1')
+    const task = await ensureTask(deps, '', room.sessionId, 600, '醒来')
+    assert.equal(task.ok, true)
+    assert.equal(task.room.taskId, 'task-1')
     const request = service.calls.create[0]
     assert.equal(request.title, '她自己的时间')
     assert.equal(request.timing.kind, 'after')
     assert.equal(request.timing.after_seconds, 600)
     // 这个部署的 Host 不能建会话（真机报错），所以目标必须是已存在的会话。
-    assert.deepEqual(request.target, { kind: 'session', sessionId: 'room-9' })
+    assert.deepEqual(request.target, { kind: 'session', sessionId: room.sessionId })
 
     const moved = await reschedule(deps, 'task-1', 900)
     assert.equal(moved.ok, true)
@@ -186,16 +190,51 @@ test('房间：先用会话服务开出房间，再把任务投进这个已有�
   }
 })
 
-test('房间：拿不到调度服务 / 会话服务时安静失败，并给出人话原因', async () => {
-  const noSchedule = { schedule: () => undefined, session: () => undefined, homeDir: () => undefined, log: quietLog }
-  const outcome = await ensureTask(noSchedule, '', 'room-9', 600, '醒来')
+test('房间：已经活着就复用；恢复失败就重开一间', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'humanity-room-alive-'))
+  try {
+    const alive = {
+      async create() {
+        throw new Error('不该被调用')
+      },
+      get: (id) => ({ session: { id } }),
+      async resume() {
+        throw new Error('不该被调用')
+      },
+    }
+    const reused = await ensureRoom({ schedule: () => undefined, agents: () => alive, homeDir: () => dir, log: quietLog }, 'session-old')
+    assert.deepEqual(reused, { ok: true, sessionId: 'session-old' })
+
+    const created = []
+    const dead = {
+      async create(options) {
+        created.push(options.sessionId)
+        return {}
+      },
+      get: () => undefined,
+      async resume() {
+        throw new Error('会话已经不在了')
+      },
+    }
+    const reopened = await ensureRoom({ schedule: () => undefined, agents: () => dead, homeDir: () => dir, log: quietLog }, 'session-gone')
+    assert.equal(reopened.ok, true)
+    assert.notEqual(reopened.sessionId, 'session-gone', '恢复失败要重开，而不是从此没有房间')
+    assert.equal(created.length, 1)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('房间：拿不到调度服务 / Agent 注册表时安静失败，并给出人话原因', async () => {
+  const nothing = { schedule: () => undefined, agents: () => undefined, homeDir: () => undefined, log: quietLog }
+  const outcome = await ensureTask(nothing, '', 'room-9', 600, '醒来')
   assert.equal(outcome.ok, false)
   assert.match(outcome.reason, /调度服务/)
   // 已有任务时也一样：不抛、不假装成功。
-  const moved = await reschedule(noSchedule, 'task-1', 600)
+  const moved = await reschedule(nothing, 'task-1', 600)
   assert.equal(moved.ok, false)
 
-  const noSession = await ensureRoom(noSchedule)
-  assert.equal(noSession.ok, false)
-  assert.match(noSession.reason, /会话创建能力/)
+  const noAgents = await ensureRoom(nothing, '')
+  assert.equal(noAgents.ok, false)
+  assert.match(noAgents.reason, /Agent 注册表/)
 })

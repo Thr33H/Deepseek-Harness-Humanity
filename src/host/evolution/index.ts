@@ -27,11 +27,13 @@ import { afterWake, nextGapSeconds, readState, saveState, type WakeRhythm } from
 import {
   ensureRoom,
   ensureTask,
+  inspectRoom,
   reschedule,
   setActive,
+  type AgentHandleLike,
+  type AgentRegistryLike,
   type RoomDeps,
   type ScheduleServiceLike,
-  type SessionControllerLike,
 } from './room.js'
 import { RETRY_ARM_AFTER_MS, WAKE_MARKER } from './constants.js'
 import { buildWakePrompt } from './wake.js'
@@ -110,13 +112,15 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   }
   const roomDeps: RoomDeps = {
     schedule,
-    session: () => {
-      const controller = ctx.get('sessionController') as SessionControllerLike | undefined
-      return controller !== undefined && typeof controller.create === 'function' ? controller : undefined
+    agents: () => {
+      const registry = ctx.get('agents') as AgentRegistryLike | undefined
+      return registry !== undefined && typeof registry.create === 'function' ? registry : undefined
     },
     homeDir: deps.homeDir,
     log,
   }
+  /** 房间那个 Agent 的句柄：句柄活着，会话就活着（见 `room.ts` 的说明）。 */
+  let roomHandle: AgentHandleLike | undefined
 
   /**
    * 这个上下文里看得见哪些相关服务（排程失败时写进状态文档）。
@@ -166,7 +170,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       // 房间必须先有：这个部署的调度服务不能自己创建会话（真机报错见 `room.ts` 的说明）。
       let sessionId = state.roomSessionId
       if (state.taskId === '' && sessionId === '') {
-        const room = await ensureRoom(roomDeps)
+        const room = await ensureRoom(roomDeps, sessionId)
         if (!room.ok) {
           await saveState(documents, {
             ...state,
@@ -177,6 +181,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
           return
         }
         sessionId = room.sessionId
+        if (room.handle !== undefined) roomHandle = room.handle
       }
       const outcome = state.taskId === ''
         ? await ensureTask(roomDeps, '', sessionId, gap, buildWakePrompt(now, timeZone))
@@ -187,11 +192,14 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         log.warn(`${reason}：没有排上——${outcome.reason}`)
         return
       }
+      // `create` 不一定会回报下一次时间：补读一次，否则状态里会一直是空，
+      // 下一次排程就会误判成"没排过"而把已经定好的时刻推翻。
+      const inspected = outcome.room.nextAt === '' ? await inspectRoom(roomDeps, outcome.room.taskId) : undefined
       await saveState(documents, {
         ...state,
         taskId: outcome.room.taskId,
         roomSessionId: outcome.room.sessionId === '' ? sessionId : outcome.room.sessionId,
-        nextAt: outcome.room.nextAt,
+        nextAt: inspected?.nextAt ?? outcome.room.nextAt,
         lastError: '',
         lastAttemptAt: now,
       })
@@ -268,6 +276,9 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   ctx.effect(
     () => () => {
       disposeStep()
+      // 房间的句柄**故意不释放**：持有它的所有权，`dispose` 有可能把会话一起撤掉
+      // （`core.zh.md` 的创建回滚约定）。插件卸载时只丢引用，让会话留在存储里。
+      roomHandle = undefined
       log.info('自进化模块已卸载')
     },
     'humanity: 自进化卸载',

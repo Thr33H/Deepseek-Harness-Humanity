@@ -1,6 +1,6 @@
 {
   "name": "deepseek-harness-humanity",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Humanity: a personification suite for DeepSeek Harness — persona, emotion, memory and her own days behind one native Web workbench.",
   "keywords": [
     "dsh",

@@ -43,6 +43,22 @@ export interface SessionControllerLike {
   create(request: { cwd?: string; agentPreset?: string }): Promise<{ sessionId?: string }>
 }
 
+/** 一个已受管的 Agent 句柄（我们只用它的会话与释放能力）。 */
+export interface AgentHandleLike {
+  agent?: { session?: { id?: string } }
+  dispose?: () => void
+}
+
+/** Agent 注册表里我们用到的那部分（`ctx.get('agents')`）。 */
+export interface AgentRegistryLike {
+  create(options: {
+    sessionId: string
+    meta?: { cwd?: string; agentPreset?: string }
+  }): Promise<AgentHandleLike>
+  get(sessionId: string): unknown
+  resume(options: { resumeSessionId: string }): Promise<AgentHandleLike>
+}
+
 /** 房间的外部事实。 */
 export interface RoomDeps {
   /** 调度服务（现读：它可能比我们晚挂上，也可能根本不存在）。 */
@@ -50,11 +66,11 @@ export interface RoomDeps {
   /**
    * 会话创建能力（现读）。
    *
-   * 为什么要它：这个部署的调度服务**不能自己创建会话**（真机报错：
-   * `This Host cannot create Sessions; choose an existing Session target.`），
-   * 所以房间得由我们先用会话服务开出来，再让定时任务投进一个**已存在的会话**。
+   * ⚠️ 真机结论（2026-11-23）：`sessionController` 与 `new_once` 在这个部署里都用不了 ——
+   * 前者对插件不可见，后者被 Host 拒绝（`This Host cannot create Sessions`）。
+   * 所以房间只能从 **Agent 注册表** 开：它看得见，并且能按我们给的会话 id 建"会话 + Agent"。
    */
-  session(): SessionControllerLike | undefined
+  agents(): AgentRegistryLike | undefined
   /** `$DSH_HOME`（现读）。 */
   homeDir(): string | undefined
   /** 日志。 */
@@ -125,26 +141,50 @@ function roomOf(task: ScheduleTaskLike | undefined): RoomState | undefined {
 }
 
 /**
- * 开出她的房间（一个只属于她的空会话）。
+ * 开出她的房间（一个只属于她的会话）。
  *
- * 为什么单独一步：调度服务的 `new_once` 在这个部署里不可用（Host 没有"创建会话"的能力）。
- * 于是房间由会话服务先建好，定时任务再投进这个**已有**会话。
+ * ### 为什么从 Agent 注册表开
+ *
+ * 真机两条路都断了（2026-11-23）：
+ * - 调度服务的 `new_once` → `This Host cannot create Sessions; choose an existing Session target.`
+ * - `ctx.sessionController.create` → 那个服务对插件**不可见**（诊断：`sessionController=no`）
+ *
+ * 而 `ctx.agents` 看得见，它能按我们给的会话 id 建"会话 + Agent"。房间因此是一个
+ * **由本插件持有的 Agent**：句柄活着，会话就活着；句柄释放，会话还在（内容已持久化）。
+ *
  * @param deps - 外部事实。
- * @returns 会话 id；失败时给人话原因。
+ * @param knownSessionId - 上次开出来的会话 id（空串 = 还没开过）。
+ * @returns 会话 id 与需要一直持有的句柄；失败时给人话原因。
  */
-export async function ensureRoom(deps: RoomDeps): Promise<{ ok: true; sessionId: string } | { ok: false; reason: string }> {
-  const controller = deps.session()
-  if (controller === undefined) return { ok: false, reason: '这个部署没有会话创建能力（sessionController 不在）' }
+export async function ensureRoom(
+  deps: RoomDeps,
+  knownSessionId: string,
+): Promise<{ ok: true; sessionId: string; handle?: AgentHandleLike } | { ok: false; reason: string }> {
+  const registry = deps.agents()
+  if (registry === undefined) return { ok: false, reason: '这个部署没有 Agent 注册表（agents 不在）' }
+  // 已经活着：直接复用（重启后 Agent 会没，但会话还在，走下面的 resume）。
+  if (knownSessionId !== '' && registry.get(knownSessionId) !== undefined) {
+    return { ok: true, sessionId: knownSessionId }
+  }
+  if (knownSessionId !== '') {
+    try {
+      const resumed = await registry.resume({ resumeSessionId: knownSessionId })
+      deps.log.info(`她的房间已恢复（会话 ${knownSessionId}）`)
+      return { ok: true, sessionId: knownSessionId, handle: resumed }
+    } catch (error) {
+      // 恢复不了就重开一间：房间是"她的地方"，丢了不该让她从此不再有日子。
+      deps.log.warn(`她的房间恢复失败，将重开一间（旧会话 ${knownSessionId}）`, error)
+    }
+  }
   const cwd = await ensureRoomDir(deps)
+  const sessionId = `session-${globalThis.crypto.randomUUID()}`
   try {
-    const created = await controller.create({
-      ...(cwd === undefined ? {} : { cwd }),
-      agentPreset: HUMANITY_PRESET_ID,
+    const handle = await registry.create({
+      sessionId,
+      ...(cwd === undefined ? {} : { meta: { cwd, agentPreset: HUMANITY_PRESET_ID } }),
     })
-    const sessionId = typeof created.sessionId === 'string' ? created.sessionId : ''
-    if (sessionId === '') return { ok: false, reason: '会话服务没有返回会话 id' }
     deps.log.info(`她的房间已开出（会话 ${sessionId}）`)
-    return { ok: true, sessionId }
+    return { ok: true, sessionId, handle }
   } catch (error) {
     deps.log.warn('她的房间没开出来（这次不排程）', error)
     return { ok: false, reason: `新建会话被拒绝：${describeError(error)}` }
@@ -188,6 +228,18 @@ export async function ensureTask(
     deps.log.warn('她的房间没建成（这次不排程）', error)
     return { ok: false, reason: `新建定时任务被拒绝：${describeError(error)}` }
   }
+}
+
+/**
+ * 读一次任务的当前样子（用于 `create` 没回报下一次时间时补读）。
+ * @param deps - 外部事实。
+ * @param taskId - 任务 id。
+ * @returns 房间状态；任务不存在或调度服务缺席时为 `undefined`。
+ */
+export async function inspectRoom(deps: RoomDeps, taskId: string): Promise<RoomState | undefined> {
+  const service = deps.schedule()
+  if (service === undefined || taskId === '') return undefined
+  return roomOf(await service.view({ id: taskId }).catch(() => undefined))
 }
 
 /**

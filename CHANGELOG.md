@@ -17,6 +17,18 @@
 >   就是 `0.1.9` —— 与其让工具**静默改名**，不如**发布前就把 `version` 写成 `0.1.9`**。
 >   **`0.1.9` 该号一旦发出永久占用、不可覆盖**，所以这一步必须在发布前定死。
 
+## 0.2.2-rc.3/0.2.3 — 2026-11-23（房间从 Agent 注册表开）
+
+> 0.2.2 的诊断结论：`sessionController` 在这个部署里**对插件不可见**（`sessionController=no`，
+> 而 `sessions` / `agents` / `schedule` 都在）。所以房间改从 **Agent 注册表**开：
+> `ctx.agents.create({ sessionId, meta: { cwd, agentPreset } })` —— 它按我们给的会话 id 建
+> "会话 + Agent"，会话因此可被定时任务解析。
+
+- 会话 id 由插件生成（`session-<uuid>`），存在状态文档的 `roomSessionId` 里。
+- 重启后先尝试 `resume` 恢复同一间房；恢复不了就重开一间（房间丢了不该让她从此没有日子）。
+- 句柄由插件持有；**故意不在卸载时释放**（`dispose` 有可能把会话一起撤掉）。
+- 已知代价：房间会出现在会话列表里，能走进去看 —— 用户 2026-11-23 明确接受。
+
 ## 0.2.2-rc.3/0.2.2 — 2026-11-23（房间改由会话服务开）
 
 > 0.2.1 把真机的失败原因抓出来了：**`This Host cannot create Sessions; choose an existing Session target.`**
