@@ -23,7 +23,7 @@ import {
   saveState,
 } from '../lib/evolution/state.js'
 import { buildWakePrompt } from '../lib/evolution/wake.js'
-import { continuityOf, isWakeMessage } from '../lib/evolution/index.js'
+import { continuityOf, isScheduleMessage, isWakeMessage, withoutScheduleNoise } from '../lib/evolution/index.js'
 import { WAKE_MARKER } from '../lib/evolution/constants.js'
 
 /** 不打印的日志门面。 */
@@ -166,6 +166,20 @@ test('只有我们自己的调度消息算醒来：你给自己排的提醒不�
   assert.equal(isWakeMessage(reminder), false, '别的提醒不算"她自己的时间"')
   assert.equal(isWakeMessage(user), false, '来源不是调度就不算')
   assert.equal(isWakeMessage({ content: 'not-an-array' }), false)
+})
+
+test('她房间里要滤掉调度器的变更通知，你那边一条都不能动', () => {
+  const wake = { source: { kind: 'schedule' }, content: [{ type: 'text', text: `${WAKE_MARKER} 现在…` }] }
+  const noise = { source: { kind: 'schedule' }, content: [{ type: 'text', text: '你的定时任务已被修改' }] }
+  const user = { source: { kind: 'user' }, content: [{ type: 'text', text: '在吗' }] }
+
+  const room = withoutScheduleNoise([wake, noise, user], true)
+  assert.deepEqual(room, [wake, user], '房间里只留她自己的时间和人说的话')
+
+  const outside = [wake, noise, user]
+  assert.equal(withoutScheduleNoise(outside, false), outside, '别处原样返回（你自己的提醒不能被滤）')
+  assert.equal(isScheduleMessage(noise), true)
+  assert.equal(isScheduleMessage(user), false)
 })
 
 test('房间：从 Agent 注册表开出，再把任务投进这个已有会话', async () => {

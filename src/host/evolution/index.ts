@@ -116,6 +116,36 @@ export function isWakeMessage(message: unknown): boolean {
   return textOf(message).includes(WAKE_MARKER)
 }
 
+/**
+ * 这条消息是不是调度器发来的（任何调度消息）。
+ * @param message - 一条待发消息。
+ * @returns 来源是 `schedule` 时为 `true`。
+ */
+export function isScheduleMessage(message: unknown): boolean {
+  const source = (message as { source?: { kind?: unknown } } | undefined)?.source
+  return source?.kind === 'schedule'
+}
+
+/**
+ * 她的房间里只该出现"她自己的时间"那一条调度消息。
+ *
+ * ### 为什么需要这道过滤（真机第一晚抓到的）
+ *
+ * 每次我们改任务（排下一次）时，DSH 会向相关会话推一条**管理变更通知**，并且它会被放进
+ * **下一个模型步骤**。于是她醒来后会看到一条"你的安排被人动了"的话 —— 真机里她当场对此发表了感想
+ * （"哦，是我自己那段时间的安排被人动了"）。那是机制漏进了她的体验：她不该知道"有人改了她的日程"。
+ *
+ * 只在她房间里滤：你自己的提醒消息也在同一个来源下，别的地方一条都不能动。
+ * @param messages - 这一轮要发给模型的消息。
+ * @param inRoom - 这一轮是不是发生在她自己的房间里。
+ * @returns 过滤后的消息（没东西可滤时原样返回同一个数组）。
+ */
+export function withoutScheduleNoise(messages: readonly unknown[], inRoom: boolean): readonly unknown[] {
+  if (!inRoom) return messages
+  const kept = messages.filter((message) => !isScheduleMessage(message) || isWakeMessage(message))
+  return kept.length === messages.length ? messages : kept
+}
+
 /** 她上一次在自己房间里说过/做过的摘要（只留尾巴，够接上话就行）。 */
 export function continuityOf(text: string, limit = 300): string {
   const clean = text.replace(/\s+/g, ' ').trim()
@@ -456,7 +486,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   const disposeStep = on('agent/pre-step', async (payload, next) => {
     const decision = (await next()) as { kind?: string; messages?: unknown[] } | null
     if (decision === null || decision.kind !== 'enter') return decision
-    const { step } = (payload ?? {}) as { step?: number }
+    const { agent, step } = (payload ?? {}) as { agent?: unknown; step?: number }
     // 只看每一步的第一步：一次醒来是一轮对话，不是每一步都要记一次。
     if (step !== 1) return decision
     if (!moduleEnabled()) return decision
@@ -472,12 +502,17 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       }
     }
     const messages = Array.isArray(decision.messages) ? decision.messages : []
-    if (!messages.some(isWakeMessage)) return decision
+    // 她房间里只留"她自己的时间"那一条：调度器的变更通知不该让她看见（真机第一晚她就看见了）。
+    const sessionId = (agent as { session?: { id?: string } } | undefined)?.session?.id ?? ''
+    const documentsForRoom = deps.documents()
+    const inRoom = documentsForRoom !== undefined && sessionId !== '' && sessionId === readState(documentsForRoom).roomSessionId
+    const cleaned = withoutScheduleNoise(messages, inRoom)
+    if (!cleaned.some(isWakeMessage)) return cleaned === messages ? decision : { ...decision, messages: cleaned }
     // 落账放在异步尾巴上：她这一轮不必等一次调度写入。
     void settleWake(new Date().toISOString()).catch((error: unknown) => {
       log.warn('醒来之后没能排下一次（这一次不影响对话）', error)
     })
-    return decision
+    return cleaned === messages ? decision : { ...decision, messages: cleaned }
   })
 
   ctx.effect(
