@@ -30,6 +30,7 @@ import { warnSafely } from '../log.js'
 import type { HumanityStore } from '../store-schema.js'
 import { buildEcho, type RecallEchoSource } from './echo.js'
 import { installEmotionInjection } from './inject.js'
+import { appraiseOwnExperience } from './appraise.js'
 import { settle, apply, type EmotionPulse } from './state.js'
 import { createEmotionStore, type EmotionStore } from './store.js'
 import { installEmotionSection, type EmotionSection } from './section.js'
@@ -83,6 +84,14 @@ export interface EmotionModule {
    * @param input - 这一次的变化（空脉冲会被判成"没变化"，不写盘）。
    * @param now - 事件时刻。
    */
+  /**
+   * 她自己的见闻 → 情绪（她自己房间里看到、读到的东西）。
+   *
+   * 只产出对事（world）或对自己（self）的情绪；模型若给了"冲对方"的条目会被滤掉 ——
+   * 对方不在场，没有人对她做了什么。
+   * @param text - 她看到的内容（调用方已压短）。
+   */
+  appraiseOwn(text: string): Promise<void>
   pulse(input: EmotionPulse, now?: string): Promise<void>
   /** 存储刚就绪：装载状态并投影一次。 */
   notifyStoreReady(): void
@@ -188,6 +197,20 @@ export function installEmotion(
   }
 
   const api: EmotionModule = {
+    appraiseOwn: async (text) => {
+      if (!enabled) return
+      const current = ensureLoaded()
+      if (current === undefined) return
+      const at = nowIso()
+      const pulse = await appraiseOwnExperience(
+        llm,
+        { text, state: settle(current, at, deps.timeZone?.(), deps.energy?.()), stance: stance() },
+        { onWarn: (warning) => log.warn(warning) },
+      )
+      // 没有可用的情绪就当没发生：她看了一段东西而"没什么感觉"是完全正常的结果。
+      if (pulse === undefined) return
+      await runPulse(pulse, at)
+    },
     snapshot: (now) => {
       if (!enabled) return undefined
       const current = ensureLoaded()
@@ -236,11 +259,13 @@ export function installEmotion(
    * 那个句柄住在 `section.read` 里（见 `section.ts` 的说明）。
    */
   const stance = stanceReader((ns) => section.read(ns))
+  /** 后台模型调用口：注入里的评估与"她自己看到的东西"的评估共用一份。 */
+  const llm = createLlmAccess(ctx, log)
   const disposeInjection = installEmotionInjection(ctx, log, {
     enabled: () => enabled,
     snapshot: () => api.snapshot(),
     pulse: (input) => api.pulse(input),
-    llm: createLlmAccess(ctx, log),
+    llm,
     stance,
     energy: () => deps.energy?.(),
   })

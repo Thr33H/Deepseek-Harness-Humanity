@@ -43,7 +43,7 @@ import {
   type RoomDeps,
   type ScheduleServiceLike,
 } from './room.js'
-import { MIN_GAP_SECONDS, RETRY_ARM_AFTER_MS, WAKE_MARKER } from './constants.js'
+import { MIN_GAP_SECONDS, RETRY_ARM_AFTER_MS, SEEN_LIMIT, WAKE_MARKER } from './constants.js'
 import {
   drainPoints,
   minutesToWake,
@@ -67,6 +67,13 @@ export interface EvolutionDeps {
   timeZone(): string | undefined
   /** `$DSH_HOME`（房间目录要用）。 */
   homeDir(): string | undefined
+  /**
+   * 她自己在房间里看到的东西 → 情绪（交给情绪模块评估，只产出"对事/对自己"的情绪）。
+   *
+   * 为什么由宿主转一手：自进化不 import 情绪模块（模块互相隔离）；谁在场谁负责。
+   * 情绪模块关着时它返回 `undefined`，这一步就什么也不做。
+   */
+  appraiseOwn?(text: string): Promise<void>
 }
 
 /** 模块句柄。 */
@@ -114,6 +121,34 @@ export function continuityOf(text: string, limit = 300): string {
   const clean = text.replace(/\s+/g, ' ').trim()
   if (clean === '') return ''
   return clean.length <= limit ? clean : `…${clean.slice(-limit)}`
+}
+
+/**
+ * 从一条工具结果里取出她"看到的内容"。
+ *
+ * 形状不假设：`tool/result` 的载荷在不同工具下不一样，先看 `message` 的文本块，
+ * 再退到常见的字符串字段，最后把结构化载荷串起来。取不到就返回空串（不猜）。
+ * @param event - `session/event` 的一条事件。
+ * @returns 可读文本（可能很长，调用方负责截断）。
+ */
+export function toolTextOf(event: unknown): string {
+  const data = (event as { data?: Record<string, unknown> } | undefined)?.data
+  if (data === undefined) return ''
+  const fromMessage = textOf(data.message)
+  if (fromMessage.trim() !== '') return fromMessage
+  for (const key of ['result', 'content', 'output', 'text']) {
+    const value = data[key]
+    if (typeof value === 'string' && value.trim() !== '') return value
+    if (value !== undefined) {
+      try {
+        const json = JSON.stringify(value)
+        if (json !== undefined && json !== '{}') return json
+      } catch {
+        // 结构不可序列化：当作没有内容。
+      }
+    }
+  }
+  return ''
 }
 
 /**
@@ -167,6 +202,8 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
 
   /** 每个会话里她最后说过的几句（醒来时接上"上次做到哪"）。 */
   const lastSaid = new Map<string, string>()
+  /** 她在自己房间里看到的东西（醒来后交给情绪评估）。 */
+  let seenBuffer = ''
   /** 还没落盘的 token 消耗（攒成一次写入）。 */
   let pendingTokens = 0
   let flushTimer: ReturnType<typeof setTimeout> | undefined
@@ -318,6 +355,17 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     const documents = deps.documents()
     if (documents === undefined) return
     await flushTokens(at)
+    // 她这段时间看到的东西，交给情绪评估一次（对象只可能是"事"或"自己"）。
+    const seen = seenBuffer
+    seenBuffer = ''
+    if (seen.trim() !== '' && deps.appraiseOwn !== undefined) {
+      try {
+        await deps.appraiseOwn(seen)
+      } catch (error) {
+        // 评估失败只影响这一次的感受，不影响她的日子。
+        log.warn('自评失败（这一段没有产生情绪）', error)
+      }
+    }
     const timeZone = deps.timeZone()
     const raw = readState(documents)
     // 睡着时被叫醒、或者自然睡醒：这一步会把 `sleepingSince` 清掉。
@@ -381,9 +429,19 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     try {
       if (!moduleEnabled()) return
       const typed = event as { type?: string; data?: { usage?: unknown; message?: unknown } } | undefined
+      const sessionId = (session as { id?: string } | undefined)?.id ?? ''
+      // 她在自己房间里看到的东西：只收 `tool/result`（她读到、查到的内容），
+      // **绝不收她自己说的话** —— 否则就是"自己喂自己"，情绪会越滚越大。
+      if (typed?.type === 'tool/result') {
+        const documents = deps.documents()
+        if (documents !== undefined && sessionId !== '' && sessionId === readState(documents).roomSessionId) {
+          const text = toolTextOf(event)
+          if (text.trim() !== '') seenBuffer = `${seenBuffer}\n${text}`.slice(-SEEN_LIMIT)
+        }
+        return
+      }
       // 顺手记下她最后一句话：下一次醒来要接上"上次做到哪"（连续性不靠她的记性）。
       if (typed?.type === 'assistant/message') {
-        const sessionId = (session as { id?: string } | undefined)?.id ?? ''
         const said = continuityOf(textOf(typed.data?.message))
         if (sessionId !== '' && said !== '') lastSaid.set(sessionId, said)
       }

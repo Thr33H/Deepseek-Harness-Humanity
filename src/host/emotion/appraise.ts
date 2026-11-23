@@ -133,6 +133,75 @@ const APPRAISE_SYSTEM = [
   '- 宁可判"没影响"，也不要编造。不要输出任何 JSON 之外的内容。',
 ].join('\n')
 
+/**
+ * 「她自己看到的东西」这一轮的补充说明。
+ *
+ * 为什么不另写一份 system：八种情绪、标尺、容易混的几对，全都写在 `APPRAISE_SYSTEM` 里；
+ * 复制一份等于两份真源，早晚分叉。这里只加"这一轮不一样"的那几句。
+ */
+const OWN_SUFFIX = [
+  '',
+  '**这一轮的特殊情形**：下面给你的**不是对方说的话**，而是你自己在这段时间里看到、读到的内容。',
+  '判断这些内容让你有什么感受。target 只能是 "world"（冲事情本身）或 "self"（冲自己）；',
+  '**不要输出 target="user"**，也不要写 vicarious —— 对方不在场，没有人对你做了什么。',
+  'warmth 一律给 0（关系温度不因你看了一篇文章而变），perceived 一律给空串。',
+].join('\n')
+
+/**
+ * 她自己的见闻 → 情绪。
+ *
+ * 与 {@link appraiseMessage} 的区别只有两处：输入是"她看到的东西"而不是"对方说的话"；
+ * 产出的 shift **只保留 world / self**（把 user 滤掉是硬性防线：模型偶尔会写成"对方让我生气"，
+ * 那不是她自己的时间该产生的情绪）。
+ * @param llm - 后台模型调用入口。
+ * @param input - 看到的内容 + 她此刻的状态 + 立场。
+ * @param options - 超时/告警等。
+ * @returns 情绪脉冲（只有 shifts）；没有可用的情绪时 `undefined`。
+ */
+export async function appraiseOwnExperience(
+  llm: LlmAccess,
+  input: { text: string; state: EmotionState; stance?: AppraisalStance },
+  options: AppraiseOptions = {},
+): Promise<EmotionPulse | undefined> {
+  const seen = input.text.trim()
+  if (seen === '') return undefined
+  const route = llm.route()
+  if (route === undefined) return undefined
+  const text = [
+    renderStance(input.stance),
+    describeState(input.state),
+    `【你自己这段时间看到的】\n${clipMessage(seen)}`,
+    '按上面的格式输出 JSON（记住：这一轮 target 只能是 world 或 self，warmth 给 0，perceived 给空串）。',
+  ]
+    .filter((block) => block !== '')
+    .join('\n\n')
+
+  try {
+    const result = await llm.streamText({
+      route,
+      system: `${APPRAISE_SYSTEM}\n${OWN_SUFFIX}`,
+      text,
+      maxTokens: options.maxTokens ?? APPRAISE_MAX_TOKENS,
+      timeoutMs: options.timeoutMs ?? APPRAISE_TIMEOUT_MS,
+      ...options.signal === undefined ? {} : { signal: options.signal },
+    })
+    if (result.finishReason === 'length') {
+      options.onWarn?.('自评的输出被截断（maxTokens 不够）')
+      return undefined
+    }
+    const parsed = parseAppraisal(result.text)
+    if (parsed === undefined) {
+      options.onWarn?.(`自评的输出无法使用：${result.text.slice(0, 200)}`)
+      return undefined
+    }
+    const shifts = parsed.shifts.filter((shift) => shift.target !== 'user')
+    return shifts.length === 0 ? undefined : { shifts }
+  } catch (error) {
+    options.onWarn?.(`自评调用失败：${error instanceof Error ? error.message : String(error)}`)
+    return undefined
+  }
+}
+
 /** 评估的输入。 */
 export interface AppraiseInput {
   /** 对方这一句话的正文。 */
