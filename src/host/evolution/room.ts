@@ -18,7 +18,7 @@
  * 一概不受影响（G-002 停功能、不停 DSH）。
  * @module humanity/evolution/room
  */
-import type { Log } from '../log.js'
+import { describeError, type Log } from '../log.js'
 import { HUMANITY_PRESET_ID } from '../presets.js'
 import { ROOM_TASK_TITLE } from './constants.js'
 
@@ -38,10 +38,23 @@ export interface ScheduleServiceLike {
   edit(request: unknown, actorSessionId?: string, signal?: AbortSignal): Promise<ScheduleTaskLike>
 }
 
+/** 会话创建能力（`ctx.get('sessionController')` 的那一部分）。 */
+export interface SessionControllerLike {
+  create(request: { cwd?: string; agentPreset?: string }): Promise<{ sessionId?: string }>
+}
+
 /** 房间的外部事实。 */
 export interface RoomDeps {
   /** 调度服务（现读：它可能比我们晚挂上，也可能根本不存在）。 */
   schedule(): ScheduleServiceLike | undefined
+  /**
+   * 会话创建能力（现读）。
+   *
+   * 为什么要它：这个部署的调度服务**不能自己创建会话**（真机报错：
+   * `This Host cannot create Sessions; choose an existing Session target.`），
+   * 所以房间得由我们先用会话服务开出来，再让定时任务投进一个**已存在的会话**。
+   */
+  session(): SessionControllerLike | undefined
   /** `$DSH_HOME`（现读）。 */
   homeDir(): string | undefined
   /** 日志。 */
@@ -112,11 +125,39 @@ function roomOf(task: ScheduleTaskLike | undefined): RoomState | undefined {
 }
 
 /**
+ * 开出她的房间（一个只属于她的空会话）。
+ *
+ * 为什么单独一步：调度服务的 `new_once` 在这个部署里不可用（Host 没有"创建会话"的能力）。
+ * 于是房间由会话服务先建好，定时任务再投进这个**已有**会话。
+ * @param deps - 外部事实。
+ * @returns 会话 id；失败时给人话原因。
+ */
+export async function ensureRoom(deps: RoomDeps): Promise<{ ok: true; sessionId: string } | { ok: false; reason: string }> {
+  const controller = deps.session()
+  if (controller === undefined) return { ok: false, reason: '这个部署没有会话创建能力（sessionController 不在）' }
+  const cwd = await ensureRoomDir(deps)
+  try {
+    const created = await controller.create({
+      ...(cwd === undefined ? {} : { cwd }),
+      agentPreset: HUMANITY_PRESET_ID,
+    })
+    const sessionId = typeof created.sessionId === 'string' ? created.sessionId : ''
+    if (sessionId === '') return { ok: false, reason: '会话服务没有返回会话 id' }
+    deps.log.info(`她的房间已开出（会话 ${sessionId}）`)
+    return { ok: true, sessionId }
+  } catch (error) {
+    deps.log.warn('她的房间没开出来（这次不排程）', error)
+    return { ok: false, reason: `新建会话被拒绝：${describeError(error)}` }
+  }
+}
+
+/**
  * 确保房间里有一个任务，并把它排到下一次。
  *
- * 顺序：已有任务 → 直接沿用；没有 → 新建（第一次投递时自动开房间）。
+ * 顺序：已有任务 → 直接沿用；没有 → 在**已存在的房间会话**上建一个任务。
  * @param deps - 外部事实。
  * @param taskId - 已知的任务 id（空串 = 认为还没有）。
+ * @param sessionId - 房间的会话 id（必须已存在：这个部署不允许任务自己建会话）。
  * @param gapSeconds - 下一次隔多少秒。
  * @param prompt - 醒来时她要看到的那段话。
  * @returns 结果。
@@ -124,30 +165,28 @@ function roomOf(task: ScheduleTaskLike | undefined): RoomState | undefined {
 export async function ensureTask(
   deps: RoomDeps,
   taskId: string,
+  sessionId: string,
   gapSeconds: number,
   prompt: string,
 ): Promise<RoomOutcome> {
   const service = deps.schedule()
   if (service === undefined) return { ok: false, reason: '调度服务不在（DSH 没装或没启用它会话调度）' }
+  if (sessionId === '') return { ok: false, reason: '还没有她的房间（会话 id 为空）' }
   const existing = taskId === '' ? undefined : roomOf(await service.view({ id: taskId }).catch(() => undefined))
   if (existing !== undefined) return { ok: true, room: existing }
-  const cwd = await ensureRoomDir(deps)
   try {
     const created = await service.create({
       title: ROOM_TASK_TITLE,
       prompt,
       timing: { kind: 'after', after_seconds: gapSeconds },
-      target: {
-        kind: 'new_once',
-        ...(cwd === undefined ? {} : { create: { cwd, agentPreset: HUMANITY_PRESET_ID } }),
-      },
+      target: { kind: 'session', sessionId },
     })
     const room = roomOf(created)
     if (room === undefined) return { ok: false, reason: '调度服务没有返回新建的任务' }
     return { ok: true, room }
   } catch (error) {
     deps.log.warn('她的房间没建成（这次不排程）', error)
-    return { ok: false, reason: '新建定时任务被拒绝（详见日志）' }
+    return { ok: false, reason: `新建定时任务被拒绝：${describeError(error)}` }
   }
 }
 

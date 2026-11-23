@@ -23,9 +23,17 @@ import type { Context } from '@deepseek-ai/cordis'
 
 import type { DocumentStore } from '../documents.js'
 import type { Log } from '../log.js'
-import { afterWake, nextGapSeconds, readState, writeState, type WakeRhythm } from './state.js'
-import { ensureTask, reschedule, setActive, type RoomDeps, type ScheduleServiceLike } from './room.js'
-import { WAKE_MARKER } from './constants.js'
+import { afterWake, nextGapSeconds, readState, saveState, type WakeRhythm } from './state.js'
+import {
+  ensureRoom,
+  ensureTask,
+  reschedule,
+  setActive,
+  type RoomDeps,
+  type ScheduleServiceLike,
+  type SessionControllerLike,
+} from './room.js'
+import { RETRY_ARM_AFTER_MS, WAKE_MARKER } from './constants.js'
 import { buildWakePrompt } from './wake.js'
 
 /** 宿主交给自进化模块的外部事实（全部现读，不缓存句柄）。 */
@@ -100,7 +108,27 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     }
     return service
   }
-  const roomDeps: RoomDeps = { schedule, homeDir: deps.homeDir, log }
+  const roomDeps: RoomDeps = {
+    schedule,
+    session: () => {
+      const controller = ctx.get('sessionController') as SessionControllerLike | undefined
+      return controller !== undefined && typeof controller.create === 'function' ? controller : undefined
+    },
+    homeDir: deps.homeDir,
+    log,
+  }
+
+  /**
+   * 这个上下文里看得见哪些相关服务（排程失败时写进状态文档）。
+   *
+   * 为什么需要它：真机上"排不上"可能是"服务没装"也可能是"挂得比我们晚"，两者的下一步完全不同，
+   * 而插件日志进不了 `docker logs`。把可见性写进状态，是唯一能从外部区分它们的办法。
+   * @returns 例：`schedule=yes sessionController=no sessions=yes`
+   */
+  const visibility = (): string =>
+    ['schedule', 'sessionController', 'sessions', 'agents']
+      .map((name) => `${name}=${ctx.get(name) === undefined ? 'no' : 'yes'}`)
+      .join(' ')
 
   /**
    * 把下一次醒来排好。
@@ -135,17 +163,37 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         await setActive(roomDeps, state.taskId, false)
         return
       }
+      // 房间必须先有：这个部署的调度服务不能自己创建会话（真机报错见 `room.ts` 的说明）。
+      let sessionId = state.roomSessionId
+      if (state.taskId === '' && sessionId === '') {
+        const room = await ensureRoom(roomDeps)
+        if (!room.ok) {
+          await saveState(documents, {
+            ...state,
+            lastError: `${room.reason}（看得见的服务：${visibility()}）`,
+            lastAttemptAt: now,
+          })
+          log.warn(`${reason}：房间没开出来——${room.reason}`)
+          return
+        }
+        sessionId = room.sessionId
+      }
       const outcome = state.taskId === ''
-        ? await ensureTask(roomDeps, state.taskId, gap, buildWakePrompt(now, timeZone))
+        ? await ensureTask(roomDeps, '', sessionId, gap, buildWakePrompt(now, timeZone))
         : await reschedule(roomDeps, state.taskId, gap)
       if (!outcome.ok) {
+        // 失败必须留下证据：插件的日志进不了 docker logs，状态文档是外部唯一读得到的地方。
+        await saveState(documents, { ...state, roomSessionId: sessionId, lastError: outcome.reason, lastAttemptAt: now })
         log.warn(`${reason}：没有排上——${outcome.reason}`)
         return
       }
-      await writeState(documents, {
+      await saveState(documents, {
+        ...state,
         taskId: outcome.room.taskId,
-        roomSessionId: outcome.room.sessionId,
+        roomSessionId: outcome.room.sessionId === '' ? sessionId : outcome.room.sessionId,
         nextAt: outcome.room.nextAt,
+        lastError: '',
+        lastAttemptAt: now,
       })
       log.info(`${reason}：她下一次醒来 ${outcome.room.nextAt === '' ? '（时间未回报）' : outcome.room.nextAt}`)
     } finally {
@@ -166,18 +214,22 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     const timeZone = deps.timeZone()
     const before = readState(documents)
     const patch = afterWake(before, at, timeZone)
-    await writeState(documents, patch)
     const after = { ...before, ...patch }
     const gap = nextGapSeconds(after, deps.wake(), at, timeZone)
     if (gap === undefined) {
+      await saveState(documents, { ...after, nextAt: '', lastError: '', lastAttemptAt: at })
       await setActive(roomDeps, after.taskId, false)
       log.info('她醒了一次；今天的次数到了上限，不再排下一次')
       return
     }
     const outcome = await reschedule(roomDeps, after.taskId, gap)
-    if (outcome.ok) {
-      await writeState(documents, { nextAt: outcome.room.nextAt, roomSessionId: outcome.room.sessionId })
-    }
+    await saveState(documents, {
+      ...after,
+      nextAt: outcome.ok ? outcome.room.nextAt : after.nextAt,
+      roomSessionId: outcome.ok ? outcome.room.sessionId : after.roomSessionId,
+      lastError: outcome.ok ? '' : outcome.reason,
+      lastAttemptAt: at,
+    })
     log.info(`她醒了一次（今天第 ${after.dayCount} 次）；下一次 ${outcome.ok ? outcome.room.nextAt : '没排上'}`)
   }
 
@@ -193,6 +245,17 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     // 只看每一步的第一步：一次醒来是一轮对话，不是每一步都要记一次。
     if (step !== 1) return decision
     if (!moduleEnabled()) return decision
+    // 房间还没排上就借这一轮再试：会话服务可能比我们挂得晚（失败原因已写在状态文档里）。
+    const documents = deps.documents()
+    if (documents !== undefined) {
+      const state = readState(documents)
+      if (state.taskId === '') {
+        const last = Date.parse(state.lastAttemptAt)
+        if (!Number.isFinite(last) || Date.now() - last >= RETRY_ARM_AFTER_MS) {
+          void arm('重试排程').catch((error: unknown) => log.warn('重试排程失败', error))
+        }
+      }
+    }
     const messages = Array.isArray(decision.messages) ? decision.messages : []
     if (!messages.some(isWakeMessage)) return decision
     // 落账放在异步尾巴上：她这一轮不必等一次调度写入。

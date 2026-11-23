@@ -13,14 +13,14 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 
-import { ensureTask, reschedule, roomDirOf } from '../lib/evolution/room.js'
+import { ensureRoom, ensureTask, reschedule, roomDirOf } from '../lib/evolution/room.js'
 import {
   afterWake,
   dayKeyOf,
   EMPTY_STATE,
   nextGapSeconds,
   readState,
-  writeState,
+  saveState,
 } from '../lib/evolution/state.js'
 import { buildWakePrompt } from '../lib/evolution/wake.js'
 import { isWakeMessage } from '../lib/evolution/index.js'
@@ -119,7 +119,7 @@ test('醒来记账：同一天累加、跨天从 1 重新开始', () => {
 test('状态文档：没写过就是空状态；写进去的字段读得回来', async () => {
   const documents = fakeDocuments(undefined)
   assert.deepEqual(readState(documents), EMPTY_STATE)
-  await writeState(documents, { taskId: 'task-1', dayKey: '2026-11-23', dayCount: 2 })
+  await saveState(documents, { ...readState(documents), taskId: 'task-1', dayKey: '2026-11-23', dayCount: 2 })
   const read = readState(documents)
   assert.equal(read.taskId, 'task-1')
   assert.equal(read.dayCount, 2)
@@ -144,23 +144,35 @@ test('只有我们自己的调度消息算醒来：你给自己排的提醒不�
   assert.equal(isWakeMessage({ content: 'not-an-array' }), false)
 })
 
-test('房间：第一次是 new_once（指定目录与预设），之后只改下一次的时间', async () => {
+test('房间：先用会话服务开出房间，再把任务投进这个已有会话', async () => {
   const service = fakeSchedule()
+  const sessions = []
+  const sessionController = {
+    async create(request) {
+      sessions.push(request)
+      return { sessionId: 'room-9' }
+    },
+  }
   const dir = await mkdtemp(path.join(tmpdir(), 'humanity-room-'))
   try {
-    const deps = { schedule: () => service, homeDir: () => dir, log: quietLog }
+    const deps = { schedule: () => service, session: () => sessionController, homeDir: () => dir, log: quietLog }
     assert.equal(roomDirOf(deps), `${dir.replace(/[\\/]+$/, '')}/humanity/room`)
 
-    const created = await ensureTask(deps, '', 600, '醒来')
+    const room = await ensureRoom(deps)
+    assert.equal(room.ok, true)
+    assert.equal(room.sessionId, 'room-9')
+    assert.equal(sessions[0].agentPreset, 'humanity', '房间用「Humanity 沉浸」这一档')
+    assert.match(sessions[0].cwd, /humanity[\\/]room$/, '房间落在她自己的目录')
+
+    const created = await ensureTask(deps, '', 'room-9', 600, '醒来')
     assert.equal(created.ok, true)
     assert.equal(created.room.taskId, 'task-1')
     const request = service.calls.create[0]
     assert.equal(request.title, '她自己的时间')
     assert.equal(request.timing.kind, 'after')
     assert.equal(request.timing.after_seconds, 600)
-    assert.equal(request.target.kind, 'new_once', '第一次投递时自动开房间')
-    assert.equal(request.target.create.agentPreset, 'humanity', '房间用「Humanity 沉浸」这一档')
-    assert.match(request.target.create.cwd, /humanity[\\/]room$/, '房间落在她自己的目录')
+    // 这个部署的 Host 不能建会话（真机报错），所以目标必须是已存在的会话。
+    assert.deepEqual(request.target, { kind: 'session', sessionId: 'room-9' })
 
     const moved = await reschedule(deps, 'task-1', 900)
     assert.equal(moved.ok, true)
@@ -174,12 +186,16 @@ test('房间：第一次是 new_once（指定目录与预设），之后只改�
   }
 })
 
-test('房间：拿不到调度服务时安静失败，并给出人话原因', async () => {
-  const deps = { schedule: () => undefined, homeDir: () => undefined, log: quietLog }
-  const outcome = await ensureTask(deps, '', 600, '醒来')
+test('房间：拿不到调度服务 / 会话服务时安静失败，并给出人话原因', async () => {
+  const noSchedule = { schedule: () => undefined, session: () => undefined, homeDir: () => undefined, log: quietLog }
+  const outcome = await ensureTask(noSchedule, '', 'room-9', 600, '醒来')
   assert.equal(outcome.ok, false)
   assert.match(outcome.reason, /调度服务/)
   // 已有任务时也一样：不抛、不假装成功。
-  const moved = await reschedule(deps, 'task-1', 600)
+  const moved = await reschedule(noSchedule, 'task-1', 600)
   assert.equal(moved.ok, false)
+
+  const noSession = await ensureRoom(noSchedule)
+  assert.equal(noSession.ok, false)
+  assert.match(noSession.reason, /会话创建能力/)
 })

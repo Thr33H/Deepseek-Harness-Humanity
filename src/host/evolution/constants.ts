@@ -28,3 +28,11 @@ export const NEXT_MORNING_HOUR = 8
 
 /** 排下一次的最小间隔（秒）：DSH 单任务最小投递间隔是 60 秒。 */
 export const MIN_GAP_SECONDS = 60
+
+/**
+ * 房间还没排上时，隔多久借一轮对话再试一次（毫秒）。
+ *
+ * 为什么需要重试：真机上会话服务可能比我们挂得**晚**（store 就绪那一刻还看不见它）。
+ * 装配期那一次失败如果不重试，"她没有自己的日子"就会一直停在那儿，而没人知道该等一等。
+ */
+export const RETRY_ARM_AFTER_MS = 2 * 60 * 1000

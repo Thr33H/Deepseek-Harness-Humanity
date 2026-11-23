@@ -22,6 +22,16 @@ export interface EvolutionStateDoc {
   dayKey: string
   /** 那天已经醒了几次。 */
   dayCount: number
+  /**
+   * 上一次排程失败的原因（空串 = 最近一次是成功的）。
+   *
+   * 为什么要落盘：真机上插件的日志**进不了 `docker logs`**（`log.ts` 有条实测记录）。
+   * 排程失败如果只写日志，等于"她没有自己的日子"而没人知道为什么 —— 这份状态是唯一
+   * 能被外部读到的证据，也是以后工作台那一行状态的数据源。
+   */
+  lastError: string
+  /** 上一次尝试排程的时刻（ISO 8601）。 */
+  lastAttemptAt: string
 }
 
 /** 还没开始过的状态。 */
@@ -32,6 +42,8 @@ export const EMPTY_STATE: EvolutionStateDoc = {
   nextAt: '',
   dayKey: '',
   dayCount: 0,
+  lastError: '',
+  lastAttemptAt: '',
 }
 
 /** 醒来的节奏参数（配置的现读镜像）。 */
@@ -65,20 +77,23 @@ export function readState(documents: DocumentStore | undefined): EvolutionStateD
     nextAt: text('nextAt'),
     dayKey: text('dayKey'),
     dayCount: Math.max(0, Math.trunc(count)),
+    lastError: text('lastError'),
+    lastAttemptAt: text('lastAttemptAt'),
   }
 }
 
 /**
- * 改状态（深合并：只写传进来的字段）。
+ * 整份写回。
+ *
+ * 为什么是整份 `write` 而不是 `merge`：这份文档在旧版本里被旧引擎的投影占用过
+ * （`runs`/`proposals`/`status` …）。整份写回会把那些已经没人读的字段一次清掉；
+ * 深合并则会永久留着它们，而且"状态里到底有哪些字段"会变得说不清。
  * @param documents - 文档表句柄；未就绪时什么也不做（下一次会重算）。
- * @param patch - 要改的字段。
+ * @param state - 完整状态。
  */
-export async function writeState(
-  documents: DocumentStore | undefined,
-  patch: Partial<EvolutionStateDoc>,
-): Promise<void> {
+export async function saveState(documents: DocumentStore | undefined, state: EvolutionStateDoc): Promise<void> {
   if (documents === undefined) return
-  await documents.merge(EVOLUTION_DOC_KEY, patch)
+  await documents.write(EVOLUTION_DOC_KEY, state)
 }
 
 /**
