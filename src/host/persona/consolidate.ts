@@ -17,7 +17,7 @@
  * 提示词里已经把"合并同义条目"写成硬要求。
  * @module humanity/persona/consolidate
  */
-import { similarity } from '../memory/similar.js'
+import { similarity } from '../text.js'
 import { opposesByNegation } from '../text.js'
 import type { PersonaDocument } from './types.js'
 

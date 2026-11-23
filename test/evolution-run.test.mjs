@@ -11,7 +11,6 @@ import { createRunner } from '../lib/evolution/run.js'
 import { dayKeyOf } from '../lib/evolution/schedule-time.js'
 import { createLog } from '../lib/log.js'
 import { createMemoryStore } from '../lib/memory/store.js'
-import { resolveMemoryPolicy } from '../lib/memory/policy.js'
 import { createFakeTable, fakeEvent, fakeEvolutionState, fakeSession, fakeSessionQuery } from './helpers/evolution-fake.mjs'
 
 const log = createLog(new Context(), 'test')
@@ -61,7 +60,6 @@ function harness(options = {}) {
     },
     classify: () => ({
       memoryStore: () => createMemoryStore(memoryTable),
-      memoryPolicy: () => resolveMemoryPolicy('balanced'),
       persona: () => undefined,
       state,
       log,

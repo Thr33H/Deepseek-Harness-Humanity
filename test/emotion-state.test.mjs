@@ -359,3 +359,108 @@ test('削弱不打折：坏消息总是全额生效（哄回来才该慢）', ()
   const after = apply(state, [{ kind: 'trust', target: 'user', delta: -30 }], T0)
   assert.equal(Math.round((after.charges[0]?.intensity ?? 0)), Math.round(before - 30), '负增量不该被打折')
 })
+
+/* ───────────────────────── 适应：同样的好事反复发生会变淡 ─────────────────────────
+ * 现场（2026-11-21）：13:39 还是"接纳"，13:43 变"信任"，13:52 已经爆档 —— 中间聊的只是公园和天鹅。
+ * 原因是当时只有"剩余空间"一道刹车：到 80 分时 +20 还能加 4 分，于是一段闲聊就能把信任顶满。
+ * 这一组钉住第二道刹车：同一段里同类好事越推越轻；大事与隔久了除外。
+ */
+
+test('适应：同一段里，同样的好事越推越轻（六笔 5 分只推得到十几）', () => {
+  let state = createInitialEmotionState(T0)
+  const gains = []
+  for (let i = 0; i < 6; i += 1) {
+    const before = state.charges[0]?.intensity ?? 0
+    state = apply(state, [{ kind: 'trust', target: 'user', delta: 5 }], at(i * 0.02))
+    gains.push((state.charges[0]?.intensity ?? 0) - before)
+  }
+  assert.equal(Math.round(gains[0] ?? 0), 5, '第一笔满额')
+  assert.ok((gains[5] ?? 0) < (gains[1] ?? 0) / 2, '第六次的增益应当不到第二次的一半')
+  // 没有适应时六笔 5 分是 5 + 4.75 + 4.51 + 4.29 + 4.07 + 3.87 ≈ 26.5；有适应只剩 ~15。
+  assert.ok((state.charges[0]?.intensity ?? 0) < 18, '六笔日常好话推不到"明显"档')
+  assert.equal(state.charges[0]?.recentGains, 6, '计数记了六次')
+})
+
+test('适应：大事不算"又来了"（单次增量到顶时重置计数，照常满额算）', () => {
+  let state = createInitialEmotionState(T0)
+  for (let i = 0; i < 5; i += 1) state = apply(state, [{ kind: 'trust', target: 'user', delta: 20 }], at(i * 0.01))
+  const before = state.charges[0]?.intensity ?? 0
+  // 与第五笔同一时刻（不跨时间），这样只检验"适应被重置"，不掺入衰减。
+  state = apply(state, [{ kind: 'trust', target: 'user', delta: 30 }], at(0.04))
+  const bigGain = (state.charges[0]?.intensity ?? 0) - before
+  // 只吃"剩余空间"，不吃适应：30 × (1 − 当前/100)。
+  assert.ok(Math.abs(bigGain - 30 * (1 - before / 100)) < 1e-9)
+  assert.equal(state.charges[0]?.recentGains, 1, '大事之后重新从 1 数')
+})
+
+test('适应：隔久了（超过窗口）重新满额', () => {
+  let state = apply(createInitialEmotionState(T0), [{ kind: 'trust', target: 'user', delta: 20 }], T0)
+  // 2 小时后（超过 90 分钟窗口）：信任先按 24 小时半衰期衰减，然后这一笔只吃剩余空间。
+  state = apply(state, [{ kind: 'trust', target: 'user', delta: 20 }], at(2))
+  const decayed = 20 * Math.pow(0.5, 2 / 24)
+  const expected = decayed + 20 * (1 - decayed / 100)
+  assert.ok(Math.abs((state.charges[0]?.intensity ?? 0) - expected) < 1e-9)
+})
+
+test('适应只管好事：负面情绪的上升不打折（那是敏感化的地盘）', () => {
+  let state = createInitialEmotionState(T0)
+  for (let i = 0; i < 3; i += 1) state = apply(state, [{ kind: 'anger', target: 'user', delta: 10 }], at(i * 0.01))
+  assert.equal(state.charges[0]?.recentGains, 0, '负面情绪不记适应')
+})
+
+test('适应：回声不算"又一次好事"（想起旧事不该把好事记淡）', () => {
+  let state = apply(createInitialEmotionState(T0), [{ kind: 'trust', target: 'user', delta: 20 }], T0)
+  const before = state.charges[0]?.intensity ?? 0
+  state = apply(state, [{ kind: 'trust', target: 'user', delta: 6, echo: true }], T0)
+  // 回声照常加（只吃剩余空间），但不动适应计数。
+  assert.ok(Math.abs(((state.charges[0]?.intensity ?? 0) - before) - 6 * (1 - before / 100)) < 1e-9)
+  assert.equal(state.charges[0]?.recentGains, 1, '回声没有把计数推上去')
+})
+
+/* ───────────── 工作台的"比上次多/少"：增减记录（用户 2026-11-22 要的箭头） ───────────── */
+
+test('增减：一次评估给每一处记下净变化（正数=多）', () => {
+  const raised = apply(createInitialEmotionState(T0), [{ kind: 'anger', delta: 12, cause: '被否定' }], T0)
+  const entry = raised.lastDeltas?.find((item) => item.kind === 'anger' && item.target === 'world')
+  assert.ok(entry !== undefined, '这一轮动过愤怒，就该有一条增减记录')
+  assert.equal(Math.round(entry.delta), 12)
+
+  // 再削一笔：同一处应当**累加**成净变化，而不是各记一条。
+  const lowered = apply(raised, [{ kind: 'anger', delta: -5, cause: '被哄' }], at(1 / 60))
+  const after = lowered.lastDeltas?.find((item) => item.kind === 'anger' && item.target === 'world')
+  assert.equal(Math.round(after.delta), -5, '这一次的净变化是 -5')
+})
+
+test('增减：被削到消失的那一条也要留下"掉了多少"（否则最该看见的减少恰好看不到）', () => {
+  const raised = apply(createInitialEmotionState(T0), [{ kind: 'anger', delta: 20, cause: '被否定' }], T0)
+  const wiped = apply(raised, [{ kind: 'anger', delta: -20, cause: '说开了' }], at(1 / 60))
+  assert.equal(wiped.charges.some((charge) => charge.kind === 'anger'), false, '已经归零移除')
+  const gone = wiped.lastDeltas?.find((item) => item.kind === 'anger')
+  assert.ok(gone !== undefined, '归零之后仍要有增减记录')
+  assert.ok(gone.delta < 0)
+})
+
+test('增减：视图把增减带给界面，归零的那条用原来的对象（不是补成"对事"）', async () => {
+  const { viewOf } = await import('../lib/emotion/view.js')
+  const raised = apply(createInitialEmotionState(T0), [{ kind: 'anger', target: 'user', delta: 9, cause: '被命令' }], T0)
+  const live = viewOf(raised).charges.find((charge) => charge.kind === 'anger')
+  assert.equal(live.target, 'user')
+  assert.equal(Math.round(live.delta), 9)
+
+  const wiped = apply(raised, [{ kind: 'anger', target: 'user', delta: -9, cause: '说开了' }], at(1 / 60))
+  const gone = viewOf(wiped).charges.find((charge) => charge.kind === 'anger')
+  assert.equal(gone.target, 'user', '归零之后仍指向"对TA"，不是补出来的"对事"')
+  assert.equal(Math.round(gone.intensity), 0)
+  assert.ok(gone.delta < 0, '箭头要指向减少')
+})
+
+test('增减：记下"上一次评估之前"的值（时间流逝后要能显示为减少）', () => {
+  const raised = apply(createInitialEmotionState(T0), [{ kind: 'joy', delta: 6, cause: '被夸' }], T0)
+  const first = raised.lastDeltas?.find((item) => item.kind === 'joy')
+  assert.equal(Math.round(first.before), 0, '第一次出现：之前是 0')
+  assert.equal(Math.round(first.delta), 6)
+
+  const again = apply(raised, [{ kind: 'joy', delta: 5, cause: '又被夸' }], at(1 / 60))
+  const second = again.lastDeltas?.find((item) => item.kind === 'joy')
+  assert.ok(Math.round(second.before) > 0, '第二次要记下"之前"那个值，界面才能算出净变化')
+})

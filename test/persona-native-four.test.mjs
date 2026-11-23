@@ -367,7 +367,7 @@ test('文案里不许出现"这个 AI"这类第三人称措辞（2026-11-15 真�
   // 提示词/工具描述里描述"你"时，一律用"你"，不许用"这个 AI / AI 助手"。
   const { INIT_DESCRIPTION } = await import('../lib/persona/init.js')
   const { UPDATE_DESCRIPTION } = await import('../lib/persona/update.js')
-  const { MEMORY_GUIDANCE } = await import('../lib/memory/inject.js')
+  const { MEMORY_GUIDANCE } = await import('../lib/memory/index.js')
   const { MUTABLE_OPS_GUIDE, uninitializedPrompt } = await import('../lib/persona/prompt-texts.js')
 
   const texts = {

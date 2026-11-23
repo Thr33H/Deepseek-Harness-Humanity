@@ -11,7 +11,6 @@ import { Context } from '@deepseek-ai/cordis'
 import { applyAnalysis } from '../lib/evolution/classify.js'
 import { createLog } from '../lib/log.js'
 import { createMemoryStore } from '../lib/memory/store.js'
-import { resolveMemoryPolicy } from '../lib/memory/policy.js'
 import { PersonaWriteRejected } from '../lib/persona/document.js'
 import { STANDARD_SECTION_TITLES, CORE_IDENTITY_KEYS } from '../lib/persona/constants.js'
 import { createFakeTable } from './helpers/evolution-fake.mjs'
@@ -41,7 +40,6 @@ function deps(overrides = {}) {
     memoryTable,
     deps: {
       memoryStore: () => createMemoryStore(memoryTable),
-      memoryPolicy: () => resolveMemoryPolicy('balanced'),
       persona: () => undefined,
       state,
       log,
@@ -82,45 +80,50 @@ function fakePersona(document, options = {}) {
   }
 }
 
-test('记忆：普通候选自动生效，敏感候选进待确认（P-033/P-038 由记忆管线把关）', async () => {
+test('记忆：候选直接落库，不再有"待确认"这道闸（2026-11-20 重构）', async () => {
   const { deps: dependencies, memoryTable } = deps()
   const result = await applyAnalysis(dependencies, CONTEXT, output({
     memories: [
-      { content: '用户偏好先给结论', scope: 'long-term', tags: ['交付'], sensitive: false },
+      { content: '对方偏好先给结论', scope: 'long-term', tags: ['交付'], sensitive: false },
       { content: '本项目的部署窗口是凌晨', scope: 'workspace', tags: [], sensitive: false },
-      { content: '用户的银行卡尾号是敏感内容', scope: 'long-term', tags: [], sensitive: true },
+      { content: '对方的银行卡尾号是敏感内容', scope: 'long-term', tags: [], sensitive: true },
     ],
   }))
 
   assert.equal(result.memoriesWritten, 3)
   const entries = [...memoryTable.records.values()]
   assert.equal(entries.length, 3)
-  const normal = entries.find((entry) => entry.content.includes('先给结论'))
-  const workspace = entries.find((entry) => entry.scope === 'workspace')
-  const sensitive = entries.find((entry) => entry.sensitive)
-  assert.equal(normal.status, 'active')
-  assert.equal(normal.origin, 'agent-derived', '来源必须是 agent 推断，不能冒充用户说的')
-  assert.equal(normal.ownerId, '', '长期记忆不归任何工作区')
-  assert.equal(workspace.ownerId, '/ws', '工作记忆的归属来自会话 cwd')
-  assert.equal(sensitive.status, 'pending')
+  const normal = entries.find((entry) => entry.what.includes('先给结论'))
+  const workspace = entries.find((entry) => entry.what.includes('部署窗口'))
+  const sensitive = entries.find((entry) => entry.what.includes('银行卡'))
+  // 自进化抽出来的是**模型推的**，不是她亲眼所见 —— 这一维要留着，以后引用时才不会把推断当事实。
+  assert.equal(normal.certain, 'inferred')
+  // 长期级候选按"关于对方"处理；工作区级候选按"关于你们之间"处理。
+  assert.equal(normal.about, 'user')
+  assert.equal(workspace.about, 'us')
+  // 敏感性不再是"进待确认"，它只影响写入时的披露代价（说完就生效）。
+  assert.equal(sensitive.cost <= 1, true)
+  // 强度按"当时情绪 + 这事跟我多大关系"算出来，不是拍一个固定值。
+  assert.equal(normal.strength > 0 && normal.strength <= 1, true)
 })
 
 test('记忆模块关闭：一条都不写，也不抛（P-048 模块独立）', async () => {
-  const { deps: dependencies } = deps({ memoryStore: () => undefined, memoryPolicy: () => undefined })
+  const { deps: dependencies } = deps({ memoryStore: () => undefined })
   const result = await applyAnalysis(dependencies, CONTEXT, output({
     memories: [{ content: '不该被写入', scope: 'long-term', tags: [], sensitive: false }],
   }))
   assert.equal(result.memoriesWritten, 0)
 })
 
-test('策略关闭自动写入（off 模式）：管线拒绝，计数为 0', async () => {
-  // 注意：manual 模式的语义是"不自动注入、只允许显式 recall"（P-030），**写入仍然允许**；
-  // 真正关掉自动写入的只有 off（autoWrite=false）。
-  const { deps: dependencies } = deps({ memoryPolicy: () => resolveMemoryPolicy('off') })
+test('写入不再有第二条闸：模块在就写，「策略关掉」这个概念已随模式一起删除', async () => {
+  // 2026-11-20：旧的 `mode`（off/session/balanced/manual）与 `policy.autoWrite` 整组删除。
+  // 现在只有一个开关（`modules.memory.enabled`），关掉时 `memoryStore()` 返回 undefined，
+  // 与上面那条测试走的是同一条路 —— 没有"模块开着但策略说别写"的中间态。
+  const { deps: dependencies } = deps({})
   const result = await applyAnalysis(dependencies, CONTEXT, output({
-    memories: [{ content: 'off 模式不写', scope: 'long-term', tags: [], sensitive: false }],
+    memories: [{ content: '记忆模块开着就该写进去', scope: 'long-term', tags: [], sensitive: false }],
   }))
-  assert.equal(result.memoriesWritten, 0)
+  assert.equal(result.memoriesWritten, 1)
 })
 
 test('信息：合并进完整快照、以 agent 身份写入；重复条目不再追加', async () => {

@@ -1,20 +1,8 @@
 import Schema from '@deepseek-ai/schemastery'
 
 import { SCHEDULE_MODES } from './evolution/constants.js'
-import { DECAY_UNUSED_DAYS } from './memory/constants.js'
+import { HUMANITY_PRESET_ID } from './presets.js'
 import { HISTORY_RETENTION_DAYS } from './persona/constants.js'
-
-/**
- * 记忆模块的运行模式。
- *
- * 用「预设模式」而不是一组互不相干的布尔开关：三层作用域、注入预算、衰减归档、
- * 向量检索如果各自暴露成独立开关，组合会爆炸，对方也没法判断自己开出了什么行为。
- * 细项留给后续版本的高级开关（DECISIONS P-030）。
- */
-export const MEMORY_MODES = ['off', 'session', 'balanced', 'manual'] as const
-
-/** 记忆运行模式。 */
-export type MemoryMode = (typeof MEMORY_MODES)[number]
 
 /** 自进化的调度模式（P-035：空闲自动为默认；选定时则空闲关）。 */
 export type ScheduleMode = (typeof SCHEDULE_MODES)[number]
@@ -33,28 +21,13 @@ export type ModuleId = (typeof MODULE_IDS)[number]
  * 这样"预设模式切换时自动给出默认值"与"对方单独覆盖某一项"两件事不会互相打架 ——
  * 代价只是多一个显式标记，比让每个字段可选（schemas 里更绕）清楚得多。
  */
-export interface MemoryAdvancedConfig {
-  /** 是否启用高级覆盖；false 时以下各项一律不生效（模式说了算）。 */
-  customized: boolean
-  /** 长期记忆层。 */
-  longTerm: boolean
-  /** 工作记忆层（工作区级）。 */
-  work: boolean
-  /** 会话记忆层。 */
-  session: boolean
-  /** 自动注入条数上限（0–3，硬上限见 MAX_INJECT_LIMIT）。 */
+export interface MemorySettings {
+  /** 记忆模块总开关。关掉后不再写、不再注入，已有记忆一律保留。 */
+  enabled: boolean
+  /** 每轮最多带进对话几条（0–3）。 */
   maxInject: number
-  /** 衰减归档。 */
+  /** 遗忘：关掉后强度不再随时间下降（只在调试时用）。 */
   decay: boolean
-  /**
-   * 「长期未用」的窗口（天，0.1.10 新增，B2）：窗口内**完全不衰减**，窗口之后才按半衰期降权。
-   *
-   * 默认值取自 `memory/constants.ts` 的 {@link DECAY_UNUSED_DAYS}（90，**唯一真源**）——
-   * 这里只把它接成对方可改项，不另抄一个数字（G-004 默认值不漂移）。
-   */
-  decayUnusedDays: number
-  /** 向量检索（P-027：MVP 恒关闭；这里保留字段是为了"改了不报错但也不生效"）。 */
-  vector: boolean
 }
 
 /** Humanity 套件的全部对方可编辑开关。 */
@@ -83,7 +56,7 @@ export interface HumanityConfig {
       enabled: boolean
     }
     /** 记忆：长期 / 工作区 / 会话三层，按模式预设 + 可选的高级开关。 */
-    memory: { mode: MemoryMode; advanced: MemoryAdvancedConfig }
+    memory: MemorySettings
     /** 自进化：会话整理管线，含梦境模式。调度/扫描/预算都是对方可编辑项（P-035/P-036/P-051）。 */
     evolution: {
       enabled: boolean
@@ -162,23 +135,11 @@ export const Config: Schema<HumanityConfig> = Schema.object({
         ),
     }),
     memory: Schema.object({
-      mode: Schema.union(MEMORY_MODES)
-        .default('balanced')
-        .description('记忆模块：off 关闭 / session 仅会话 / balanced 平衡 / manual 手动 recall'),
-      advanced: Schema.object({
-        customized: Schema.boolean()
-          .default(false)
-          .description('高级开关：关闭时完全跟随预设模式；打开后按下面的各项覆盖'),
-        longTerm: Schema.boolean().default(true).description('长期记忆层'),
-        work: Schema.boolean().default(true).description('工作记忆层（工作区级）'),
-        session: Schema.boolean().default(true).description('会话记忆层'),
-        maxInject: Schema.number().default(3).description('自动注入条数上限（0–3）'),
-        decay: Schema.boolean().default(true).description('衰减归档'),
-        decayUnusedDays: Schema.number()
-          .default(DECAY_UNUSED_DAYS)
-          .description('衰减窗口（天）：多久没用过的记忆才开始降权/归档（默认 90；窗口内完全不衰减）'),
-        vector: Schema.boolean().default(false).description('向量检索（MVP 恒关闭）'),
-      }),
+      enabled: Schema.boolean()
+        .default(true)
+        .description('记忆模块：关掉后不再写、不再注入，已有记忆一律保留'),
+      maxInject: Schema.number().default(3).description('每轮最多带进对话几条（0–3）'),
+      decay: Schema.boolean().default(true).description('遗忘：关掉后强度不再随时间下降（只在调试时用）'),
     }),
     evolution: Schema.object({
       enabled: Schema.boolean().default(true).description('自进化模块：空闲与手动整理'),

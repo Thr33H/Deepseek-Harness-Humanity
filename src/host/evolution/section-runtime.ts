@@ -37,8 +37,6 @@ export interface EvolutionSectionDeps {
    * 现在值由宿主从真实句柄算出、原样透传（见 `index.ts` 的 `status()`）。
    */
   status(): StatusView
-  /** 记忆侧待确认条数（待确认页的"记忆"分类；宿主跨模块接线，投影只合并计数）。 */
-  memoryPendingCount(): number
   /** 下一次定时触发（调度器现读）。 */
   nextRunAt(): number
   /** 每日调用上限（配置现读，工作台展示预算用）。 */
@@ -100,7 +98,6 @@ function projectionPatch(
   const pending = proposals.filter((record) => record.status === 'pending')
   const decided = proposals.filter((record) => record.status !== 'pending').slice(0, DECIDED_VIEW_CAP)
   const counts = store.countPending()
-  const memoryCount = deps.memoryPendingCount()
   const record = store.readState()
   // 跨天归零：账本按日期记，昨天的数字不该显示成"今天用了多少"。
   // 「今天」由宿主按**调度时区**算好传进来（审计 E5）：这里再算一遍就是第二个真源，早晚分叉。
@@ -110,7 +107,7 @@ function projectionPatch(
   return {
     runs: store.listRuns().map(runViewOf),
     proposals: [...pending, ...decided].map(proposalViewOf),
-    pendingCounts: { ...counts, memory: memoryCount, total: counts.total + memoryCount },
+    pendingCounts: counts,
     status: deps.status(),
     nextRunAt: deps.nextRunAt(),
     // 时间基准：三个平铺字段（不是嵌套对象）—— schema 与客户端解析都只需要"有没有"。

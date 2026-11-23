@@ -24,73 +24,24 @@ type Translate = PropsLocale<typeof NS>['t']
 
 export interface PendingDetailsProps extends PropsLocale<typeof NS> {
   evolution: EvolutionWorkbenchController
-  memory: MemoryWorkbenchController
-}
-
-/** 记忆待确认区：确认/拒绝走记忆命令槽（复用记忆页的同一批操作）。 */
-function PendingMemories(props: { t: Translate; memory: MemoryWorkbenchController }) {
-  const { t, memory } = props
-  const state = useSyncExternalStore(memory.subscribe, memory.getSnapshot, memory.getSnapshot)
-  const pending = memory.visible('pending')
-
-  return (
-    <section style={panel}>
-      <h2 style={panelTitle}>
-        {t('evolution.pending.memory')} <Tag tone={pending.length > 0 ? 'outline' : 'quiet'}>{pending.length}</Tag>
-      </h2>
-      {pending.length === 0 ? <p style={hint}>{t('evolution.pending.empty')}</p> : null}
-      <ul style={cardList}>
-        {pending.map((entry) => (
-          <li key={entry.fingerprint} style={card}>
-            <div style={cardLayout}>
-              <div style={cardMeta}>
-                <div style={cardTags}>
-                  <Tag tone="outline">{t(`memory.scope.${entry.scope}` as never)}</Tag>
-                  {entry.sensitive ? <Tag tone="neutral">{t('memory.sensitive')}</Tag> : null}
-                </div>
-              </div>
-              <div style={cardBody}>
-                <span style={cardTitle}>{entry.content}</span>
-              </div>
-              <div style={cardActions}>
-                <Button
-                  size="sm"
-                  variant="primary"
-                  disabled={!state.writable || state.busy !== ''}
-                  onClick={() => void memory.confirm(entry.fingerprint)}
-                >
-                  {t('memory.confirm')}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={!state.writable || state.busy !== ''}
-                  onClick={() => void memory.reject(entry.fingerprint)}
-                >
-                  {t('memory.reject')}
-                </Button>
-              </div>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
 }
 
 /**
- * 待确认明细：上一次操作的结论 + 记忆待确认 + 待批准提案。
- * @param props - 字典座位与两个控制器。
+ * 待确认明细：上一次操作的结论 + 待批准提案。
+ *
+ * 2026-11-21：记忆的待确认区随记忆重构删除 —— 那条路把"可能是模糊/敏感的信息"隔离起来
+ * 等对方点头，新设计里这件事变成了「说出来要付多大代价」，由她自己决定说不说。
+ * 所以这里只剩提案。
+ * @param props - 字典座位与自进化控制器。
  * @returns 明细（不带标题，供卡片展开时渲染）。
  */
 export function PendingDetails(props: PendingDetailsProps) {
-  const { t, evolution, memory } = props
+  const { t, evolution } = props
   const state = useSyncExternalStore(evolution.subscribe, evolution.getSnapshot, evolution.getSnapshot)
 
   return (
     <div>
       {state.notice === '' ? null : <p style={hint}>{state.notice}</p>}
-      <PendingMemories t={t} memory={memory} />
       <ProposalList
         t={t}
         proposals={state.proposals.filter((proposal) => proposal.status === 'pending')}

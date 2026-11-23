@@ -13,6 +13,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 
 import { actions, footer, issueRejected, issueWarning, statusText } from './editor-styles.js'
+import { CharacterCardEditor } from './CharacterCard.js'
 import { IdentityCardEditor, MutableCardEditor } from './PersonaCards.js'
 import { IssueGroup, StatusNotice, type Translate } from './PersonaIssues.js'
 import { isDirty, type PersonaIssueView, type PersonaWorkbenchState } from './persona-document.js'
@@ -120,6 +121,10 @@ function ReadyEditor({
     <>
       <IdentityCardEditor t={t} controller={controller} state={state} />
       <MutableCardEditor t={t} controller={controller} state={state} />
+      {/* 性格排在最后（用户 2026-11-20 定的版式：底色 → 信息 → 性格）：
+          它是从底色推导出来的，放在最前会让人觉得"先有笼子、再有人"；
+          放在最后，读起来是"这是谁 → 她怎么和人相处 → 她能变到哪儿"。 */}
+      <CharacterCardEditor t={t} controller={controller} state={state} />
       <IssueNotices t={t} issues={state.issues} error={state.error} />
       <EditorFooter
         t={t}

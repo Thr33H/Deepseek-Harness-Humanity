@@ -13,9 +13,9 @@
  * @module humanity/evolution/classify
  */
 import type { Log } from '../log.js'
-import { remember } from '../memory/write.js'
+import { WHAT_CHAR_LIMIT } from '../memory/constants.js'
+import { createMemoryRecord } from '../memory/model.js'
 import type { MemoryStore } from '../memory/store.js'
-import type { MemoryPolicy } from '../memory/types.js'
 import type { PersonaSection } from '../persona/section.js'
 import type { PersonaDocument } from '../persona/types.js'
 import { writePersonaSections } from './classify-persona.js'
@@ -28,7 +28,6 @@ import type { RunMode } from './types.js'
 /** 分类写回的依赖（全部现读，宿主接线）。 */
 export interface ClassifyDeps {
   memoryStore(): MemoryStore | undefined
-  memoryPolicy(): MemoryPolicy | undefined
   persona(): PersonaSection | undefined
   state: EvolutionState
   log: Log
@@ -94,26 +93,37 @@ export function createProposalFactory(deps: ClassifyDeps): ProposalFactory {
   }
 }
 
-/** 记忆候选逐条走记忆管线；返回成功写入数。 */
+/**
+ * 记忆候选逐条落库；返回 `[写入数, 因超长被截断数]`。
+ *
+ * 2026-11-20：待确认区（pending）随记忆重构一起删除 —— 那条路把"可能是模糊/敏感的信息"
+ * 隔离开等对方点头，但在新设计里它变成了"她看了但不想说"（`cost` 那一维），
+ * 而不是"等她审核"。所以这里直接写入。
+ *
+ * `certain: 'inferred'`：这些候选是**模型从对话里推出来的**，不是她亲眼所见 ——
+ * 记住这一点，以后引用时才不会把推断当成事实复述。
+ */
 async function writeMemories(deps: ClassifyDeps, context: ClassifyContext, output: AnalysisOutput): Promise<[number, number]> {
   const store = deps.memoryStore()
-  const policy = deps.memoryPolicy()
-  if (store === undefined || policy === undefined) return [0, 0]
+  if (store === undefined) return [0, 0]
   let written = 0
   let truncated = 0
   for (const candidate of output.memories) {
-    const result = await remember(store, policy, {
-      content: candidate.content,
-      scope: candidate.scope,
-      tags: [...candidate.tags],
-      sensitivity: candidate.sensitive ? 'sensitive' : 'normal',
-      origin: 'agent-derived',
-      sessionId: context.sessionId,
-      workspaceId: context.cwd,
-    })
-    if (result.ok) written += 1
-    // 0.1.9：截断过的记忆要能被**计数**（`run-loop.ts` 会把它写进运行记录的时间线注记）。
-    if (result.truncated === true) truncated += 1
+    const raw = candidate.content.trim()
+    if (raw === '') continue
+    // 超长不是拒绝，是**截断并计数**：自进化抽出的长条目仍然值得留下能用的部分，
+    // 但这件事必须让运行记录看得到（`run-loop.ts` 会把它写进时间线注记）。
+    if (raw.length > WHAT_CHAR_LIMIT) truncated += 1
+    await store.put(
+      createMemoryRecord({
+        what: raw.slice(0, WHAT_CHAR_LIMIT),
+        // 候选来自"这段对话里发生了什么"：工作区级的多半是你们之间的事，
+        // 长期级的多半是关于对方的稳定事实。
+        about: candidate.scope === 'workspace' ? 'us' : 'user',
+        certain: 'inferred',
+      }),
+    )
+    written += 1
   }
   return [written, truncated]
 }

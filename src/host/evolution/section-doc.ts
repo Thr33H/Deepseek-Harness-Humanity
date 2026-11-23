@@ -47,9 +47,8 @@ export interface ProposalView {
   decidedAt: string
 }
 
-/** 待确认计数（P-042：徽标 + 顶部数量；memory 一栏由宿主投影时并入记忆侧的 pending）。 */
+/** 待确认计数（P-042：徽标 + 顶部数量；2026-11-20 起只剩提案三类）。 */
 export interface PendingCountsView {
-  memory: number
   persona: number
   route: number
   total: number
@@ -130,7 +129,6 @@ export const EvolutionDocSchema = Schema.object({
     }),
   ).default([]),
   pendingCounts: Schema.object({
-    memory: Schema.number().default(0),
     persona: Schema.number().default(0),
     route: Schema.number().default(0),
     total: Schema.number().default(0),

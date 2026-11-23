@@ -18,19 +18,12 @@ export const EXPECTED_DEFAULTS = {
     persona: { enabled: true, historyRetentionDays: 30 },
     // 0.1.18（用户 2026-11-17）：「让它有情感」——默认开，只在沉浸模式生效。
     emotion: { enabled: true },
+    // 2026-11-20（记忆重构）：旧的 mode / 高级覆盖 / 三层作用域 / 向量检索整组删除 ——
+    // 新的记忆只有"记不记、带几条、忘不忘"三件事。
     memory: {
-      mode: 'balanced',
-      advanced: {
-        customized: false,
-        longTerm: true,
-        work: true,
-        session: true,
-        maxInject: 3,
-        decay: true,
-        // 0.1.10（B2）：衰减窗口接成可配项，默认仍是 90 天（值取自 memory/constants.ts，不漂移）。
-        decayUnusedDays: 90,
-        vector: false,
-      },
+      enabled: true,
+      maxInject: 3,
+      decay: true,
     },
     evolution: {
       enabled: true,

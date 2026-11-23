@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { parseAppraisal } from '../lib/emotion/appraise.js'
+import { appraiseMessage, parseAppraisal } from '../lib/emotion/appraise.js'
 import { createInitialEmotionState } from '../lib/emotion/model.js'
 import { apply as applyPulse, settle } from '../lib/emotion/state.js'
 import { renderReminder } from '../lib/emotion/render.js'
@@ -53,11 +53,11 @@ test('解析：不存在的情绪名被丢掉，其余照常生效', () => {
   assert.deepEqual(pulse?.shifts, [{ kind: 'anger', target: 'world', delta: 10, cause: '' }])
 })
 
-test('解析：离谱的增量被夹到 ±40，0 与字符串一律丢弃', () => {
+test('解析：离谱的增量被夹到 ±20（新刻度），0 与字符串一律丢弃', () => {
   const pulse = parseAppraisal(
     '{"shifts":[{"kind":"anger","delta":999},{"kind":"joy","delta":"10"},{"kind":"sadness","delta":0}]}',
   )
-  assert.deepEqual(pulse?.shifts, [{ kind: 'anger', target: 'world', delta: 40, cause: '' }])
+  assert.deepEqual(pulse?.shifts, [{ kind: 'anger', target: 'world', delta: 20, cause: '' }])
 })
 
 test('解析：最多只收 3 条情绪（多了也读不懂）', () => {
@@ -199,4 +199,77 @@ test('渲染：状态签名把情绪档位与精力档位都算进去', () => {
   const calmFresh = renderReminder(createInitialEmotionState(T0), new Date(T0))
   const calmTired = renderReminder({ ...createInitialEmotionState(T0), energy: 30 }, new Date(T0))
   assert.notEqual(calmFresh.signature, calmTired.signature, '从有精神变累也算一次跨越')
+})
+
+/* ─────────────────── 评估器的输入：立场与"不回读原因" ─────────────────── */
+
+/** 假模型：记录最后一次收到的提示词（正文与 system 都要看）。 */
+function fakeLlm(reply = '{"shifts":[],"warmth":0,"perceived":""}') {
+  const seen = []
+  return {
+    seen,
+    llm: {
+      route: () => ({ provider: 'test', model: 'test' }),
+      streamText: async (input) => {
+        seen.push(input)
+        return { text: reply, finishReason: 'stop' }
+      },
+    },
+  }
+}
+
+test('评估输入里带上了你的立场（否则评估器只能用通用道德判）', async () => {
+  const { seen, llm } = fakeLlm()
+  const state = apply(createInitialEmotionState(T0), [{ kind: 'anger', target: 'user', delta: 30 }], T0)
+  const stance = {
+    character: '',
+    traits: [{ key: '人格偏好', value: '好色、性欲强，尤其对主人本人' }],
+    boundaries: [],
+    relation: ['主人是我的主人'],
+    address: ['主人'],
+    sections: [],
+    custom: [],
+  }
+  await appraiseMessage(llm, { message: '想听😍', state, stance })
+  const text = seen[0].text
+  assert.match(text, /【你的立场】/, '立场块要在')
+  assert.match(text, /你的人格偏好：好色/)
+  assert.match(text, /你的底线：没有特别写明/)
+  assert.match(text, /想听😍/, '要判断的那句话照旧在')
+  // 系统提示里要有"以你的立场为准"这条硬规则，否则模型会拿自己的偏好顶上。
+  assert.match(seen[0].system, /以你的立场为准/)
+  assert.match(seen[0].system, /不要用"这种话一律不合适"这类通用标准覆盖它/)
+})
+
+test('评估输入**不回读原因**：原因的措辞不能被当成"又来了"的证据', async () => {
+  const { seen, llm } = fakeLlm()
+  const state = apply(
+    createInitialEmotionState(T0),
+    [{ kind: 'disgust', target: 'user', delta: 40, cause: '又发来露骨的性要求' }],
+    T0,
+  )
+  // 注意：原因在这里故意写得跟现场一模一样；它只该留在状态里，不该进评估输入。
+  await appraiseMessage(llm, { message: '在吗', state })
+  const text = seen[0].text
+  assert.equal(text.includes('又发来露骨的性要求'), false, '原因不能进评估输入（会变成"又来了"的证据）')
+  assert.match(text, /对TA厌恶 40/, '但"哪种情绪、多强、冲谁"要在 —— 那是评估的起点')
+})
+
+test('评估输入可以带最近两轮前文（只读，标注清楚）', async () => {
+  const { seen, llm } = fakeLlm()
+  await appraiseMessage(llm, {
+    message: '你自己随便找找',
+    state: createInitialEmotionState(T0),
+    context: '对方：要不要看看网上，你有啥感兴趣的？\n你：你想让我看什么？随便扔一个过来。',
+  })
+  const text = seen[0].text
+  assert.match(text, /【前文】/, '前文要有自己的小标题')
+  assert.match(text, /你想让我看什么/, '前文里要有她上一句')
+  assert.match(text, /不要对前文再做判断/, '要明确"别把前文当判断对象"')
+})
+
+test('没有立场时完全不提这一段（退回旧行为，不假装有立场）', async () => {
+  const { seen, llm } = fakeLlm()
+  await appraiseMessage(llm, { message: '在吗', state: createInitialEmotionState(T0) })
+  assert.equal(seen[0].text.includes('【你的立场】'), false)
 })

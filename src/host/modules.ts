@@ -68,7 +68,7 @@ export const MODULES: readonly HumanityModule[] = [
     id: 'memory',
     title: '记忆',
     implemented: true,
-    isEnabled: (config) => config.modules.memory.mode !== 'off',
+    isEnabled: (config) => config.modules.memory.enabled,
   },
   {
     id: 'evolution',

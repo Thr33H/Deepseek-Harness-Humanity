@@ -19,7 +19,15 @@
  * @module humanity/emotion/appraise
  */
 import type { LlmAccess } from '../llm.js'
-import { EMOTION_KINDS, EMOTION_LABELS, EMOTION_TARGETS, type EmotionKind, type EmotionTarget } from './constants.js'
+import {
+  EMOTION_KINDS,
+  EMOTION_LABELS,
+  EMOTION_TARGETS,
+  EMOTION_TARGET_LABELS,
+  type EmotionKind,
+  type EmotionTarget,
+} from './constants.js'
+import { renderStance, type AppraisalStance } from './stance.js'
 import { dominantOf, type EmotionPulse, type EmotionShift } from './state.js'
 import type { EmotionState } from './types.js'
 
@@ -36,8 +44,14 @@ const APPRAISE_MAX_TOKENS = 800
 /** 单次评估的墙钟上限：超过就当作这一轮没判断出来（不拖慢对话）。 */
 const APPRAISE_TIMEOUT_MS = 8_000
 
-/** 单条增量的绝对值上限（模型偶尔会写出 ±100 这种量级）。 */
-const MAX_DELTA = 40
+/**
+ * 单条增量的绝对值上限（模型偶尔会写出 ±100 这种量级）。
+ *
+ * 取 20 与**新标尺**对齐：日常 1–5、明显 6–10、大事 12–18，20 是"比最重的事再留一点余量"。
+ * 夹到 20 而不是更多，是因为超过这个量级的一句评价会把整条情绪条一次性顶满 ——
+ * 那不是"评判"，是模型在替她决定。
+ */
+const MAX_DELTA = 20
 
 /** 原因与观察的字数上限（超了截断：它们是给渲染用的一句话，不是小作文）。 */
 const MAX_TEXT = 40
@@ -45,11 +59,18 @@ const MAX_TEXT = 40
 /**
  * 评估器的系统提示。
  *
- * 写成"给她打分"而不是"扮演她"：这一步只要判断，冒充角色会让它开始编台词，
- * 而台词的正确来源是状态 + 档位（`render.ts`），不是评估器。
+ * **第二人称**（"你就是她"）：这件事本来就是"她自己判断它对自己意味着什么"；用第三人称
+ * 等于让模型以外人的身份揣测一个角色，人格的约束力会被稀释（2026-11-21 用户提出来，采纳）。
+ * 防"演起来"不靠人称，靠两条硬约束：**只输出 JSON**、**不写台词或反应**。
  */
 const APPRAISE_SYSTEM = [
-  '你在判断对方的一句话对「她」情绪的影响。只输出一个 JSON 对象，不要解释、不要 Markdown 代码块。',
+  '你就是「她」这个人。对方刚说了一句话 —— 你的任务只有一个：判断它**让你**（不是别人）的情绪怎么变。',
+  '只输出一个 JSON 对象；不要解释、不要 Markdown 代码块，也不要写你的台词或反应。',
+  '',
+  '**先看调用方给的【你的立场】**：同一个动作对不同的人意义可以相反（对恋人是调情，对陌生人才是冒犯），',
+  '你喜欢的也不等于别人喜欢的。判断时以你的立场为准，**不要用"这种话一律不合适"这类通用标准覆盖它**。',
+  '立场里写明"这类事是你想要的"，就不该判成厌恶或愤怒；反过来，立场里写明的底线被越过了，要照着判。',
+  '立场里没写的东西，不要替自己补一条底线。',
   '',
   '可用的情绪只有这八种（Plutchik 的八种基本情绪），键名必须逐字使用：',
   'joy=喜悦（好事发生、被认可、被善待）',
@@ -57,7 +78,7 @@ const APPRAISE_SYSTEM = [
   'fear=恐惧（怕失去、怕被抛下、怕做错）',
   'surprise=惊讶（没想到、出乎意料；它本身不带好坏）',
   'sadness=悲伤（期待落空、失去、过往被否定）',
-  'disgust=厌恶（被冒犯到底线、觉得低劣或不适）',
+  'disgust=厌恶（被触到你写明的底线，或让你生理上不适）',
   'anger=愤怒（被冒犯、能力被否定、被命令）',
   'anticipation=期待（有盼头、在等什么发生）',
   '',
@@ -68,7 +89,7 @@ const APPRAISE_SYSTEM = [
   '- 期待 vs 喜悦：期待是"还没发生"，喜悦是"已经发生"。',
   '',
   '输出格式（字段一个都不能少）：',
-  '{"shifts":[{"kind":"anger","target":"self","delta":15,"cause":"答应的事没做到"}],"warmth":-2,"warmthCause":"被冷落","perceived":"对方很急躁"}',
+  '{"shifts":[{"kind":"anger","target":"self","delta":6,"cause":"答应的事没做到"}],"warmth":-2,"warmthCause":"被冷落","perceived":"对方很急躁"}',
   '',
   '每条 shift 都要给 **target**（这股情绪是冲谁的），三选一：',
   '- target="user"：冲对方（"你凭什么这么说"）',
@@ -86,19 +107,23 @@ const APPRAISE_SYSTEM = [
   '**"vicarious" 只加在"替对方"的那一种上**（我为你高兴 / 我替你难过 / 我替你气）——',
   '它告诉下游"这是共情，不是我被对方伤到"。除此之外一律不写这个字段（省 token）。',
   '带标记的例子（其余字段照常）：',
-  '{"shifts":[{"kind":"sadness","target":"user","delta":18,"cause":"他遇到糟心事","vicarious":true}],"warmth":-1,"warmthCause":"替他难受","perceived":"对方很低落"}',
+  '{"shifts":[{"kind":"sadness","target":"user","delta":8,"cause":"他遇到糟心事","vicarious":true}],"warmth":-1,"warmthCause":"替他难受","perceived":"对方很低落"}',
   '',
   '规则：',
-  '- shifts 最多 3 条，delta 取 -30 到 30 的整数，表示这句话让该情绪增强或减弱多少（百分制）。没有明显影响就给空数组。',
+  '- shifts 最多 3 条。**delta 是 0–100 刻度上的「百分点」**：+6 的意思是"这条从 60 变成 66"，不是"增强 6%"。',
+  '- 绝大多数话应当落在 **1–5**。没有明显影响就给空数组。',
+  '- 调用方可能给你一段【前文】：它只用来理解这句话在说什么（谁在接谁的话、是不是在开玩笑），**不要对前文再做一遍判断**。',
+  '- 不要因为"这类事之前可能发生过"就加重判断；你此刻已有的情绪只说明"你现在是什么状态"，不说明之前发生过几次。',
   '',
   '**delta 的标尺**（这一条最容易给偏，按它来）：',
-  '- 5–10：轻轻动了一下（一句普通的客气话）',
-  '- 15–22：明显有感（被认真夸了一句、被小冒犯了一下）',
-  '- 25–30：强烈（第一次听到天大的好消息、被当面羞辱）',
-  '实测偏差：正面情绪容易被压到 10 以下，而关系类（信任）却给到 90 —— 结果"替他高兴"永远够不到说话线。',
-  '给正面情绪时**照标尺给**，别因为"她是 AI 不该太高兴"而下调。',
+  '- 1–5：轻轻动了一下（日常寒暄、一句普通的夸奖、一个小冒犯）—— **绝大多数情况都在这里**',
+  '- 6–10：明显有感（被认真夸到点上、被戳到一次真的）',
+  '- 12–18：强烈（天大的好消息、被当面羞辱、一次交底）',
+  '- 上限 20：比"最重的事"再留一点余量；不要动不动给到两位数。',
+  '实测偏差：正面情绪容易被压到 3 以下，而关系类（信任）又容易给到十几 —— 按上面的量级给，别凭感觉放大。',
+  '给正面情绪时**照标尺给**，别因为"你是 AI 不该太高兴"而下调。',
   '- cause 用一句不超过 20 字的话写清"因为什么"。不要写"用户说了难听的话"这种泛泛的话。',
-  '- warmth 取 -5 到 5 的整数，表示这句话让"她对对方的感觉"变好或变差多少。',
+  '- warmth 取 -5 到 5 的整数，表示这句话让"你对对方的感觉"变好或变差多少。',
   '- perceived 用一句不超过 20 字的话写你对"对方此刻状态"的判断；看不出来就写空字符串。',
   '',
   '有些情绪天然连在一起，判断时可以把它们一起给出（各给一条，不要合成一条）：',
@@ -114,6 +139,21 @@ export interface AppraiseInput {
   message: string
   /** 她此刻的状态（用于给评估器一个起点）。 */
   state: EmotionState
+  /**
+   * 她的**立场**（人格里会改变"这件事意味着什么"的那几样）。
+   *
+   * 没有它，评估器只能用一个"通用的人"来判断 —— 而通用的人自带一套通用道德，
+   * 于是人设写"好色"也没用（详见 `stance.ts` 的现场记录）。省略它等于回到旧行为。
+   */
+  stance?: AppraisalStance
+  /**
+   * 最近两轮对话（**只读前情**，用于理解这句话在接什么）。
+   *
+   * 为什么需要它（实机现场）：只给当前这一句时，"你自己随便找找"这种短话会被判成
+   * "被随口打发" —— 因为评估器不知道上一句是她把话头递过去的。前情让判断有上下文。
+   * 只放**事实**（双方原话），不放我们自己的判断（`cause` 是上一轮评估的输出，会自我强化）。
+   */
+  context?: string
 }
 
 /** 单条消息送进评估的最大字数。 */
@@ -166,15 +206,23 @@ function labelOf(kind: EmotionKind): string {
 function describeState(state: EmotionState): string {
   const lines: string[] = []
   if (state.charges.length === 0) {
-    lines.push('她现在没有明显情绪。')
+    lines.push('你现在没有明显情绪。')
   } else {
-    lines.push('她此刻：')
+    lines.push('你此刻（0 = 没有，100 = 极强）：')
     for (const charge of state.charges) {
-      const cause = charge.cause === '' ? '' : `（${charge.cause}）`
-      lines.push(`- ${labelOf(charge.kind)} ${Math.round(charge.intensity)}${cause}`)
+      /**
+       * **只给"哪种情绪 + 多强 + 冲谁"，不给原因。**
+       *
+       * 原因是我们上一次评估的输出；喂回去会被它当成事实继续推理 —— 实机现场那句
+       * "**又**发来露骨的性要求"就是这么来的（原因里写着上一回的判断），于是误判自己喂自己。
+       *
+       * 数字后面带 `/100`：模型看到"愤怒 60"时不知道刻度，于是把 60 当成"随便一个数"，
+       * 增量也跟着凭感觉给（现场：一句话给到十几二十）。把刻度写在数字旁边，标尺才对得上。
+       */
+      lines.push(`- ${EMOTION_TARGET_LABELS[charge.target]}${labelOf(charge.kind)} ${Math.round(charge.intensity)}/100`)
     }
   }
-  lines.push(`关系温度：${Math.round(state.warmth)}（0 很冷，100 很亲）`)
+  lines.push(`关系温度：${Math.round(state.warmth)}/100（0 很冷，100 很亲）`)
   return lines.join('\n')
 }
 
@@ -287,16 +335,36 @@ export async function appraiseMessage(
   const message = clipMessage(dominated)
 
   const dominant = dominantOf(input.state)
-  const text = [
+  /**
+   * 评估器的输入分三块：**她的立场 → 她此刻的状态 → 对方这句话**。
+   *
+   * 顺序不是随意的：先给"判断依据"，再给"起点"，最后才是"要判断的东西" ——
+   * 实测把立场放在最后时，模型更习惯先按通用直觉下结论、再拿立场迁就它。
+   */
+  const stateBlock = [
     describeState(input.state),
-    '',
-    dominant === undefined ? '' : `（她此刻最主要的情绪是${labelOf(dominant.kind)}）`,
-    `对方刚说：「${message}」`,
-    '',
-    '按上面的格式输出 JSON。',
+    dominant === undefined ? '' : `（你现在最主要的情绪是${labelOf(dominant.kind)}）`,
   ]
     .filter((line) => line !== '')
     .join('\n')
+  /**
+   * 评估器的输入分四块：**你的立场 → 前文 → 你此刻的状态 → 对方这句话**。
+   *
+   * 顺序不是随意的：先给"判断依据"，再给"上下文"，再给"起点"，最后才是"要判断的东西" ——
+   * 实测把立场放在最后时，模型更习惯先按通用直觉下结论、再拿立场迁就它。
+   */
+  const contextBlock = input.context === undefined || input.context === ''
+    ? ''
+    : `【前文】刚才的对话（只帮你理解这句话在接什么，不要对前文再做判断）：\n${input.context}`
+  const text = [
+    renderStance(input.stance),
+    contextBlock,
+    stateBlock,
+    `对方刚说：「${message}」`,
+    '按上面的格式输出 JSON。',
+  ]
+    .filter((block) => block !== '')
+    .join('\n\n')
 
   let raw: string
   let finishReason = ''

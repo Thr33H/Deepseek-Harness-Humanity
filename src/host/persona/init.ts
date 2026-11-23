@@ -7,7 +7,8 @@
  */
 import type { defineTool as defineToolType } from '@deepseek-ai/dsh-tools'
 
-import { CORE_IDENTITY_KEYS } from './constants.js'
+import { CHARACTER_AXES, CORE_IDENTITY_KEYS } from './constants.js'
+import { createCharacter, type CharacterAxisInput } from './model.js'
 import { isUntouchedIdentityCard } from './predicates.js'
 import { PersonaWriteRejected, type PersonaSection } from './section.js'
 import { mergeIdentityFields, SEALED_REASON } from './tool-helpers.js'
@@ -41,7 +42,18 @@ export const INIT_DESCRIPTION =
   '一次性写入底色并封存，不要为此再等一次确认；随后调用 humanity_persona_update 把称呼、风格等写入信息。' +
   '写完后对方会在本工具结果里看到实际写入的内容。' +
   '封存后本工具永远拒绝再次调用；之后底色只能由对方改 —— 对方主动说要改时用 humanity_persona_identity（对话内确认），他也可以自己在 Humanity 工作台改。' +
-  '若当前会话的系统提示词里没有任何 Humanity 人格段落（例如极简模式），不要主动发起人格初始化流程。'
+  '若当前会话的系统提示词里没有任何 Humanity 人格段落（例如极简模式），不要主动发起人格初始化流程。' +
+  // 性格轴（2026-11-20）：写法必须说清"这是范围，不是分数"，否则模型会给四个 0.5。
+  '\n\n' +
+  '**同时要给出你的性格范围（character）**，这一次就要给完，之后同样封存。' +
+  '规则：读一遍你刚写下的底色，问自己"像我这样一个人，遇到事情第一反应会往哪边走、最多能走到哪儿"，' +
+  `然后给这四根轴各定一个**范围**（0–1 的小数，两位即可）：${CHARACTER_AXES.join(' / ')}。` +
+  '每一根都要有下限（min）、上限（max）和一句理由（reason，用你自己的话说清"我为什么是这个范围"）。' +
+  '下限与上限之间就是你这辈子能被经历推动的区间——不是此刻的分数。范围要给得有宽有窄：' +
+  '你天生很确定的部分（比如本来就不太在意外界评价）范围就窄，说不准的部分就宽。' +
+  '不要四根都给一样的宽窄，也不要全部挤在 0.5 附近——那等于没有性格。' +
+  '四根轴的含义：stability 稳不稳（高＝事过就过，低＝一碰就晃）、extraversion 话多话少（高＝想到就说、主动找人，低＝想清楚才开口）、' +
+  'agreeableness 对人软硬（高＝温和愿退让，低＝护着自己不肯先退）、openness 对新东西的胃口（高＝看见没见过的就想凑近，低＝只想待在熟悉的地方）。'
 
 /**
  * 定义初始化工具。
@@ -67,13 +79,32 @@ export function defineInitTool(defineTool: typeof defineToolType, persona: Perso
           },
         },
       },
+      character: {
+        type: 'array',
+        required: true,
+        description: '你性格的四根轴，每根给一个**范围**（不是分数）。一次性给齐，之后与底色一起封存。',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            key: { type: 'string', required: true, description: `轴名：${CHARACTER_AXES.join(' / ')}` },
+            min: { type: 'number', required: true, description: '这根轴能被推到的最低点（0–1）' },
+            max: { type: 'number', required: true, description: '这根轴能被推到的最高点（0–1）' },
+            reason: {
+              type: 'string',
+              required: true,
+              description: '为什么是这个范围，用你自己的话说清"像我这样一个人，凭什么只能到这儿"',
+            },
+          },
+        },
+      },
     },
     output: {
       schema: RESULT_SCHEMA,
       render: (_args, value) => text(renderValue(value as PersonaToolValue)),
     },
     execute(args): Promise<PersonaToolValue> {
-      return initialize(persona, args.fields)
+      return initialize(persona, args.fields, args.character)
     },
   })
 }
@@ -89,6 +120,7 @@ export function defineInitTool(defineTool: typeof defineToolType, persona: Perso
 async function initialize(
   persona: PersonaSection,
   rawFields: readonly { key: string; value: string }[],
+  rawCharacter: readonly CharacterAxisInput[] | undefined,
 ): Promise<PersonaToolValue> {
   const current = persona.read()
   if (!isUntouchedIdentityCard(current.identityCard)) return refusal('init', current, SEALED_REASON)
@@ -103,7 +135,16 @@ async function initialize(
   }
 
   const now = new Date().toISOString()
-  const next: PersonaDocument = { ...current, identityCard: { fields, initializedAt: now, sealedAt: now } }
+  const built = createCharacter(rawCharacter ?? [], now)
+  // 性格不合法时整次初始化都不写：底色与性格是一起封存的，只写一半会让"她是谁"停在半成品上，
+  // 而底色一旦封存就再也写不进去 —— 那才是真正的死结。
+  if (!built.ok) return refusal('init', current, `性格范围没写对，这一次没有写入：${built.reason}`)
+
+  const next: PersonaDocument = {
+    ...current,
+    identityCard: { fields, initializedAt: now, sealedAt: now },
+    character: built.layer,
+  }
 
   try {
     await persona.write(next, 'agent')
@@ -115,5 +156,5 @@ async function initialize(
   }
 
   const written = persona.read()
-  return success('init', written, '已写入底色并对其封存。', warningsOf(written))
+  return success('init', written, '已写入底色并对其封存，同时定下了性格范围。', warningsOf(written))
 }

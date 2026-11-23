@@ -14,7 +14,6 @@ import { buildEcho } from '../lib/emotion/echo.js'
 import { createInitialEmotionState } from '../lib/emotion/model.js'
 import { apply } from '../lib/emotion/state.js'
 import { EMOTION_KINDS } from '../lib/emotion/constants.js'
-import { EMPTY_AFFECT, MemoryEntrySchema } from '../lib/memory/model.js'
 import { MOOD_TONE } from '../lib/memory/constants.js'
 
 /* ───────────────────────────── 回声 ───────────────────────────── */
@@ -61,23 +60,7 @@ test('回声：原因写成"想起「…」"，正文截断到 16 字', () => {
   assert.equal(echo[0]?.cause, `想起「${long.slice(0, 16)}」`)
 })
 
-/* ───────────────────────── 指纹默认值（旧数据） ───────────────────────── */
-
-test('旧记忆没有 affect 字段：读出来是"平静"，不是解析失败', () => {
-  const legacy = {
-    id: 'm1',
-    scope: 'long-term',
-    content: '主人叫伊瑟',
-    origin: 'user-stated',
-    sourceSessionId: 's1',
-    createdAt: '2026-09-01T00:00:00.000Z',
-    updatedAt: '2026-09-01T00:00:00.000Z',
-    dedupeKey: 'long-term:主人叫伊瑟',
-  }
-  const parsed = MemoryEntrySchema.safeParse(legacy)
-  assert.equal(parsed.success, true)
-  assert.deepEqual(parsed.data?.affect, EMPTY_AFFECT)
-})
+/* ───────────────────────── 极性表 ───────────────────────── */
 
 test('记忆侧的情绪极性表与情绪种类一一对应（漏一种 = 心境一致静默失效）', () => {
   assert.deepEqual(Object.keys(MOOD_TONE).sort(), [...EMOTION_KINDS].sort())

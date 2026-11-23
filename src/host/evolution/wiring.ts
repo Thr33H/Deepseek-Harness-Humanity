@@ -33,23 +33,20 @@ export function sessionQueryReader(ctx: Context): () => SessionQueryLike | undef
   }
 }
 
-/** 待确认事实（提案在自进化存储，记忆 pending 在记忆存储；两模块的计数在这里汇合）。 */
-export function pendingFacts(
-  readState: () => EvolutionState | undefined,
-  memoryStore: () => MemoryStore | undefined,
-): () => PendingFacts | undefined {
+/**
+ * 待确认事实：**只剩提案**。
+ *
+ * 2026-11-20：记忆侧的待确认区随记忆重构删除。那条路把"可能是模糊/敏感的信息"隔离起来
+ * 等对方点头；新设计里这件事变成了 `cost`（说出来要付多大代价）——由**她自己**决定说不说，
+ * 而不是排队等审核。所以这里不再需要跨模块汇合。
+ */
+export function pendingFacts(readState: () => EvolutionState | undefined): () => PendingFacts | undefined {
   return () => {
     const state = readState()
     if (state === undefined) return undefined
-    const memoryPending = (): string[] => (memoryStore()?.list(undefined, 'pending') ?? []).map((entry) => entry.dedupeKey)
     return {
       proposalIds: () => state.listProposals('pending').map((record) => record.id),
-      memoryFingerprints: memoryPending,
-      counts: () => {
-        const counts = state.countPending()
-        const memory = memoryPending().length
-        return { ...counts, memory, total: counts.total + memory }
-      },
+      counts: () => state.countPending(),
     }
   }
 }

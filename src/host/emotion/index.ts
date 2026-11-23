@@ -26,12 +26,14 @@ import type { Context } from '@deepseek-ai/cordis'
 
 import { createLlmAccess } from '../llm.js'
 import type { Log } from '../log.js'
+import { warnSafely } from '../log.js'
 import type { HumanityStore } from '../store-schema.js'
 import { buildEcho, type RecallEchoSource } from './echo.js'
 import { installEmotionInjection } from './inject.js'
 import { settle, apply, type EmotionPulse } from './state.js'
 import { createEmotionStore, type EmotionStore } from './store.js'
 import { installEmotionSection, type EmotionSection } from './section.js'
+import { stanceReader } from './stance.js'
 import { viewOf } from './view.js'
 import type { EmotionState } from './types.js'
 
@@ -49,6 +51,14 @@ export interface EmotionDeps {
    * 于是"精力按哪个清晨恢复"和"界面显示哪个时区"对不上。所有影响判断的时间换算都走这里。
    */
   timeZone?(): string | undefined
+  /**
+   * 一轮情绪真的落地之后的通知（宿主拿它推动性格轴，见 `persona/drift.ts`）。
+   *
+   * 为什么挂在这里而不是让性格模块自己读情绪表：一次脉冲"结算 → 叠加 → 落盘 → 投影"只有这一条路，
+   * 挂在这里拿到的就是**这一次**确切发生了什么（哪些情绪、各多少、温度变了多少），不必事后猜。
+   * 回调必须是"不抛、不等"的：情绪是对话的主路径，性格是顺带的事，不能反过来拖住它。
+   */
+  onApplied?(input: EmotionPulse, now: string): void
 }
 
 /** 情绪模块句柄。 */
@@ -117,7 +127,15 @@ export function installEmotion(
     const opening = deps.store()
     if (opening === undefined) return undefined
     store ??= createEmotionStore(opening.emotion)
-    state = store.load(nowIso())
+    try {
+      state = store.load(nowIso())
+    } catch (error) {
+      // 存储已经关了（插件正在卸载，而某个异步收尾动作才跑到这里）：**这不是错误**，
+      // 只是"现在没有可读的状态"。不兜住的话它会变成未处理异常 —— 真机上表现为重启前后
+      // 日志里一串 `domain 'humanity' is closed`，测试里直接把用例判红。
+      warnSafely(log, '情绪状态装载失败（存储可能已关闭），本次当作没有状态', error)
+      return undefined
+    }
     return state
   }
 
@@ -150,6 +168,12 @@ export function installEmotion(
         // 落盘失败不该阻断这一轮：内存里已经是新状态，工作台照常能看，
         // 代价只是重启后回到上一次成功的落盘（配一次日志即可，不要重试风暴）。
         log.warn('情绪状态落盘失败（本次仍在内存里生效）', error)
+      }
+      // 性格漂移是顺带的事：回调自己吞错，绝不拖住情绪这条主路径。
+      try {
+        deps.onApplied?.(input, at)
+      } catch (error) {
+        warnSafely(log, '性格漂移的记账失败（不影响情绪与对话）', error)
       }
       await section.refresh()
     }
@@ -200,11 +224,18 @@ export function installEmotion(
   }
 
   // 注入：只在沉浸模式下往这一轮追一条提醒；后台评估与它共用同一个模型入口。
+  /**
+   * 她的**立场**：现读人格命名空间，取会改变"这件事意味着什么"的那几样
+   * （性格 / 偏好 / 底线 / 关系 / 称呼）。读人格要走已接上的设置句柄 ——
+   * 那个句柄住在 `section.read` 里（见 `section.ts` 的说明）。
+   */
+  const stance = stanceReader((ns) => section.read(ns))
   const disposeInjection = installEmotionInjection(ctx, log, {
     enabled: () => enabled,
     snapshot: () => api.snapshot(),
     pulse: (input) => api.pulse(input),
     llm: createLlmAccess(ctx, log),
+    stance,
   })
   ctx.effect(() => disposeInjection, 'humanity: 情绪注入')
 

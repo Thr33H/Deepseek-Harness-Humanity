@@ -87,6 +87,7 @@ test('渲染：见面这段只写"做什么"，不写成一步步的流程说明
 test('渲染：引导语里的两个工具名与真实注册的工具名一致（字面量不许漂）', () => {
   assert.ok(INIT_TEXT.includes(PERSONA_INIT_TOOL))
   assert.ok(INIT_TEXT.includes(PERSONA_UPDATE_TOOL))
+  assert.equal(INIT_TEXT.includes('humanity_remember'), false, '第一次见面的引导语也不教记忆（2026-11-22 拆开）')
 })
 
 test('渲染：初始化完成后自动切换成正常人格内容（引导语消失）', () => {
@@ -458,11 +459,11 @@ test('兼容性探测：complete section 在场时判定为"注入被丢弃"，�
   await ctx.fiber.dispose()
 })
 
-test('初始化后注入操作约定段：告诉模型什么写信息、什么写记忆（round 48 信息引导缺口）', () => {
+test('初始化后注入操作约定段：只讲人格自己的用法，不教记忆（2026-11-22 拆开）', () => {
   const text = renderPersonaPrompt(filledPersona(), { enabled: true })
   assert.equal(text.includes(MUTABLE_OPS_GUIDE), true, '已初始化的人格注入必须带操作约定段')
   assert.equal(text.includes('humanity_persona_update'), true)
-  assert.equal(text.includes('humanity_remember'), true)
+  assert.equal(text.includes('humanity_remember'), false, '记忆的用法归记忆自己，系统提示词里不再出现')
 
   // 未初始化时只有引导语（引导语自己讲清了分层），不叠操作约定段。
   const uninit = renderPersonaPrompt({ ...filledPersona(), identityCard: { ...filledPersona().identityCard, initializedAt: '' } }, { enabled: true, now: FIXED_NOW })

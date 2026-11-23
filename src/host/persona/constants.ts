@@ -8,6 +8,71 @@
  */
 
 /**
+ * 性格的四根轴（2026-11-20 新增）。
+ *
+ * ### 为什么需要它
+ *
+ * 在此之前人格全是**给人读的文字**：底色是自然语言，信息层是自然语言。
+ * 系统里没有任何一个数能参与计算，于是三处判断都没有依据 ——
+ * 记忆判"这件事对她多重"、情绪判"该炸多响"、披露判"她愿不愿意说"，
+ * 全都只能靠模型当场即兴，同一个设定每次结果都不同。
+ *
+ * ### 为什么是这四根
+ *
+ * 大五人格是词汇学、问卷研究、空军样本三条独立线索收敛出的经验共识，
+ * 不是谁拍的；HEXACO 另提出「诚实-谦逊」一维，但跨 12 种语言的严格检验显示
+ * **只有 3 个因子能稳定复现**（De Raad et al. 2010），所以 5–6 维是工作共识而非铁律。
+ *
+ * 这里取四根的理由是**正交**与**可标定**的折中：
+ * - 三根太少，分不出「敏感但稳」与「敏感且不稳」这种人；
+ * - 五根以上就变成填表，而且**越窄的特质越不稳**（Bleidorn et al. 2022 的调节分析），
+ *   轴越多、每根越难标定；
+ * - 第五维「尽责性」暂不取：它对陪伴关系的影响远小于前四根，而「守约」更适合
+ *   放在「行为边界」里 —— 它不是天赋倾向，是承诺。
+ *
+ * ⚠️ 曾经考虑过「敏感度」与「情绪稳定度」各占一根，**这是错的**：
+ * 它们是同一个维度的两端（Neuroticism / Emotional Stability），两个都算等于重复计算，
+ * 调一根另一根跟着动，无法独立控制。所以只保留「情绪稳定性」一根。
+ *
+ * 顺序即工作台与提示词的展示顺序。
+ */
+export const CHARACTER_AXES = ['stability', 'extraversion', 'agreeableness', 'openness'] as const
+
+/** 性格轴。 */
+export type CharacterAxisKey = (typeof CHARACTER_AXES)[number]
+
+/**
+ * 每根轴的中文名与两端说法（工作台与提示词共用一份，避免两处各说一套）。
+ *
+ * `low` / `high` 不是"数值的 0 和 1"，而是**这一端的人是什么样** ——
+ * 它是给渲染用的自然语言，所以写成人的样子而不是标签。
+ */
+export const CHARACTER_AXIS_TEXT: Readonly<
+  Record<CharacterAxisKey, { readonly name: string; readonly low: string; readonly high: string }>
+> = {
+  stability: {
+    name: '情绪稳定性',
+    low: '一碰就晃，而且晃得久',
+    high: '很稳，事过就过',
+  },
+  extraversion: {
+    name: '外向性',
+    low: '话少，想清楚了才开口',
+    high: '想到什么就说什么，话多',
+  },
+  agreeableness: {
+    name: '宜人性',
+    low: '护着自己，不肯先退',
+    high: '温和，愿意退让，不忍心',
+  },
+  openness: {
+    name: '开放性',
+    low: '只想待在熟悉的地方',
+    high: '看见没见过的东西就想凑近',
+  },
+}
+
+/**
  * 底色的核心字段（P-012 默认三段式 + 2026-09-23 增补「主语言」）。
  *
  * 这几个是"潜意识底色"的最小集合：只有对方能改，Agent 封存后不能改（P-013/P-023）。
@@ -91,6 +156,14 @@ export const PERSONA_ISSUE_CODES = [
   'mutable.user-defined-key-empty',
   'mutable.item-too-long',
   'mutable.item-conflict',
+  // 性格轴（2026-11-20）。
+  // 这四条都只在"已经推导过笼子"之后才可能产生：没推导过（`derivedAt` 为空）时，
+  // 文档里本来就没有轴，不能因此判它缺轴。
+  'character.axis-missing',
+  'character.range-invalid',
+  'character.value-out-of-range',
+  'character.reason-missing',
+  'character.sealed',
 ] as const
 
 /** 问题代码。 */

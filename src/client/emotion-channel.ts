@@ -45,6 +45,10 @@ export function asEmotionDocument(value: unknown): EmotionDocument {
         target: asString(charge.target) || 'world',
         targetLabel: asString(charge.targetLabel),
         intensity: asNumber(charge.intensity),
+        // 比上次多/少（工作台画箭头用）。缺字段就是 0：老投影里没有这一项，不该画一个假箭头。
+        delta: asNumber(charge.delta),
+        // 上一次评估之前的值（画"从上次到现在净变化"的段用）；缺失/空 = -1，界面据此不画段。
+        before: charge.before === undefined || charge.before === null ? -1 : asNumber(charge.before),
         tier: asString(charge.tier) || 'calm',
         cause: asString(charge.cause),
         since: asString(charge.since),
@@ -59,6 +63,10 @@ export function asEmotionDocument(value: unknown): EmotionDocument {
         targetLabel: asString(item.targetLabel),
         // 夹到 0–1：这是条上的宽度，坏值画出一道超出轨道的条只会像渲染坏了。
         level: Math.max(0, Math.min(1, asNumber(item.level))),
+        cause: asString(item.cause),
+        delta: asNumber(item.delta),
+        levelBefore: Math.max(0, Math.min(1, asNumber(item.levelBefore))),
+        at: asString(item.at),
       } as EmotionDocument['sensitivities'][number]
     }),
     warmth: asNumber(raw.warmth),

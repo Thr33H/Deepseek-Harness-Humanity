@@ -139,6 +139,18 @@ function syncTools(
   persona: PersonaSection,
   approvalOf: () => ApprovalSeam | undefined,
 ): void {
+  // **数据还没真正可读时，什么决定都不做。**
+  //
+  // 真机事故（2026-11-22）：`attached` 只表示"命名空间注册上了"，而 `get(ns)` 在存储没就绪时
+  // 返回的是**默认文档**（`sealedAt` 为空）。于是已封存的实例被判成未封存，注册了 `init` 那套；
+  // 等存储就绪后没人再叫它重判，就一直错着。现在等 `ready`（= 接上 **且** 存储就绪），
+  // 就绪那一刻由 `PersonaSection.notifyStoreReady` 叫回来（宿主在 `index.ts` 里统一派发）。
+  //
+  // 判定写成 `=== false` 而不是 `!persona.ready`：**只有明确"没就绪"才等**。
+  // 结构化的假 section（测试里那些）没有这个字段，`undefined` 应当照旧放行 ——
+  // 用 `!` 会让它们全部停在"等待就绪"，表现为整个测试套挂住（2026-11-22 踩过）。
+  if (persona.ready === false) return
+
   const want = state.enabled && state.api !== undefined
   // 初始化状态决定 init 是否可见：封存翻转时重注册一次（便宜：两条注册 + 一条 guard）。
   const sealed = !isUntouchedIdentityCard(persona.read().identityCard)
@@ -177,7 +189,11 @@ export function installPersonaTools(ctx: Context, log: Log, persona: PersonaSect
   })
 
   // 写入成功后重判注册（封存翻转把 init 下线 / 上线）；退订随本模块 fiber 卸载。
+  // `notifyStoreReady` 走的也是这一组监听者，所以"存储就绪"和"文档被改"共用这条重判路径。
   ctx.effect(() => persona.onDocumentChanged(sync), 'humanity: 人格文档变化后重判工具注册')
+
+  // "终于接上了"也重判一次（等 `ready` 的人要靠它，见 `syncTools` 开头）。
+  ctx.effect(() => persona.onAttached(sync), 'humanity: 人格文档接上后重判工具注册')
 
   installToolsSeam(
     ctx,

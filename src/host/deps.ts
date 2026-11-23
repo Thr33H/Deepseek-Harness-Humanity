@@ -12,10 +12,12 @@
 import type { HumanityConfig } from './config.js'
 import type { Clock } from './clock.js'
 import type { EmotionDeps, EmotionModule } from './emotion/index.js'
+import { EMOTION_LABELS, type EmotionKind } from './emotion/constants.js'
 import { dominantOf } from './emotion/state.js'
 import type { EvolutionDeps } from './evolution/index.js'
 import type { MemoryDeps } from './memory/index.js'
 import type { MemoryModule } from './memory/index.js'
+import { MOOD_TONE } from './memory/constants.js'
 import type { PersonaDeps, PersonaModule } from './persona/index.js'
 import type { EvolutionModule } from './evolution/index.js'
 import type { CompatState } from './preset-compat.js'
@@ -29,6 +31,29 @@ export interface HostState {
   memory?: MemoryModule
   evolution?: EvolutionModule
   store?: HumanityStore
+}
+
+/**
+ * humanity 是否已经**正式启动**：人格封存的那一刻才算。
+ *
+ * ### 为什么情绪/记忆/自进化要等这一刻（用户 2026-11-22 定）
+ *
+ * 第一次见面时她还没有人格（底色没写、没封存），那时候的"情绪"是凭空生成的——
+ * 她还不知道自己是谁，凭什么对一句话有感受？同样的道理，记忆记下的"经历"、自进化整理出的
+ * "她像谁"，在人格定下来之前都建立在流沙上。所以：**人格封存之前，其他模块一律休眠。**
+ *
+ * ### 三条实现纪律
+ *
+ * 1. **每次现读，不缓存**（存储比配置晚就绪的坑踩过三次：那时读到的是默认文档、`sealedAt` 为空，
+ *    把它当成"没封存"缓存下来，封存后也醒不过来了）；
+ * 2. 存储没就绪、人格模块没装、文档形状残缺 —— 一律当作"没封存"（休眠是安全的那一侧）；
+ * 3. 人格模块自己**不受这条限制**：它正是负责把人设下来的那个。
+ * @param state - 宿主状态（`persona` 可能还没装上）。
+ * @returns 已封存为 `true`。
+ */
+export function humanityStarted(state: HostState): boolean {
+  const sealedAt = state.persona?.section.read()?.identityCard?.sealedAt ?? ''
+  return typeof sealedAt === 'string' && sealedAt.trim() !== ''
 }
 
 /** 人格模块的外部事实：存储句柄（历史）与配置开关。 */
@@ -47,48 +72,85 @@ export function personaDeps(settings: SettingsBridge, state: HostState): Persona
 }
 
 /** 情绪模块的外部事实：存储句柄、开关与生效时区。 */
-export function emotionDeps(settings: SettingsBridge, state: HostState, clock?: Clock): EmotionDeps {
+export function emotionDeps(
+  settings: SettingsBridge,
+  state: HostState,
+  clock?: Clock,
+  onApplied?: EmotionDeps['onApplied'],
+): EmotionDeps {
   return {
     store: () => state.store,
     enabled: () => {
       const current = settings.read()
-      return current.enabled && current.modules.emotion.enabled
+      // 人格没封存 = 还没正式启动：不评估、不注入（见 `humanityStarted`）。
+      return current.enabled && current.modules.emotion.enabled && humanityStarted(state)
     },
     // 时间换算显式带时区（见 `emotion/index.ts` 的说明：进程的 Date 可能不跟 TZ 变）。
     timeZone: () => clock?.report().effective,
+    // 每轮情绪落地后通知宿主：性格轴靠它被动漂移（见 `persona/drift.ts`）。
+    onApplied,
   }
 }
 
-/** 记忆模块的外部事实：模式、高级开关、兼容性状态与存储句柄。 */
-export function memoryDeps(settings: SettingsBridge, state: HostState, compat: CompatState): MemoryDeps {
+/** 记忆模块的外部事实：存储句柄、开关、写这一刻的情绪指纹、此刻的心情。 */
+export function memoryDeps(settings: SettingsBridge, state: HostState, clock?: Clock): MemoryDeps {
   return {
-    mode: () => settings.read().modules.memory.mode,
-    advanced: () => settings.read().modules.memory.advanced,
-    compat: () => compat,
     store: () => state.store,
+    // 人格没封存 = 还没正式启动：不记录、不检索、工具也不给她（见 `humanityStarted`）。
+    enabled: () => settings.read().modules.memory.enabled && humanityStarted(state),
+    // 工作台要凭它说"还没开始"（而不是"没有记忆"）。
+    dormant: () => !humanityStarted(state),
+    maxInject: () => settings.read().modules.memory.maxInject,
+    // 生效时区：她回忆时说"昨天/今天"按这个时区的日历算（半夜聊天时毫秒差会把昨晚算成今天）。
+    timeZone: () => clock?.report().effective,
     // 情绪指纹：写记忆的那一刻它在什么心情。情绪模块缺席/关掉时返回 undefined（记成平静）。
-    affect: () => {
+    feeling: () => {
       const snapshot = state.emotion?.snapshot()
       if (snapshot === undefined) return undefined
       const dominant = dominantOf(snapshot)
-      return {
-        kind: dominant?.kind ?? '',
-        // 对象必须一起记：回声靠它加回同一条情绪（见 `MemoryAffect.target`）。
-        target: dominant?.target ?? 'world',
-        intensity: dominant?.intensity ?? 0,
-        warmth: snapshot.warmth,
-      }
+      if (dominant === undefined) return undefined
+      return { kind: dominant.kind, intensity: dominant.intensity }
     },
     // 想起旧事时的回声：单向通知情绪模块，失败了也只影响心情。
-    onRecalled: (entries) => {
-      state.emotion?.echoRecalled(entries)
+    onRecalled: (records) => {
+      state.emotion?.echoRecalled(
+        records.map((record) => ({
+          content: record.what,
+          affect: {
+            kind: record.felt.kind,
+            target: record.about === 'user' ? 'user' : record.about === 'self' ? 'self' : 'world',
+            intensity: record.felt.intensity,
+            warmth: 0,
+          },
+        })),
+      )
     },
     // 心境一致：心情差时更容易捞起同向的旧事（只影响排序，不影响准入）。
     mood: () => {
       const snapshot = state.emotion?.snapshot()
       if (snapshot === undefined) return undefined
-      return { kind: dominantOf(snapshot)?.kind ?? '', warmth: snapshot.warmth }
+      const kind = dominantOf(snapshot)?.kind ?? ''
+      return { tone: MOOD_TONE[kind] ?? 0 }
     },
+    // 对方叫什么：被窥探之后她记的那一笔要用名字（记忆里出现"他/对方"会在多人时串）。
+    userName: () => {
+      const doc = state.persona?.section.read()
+      const target = doc?.mutableLayer?.sections?.find((section) => section.title === '对TA的称呼')
+      return target?.items?.[0]?.trim() ?? ''
+    },
+    // 她的性格：被窥探之后的反应强度由这两根轴定（见 `memory/reaction.ts`）。
+    // 人格模块没开、或性格还没初始化时返回 undefined —— 记忆侧退回基准反应，
+    // **不是**替她假设一个性子（那等于悄悄改了她的底色）。
+    character: () => {
+      const axes = state.persona?.section.read()?.character?.axes ?? []
+      const valueOf = (key: string): number | undefined => axes.find((axis) => axis.key === key)?.value
+      const stability = valueOf('stability')
+      const agreeableness = valueOf('agreeableness')
+      if (stability === undefined || agreeableness === undefined) return undefined
+      return { stability, agreeableness }
+    },
+    // 情绪种类 → 人话：借情绪模块那张表，记忆**不自己维护第二份**（两份词表早晚会分叉）。
+    feltLabel: (kind) => EMOTION_LABELS[kind as EmotionKind] ?? kind,
   }
 }
 
@@ -98,7 +160,6 @@ export function evolutionDeps(settings: SettingsBridge, state: HostState, clock?
     store: () => state.store,
     config: (): HumanityConfig => settings.read(),
     memoryStore: () => state.memory?.store(),
-    memoryPolicy: () => state.memory?.policy(),
     personaSection: () => state.persona?.section,
     // 时间基准的状态：工作台靠它显示"这个钟是哪个时区、从哪来的"（见 `clock.ts`）。
     clock: () => clock?.report(),

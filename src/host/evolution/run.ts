@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 运行编排：一次整理运行（增量/梦境/回扫）的入口、互斥与门禁（DEV-PLAN §5.1）。
  *
  * 主循环与收尾在 `run-loop.ts`；这里只管"什么时候允许跑、跑砸了怎么收场"：
@@ -14,7 +14,6 @@
  */
 import type { HumanityConfig } from '../config.js'
 import type { Log } from '../log.js'
-import { decaySummary, runDecayMaintenance } from '../memory/ops.js'
 import type { ClassifyDeps } from './classify.js'
 import type { LlmAccess } from '../llm.js'
 import { createRunRecord } from './model.js'
@@ -117,23 +116,6 @@ async function gateAndScan(deps: RunnerDeps, accumulator: RunAccumulator, option
  * 为什么**不**在这里判 `policy.decay` 之外的条件：`decay=false`（含记忆模块 off）时直接返回，
  * **不进核算入口** —— "跑了但什么都没做"与"根本不该跑"在账目上必须能分得开。
  */
-async function sweepMemoryDecay(deps: RunnerDeps, accumulator: RunAccumulator): Promise<void> {
-  // 与写回路径读**同一份**现读句柄（`classify()` 的依赖）：维护与写入不会看到两套策略。
-  const handles = deps.classify()
-  const store = handles.memoryStore()
-  const policy = handles.memoryPolicy()
-  if (store === undefined || policy === undefined) return
-  if (!policy.decay) return
-  try {
-    // 显式传 `now`：与运行记录里其他时间戳同一个时刻源（测试里因此完全确定）。
-    const { report } = await runDecayMaintenance(store, policy, deps.now?.() ?? new Date().toISOString())
-    accumulator.notes.push(`记忆维护（本轮顺带核算）：${decaySummary(report)}`)
-  } catch (error) {
-    // 维护失败不该让这一轮整理整体失败（与检索路径同一个取舍）。
-    deps.log.warn('顺带的记忆衰减核算失败（本轮整理继续）', error)
-  }
-}
-
 /**
  * 造运行入口。
  * @param deps - 运行依赖（宿主接线）。
@@ -164,8 +146,6 @@ export function createRunner(deps: RunnerDeps): Runner {
       // 免费步骤先做：信息的重复条目在扫描前就并掉（不花模型调用，也让提示词立刻变干净）。
       const consolidated = (await deps.consolidatePersona?.()) ?? { count: 0, merges: [] }
       if (consolidated.count > 0) accumulator.notes.push(`信息合并了 ${consolidated.count} 条重复条目`)
-      // B1：记忆维护同样不花模型调用，且不依赖模型路由 —— 放门禁之前，每轮都跑。
-      await sweepMemoryDecay(deps, accumulator)
       const targets = await gateAndScan(deps, accumulator, options)
       if (targets.length > 0) await runLoop(deps, accumulator, targets, options)
     } catch (error) {

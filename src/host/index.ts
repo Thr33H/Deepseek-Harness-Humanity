@@ -17,9 +17,12 @@ import { Config, type HumanityConfig } from './config.js'
 import { installClock, type Clock } from './clock.js'
 import { installDataPlane } from './data-plane.js'
 import type { DocumentStore } from './documents.js'
-import { evolutionDeps, emotionDeps, memoryDeps, personaDeps, type HostState } from './deps.js'
+import { evolutionDeps, emotionDeps, humanityStarted, memoryDeps, personaDeps, type HostState } from './deps.js'
 import { installExclusionGuard } from './exclusion-guard.js'
 import { installEmotion } from './emotion/index.js'
+import type { EmotionPulse } from './emotion/state.js'
+import { accumulate, applyDrift, DRIFT_FLUSH_MS, dueToFlush, nudgesOf } from './persona/drift.js'
+import type { CharacterAxisKey } from './persona/constants.js'
 import { installEvolution } from './evolution/index.js'
 import { EVOLUTION_NAMESPACE } from './evolution/constants.js'
 import { createLog, type Log } from './log.js'
@@ -34,10 +37,10 @@ import { installMemory } from './memory/index.js'
 import { installPersona } from './persona/index.js'
 import { installHumanityStore } from './store.js'
 
-export { Config, MEMORY_MODES, MODULE_IDS } from './config.js'
+export { Config, MODULE_IDS } from './config.js'
 export { PERSONA_NAMESPACE } from './persona/section.js'
 export { EVOLUTION_NAMESPACE } from './evolution/constants.js'
-export type { HumanityConfig, MemoryMode, ModuleId } from './config.js'
+export type { HumanityConfig, ModuleId } from './config.js'
 export type { HumanityModule, ModuleRuntimeState, ModuleStatus } from './modules.js'
 
 /** Cordis 插件名，loader 诊断用。 */
@@ -82,17 +85,21 @@ function createModuleSync(ctx: Context, registry: ModuleRegistry): { sync(next: 
  * 把人格/记忆开关同步给已建好的模块句柄。
  *
  * 句柄在接线完成前是 undefined —— 那期间的开关变更由装配末尾补的那一次调用覆盖。
+ *
+ * ⚠️ **人格没封存之前，除人格外一律关着**（用户 2026-11-22 定）：那时她还没有"自己"，
+ * 情绪/记忆/自进化都不该工作。封存那一刻由 `onDocumentChanged` 再调一次本函数把它们叫醒。
  * @param state - 宿主状态。
  * @param next - 最新配置。
  */
 function syncModulesEnabled(state: HostState, next: HumanityConfig): void {
+  const started = humanityStarted(state)
   state.persona?.setEnabled(next.enabled && next.modules.persona.enabled)
   // 情绪：关掉即停算停投影（数据保留，下次打开接着用）。
-  state.emotion?.setEnabled(next.enabled && next.modules.emotion.enabled)
+  state.emotion?.setEnabled(next.enabled && next.modules.emotion.enabled && started)
   // 模式 off = 记忆功能关闭：工具与注入都要下线（P-030 即时生效）。
-  state.memory?.setEnabled(next.enabled && next.modules.memory.mode !== 'off')
+  state.memory?.setEnabled(next.enabled && next.modules.memory.enabled && started)
   // 自进化：总开关 + 模块开关；调度器随开关重排（关掉 = 清除定时器，不后台运行，P-048）。
-  state.evolution?.setEnabled(next.enabled && next.modules.evolution.enabled)
+  state.evolution?.setEnabled(next.enabled && next.modules.evolution.enabled && started)
 }
 
 /**
@@ -111,6 +118,10 @@ function openStore(ctx: Context, log: Log, state: HostState, onDocuments: (docum
     log.info('存储已就绪（历史表 + 记忆表 + 自进化四表 + 文档表可用）')
     // 文档表一就绪就补迁移：人格文档本体只在旧的 settings 文件里，晚一步都是数据风险。
     onDocuments(opened.documents)
+    // 人格：**必须等这一刻**。命名空间注册得比存储早，那期间 `get()` 返回的是默认文档
+    // （`sealedAt` 为空），据此注册工具会把已封存的实例当成未封存 —— 真机表现是
+    // "封存了却还给她 humanity_persona_init"（2026-11-22）。存储就绪后按真实状态重判。
+    state.persona?.notifyStoreReady()
     state.memory?.notifyStoreReady()
     // 情绪：装载状态并投影一次（存储未就绪时工作台只显示"平静"）。
     state.emotion?.notifyStoreReady()
@@ -224,6 +235,13 @@ export function apply(ctx: Context, config: HumanityConfig): void {
     // ⚠️ 存储打开是"人格文档真的读得到"的那一刻：在此之前 `section.read()` 拿到的是默认文档
     // （`sealedAt` 为空），预设会按"未封存"注册。`presets` 在这之后才会赋值，用 `?.` 兜住。
     presets?.sync()
+    // 模块开关也按**真实配置**重判一次（2026-11-22）。
+    //
+    // 装配时那一趟 `onChanged` 跑在存储就绪之前：`settings.read()` 那时拿到的是默认配置
+    // （所有模块都开），于是用户在设置里关掉的模块会被重新打开 —— 与"独立判断关了却还在注入"
+    // 是同一个模式。这里用 `onChanged` 而不是只调 `syncModulesEnabled`，是为了让批次与工具
+    // 注册也一起收敛（它内部就是这两件事）。
+    onChanged(settings.read())
     // 人格数据升级（关系搬家、退役「交付格式」，2026-11-16）：需要文档真的读得到，所以也放在这一刻。
     void state.persona?.upgrade()
   })
@@ -239,10 +257,37 @@ export function apply(ctx: Context, config: HumanityConfig): void {
   // 本段是否被 complete 吞掉；探测完成要让工作台重新投影一次，否则警告条要等下一次操作才出现。
   const compat = createCompatState()
   state.persona = installPersona(ctx, log, personaDeps(settings, state), compat, () => void state.memory?.refresh())
+  // 补齐竞态：`openStore` 在上面（第 223 行）就先跑起来了，存储若开得**比这一行快**，
+  // 它那次 `notifyStoreReady()` 打在一个还是 `undefined` 的 persona 上，等于没打。
+  // 所以装配完再看一眼：存储已经就绪就立刻补一次（幂等）。
+  if (state.store !== undefined) state.persona.notifyStoreReady()
   // 情绪模块：状态 + 存储 + 工作台窗口。**只看存储**，不依赖人格或记忆（模块互相隔离）。
-  state.emotion = installEmotion(ctx, log, emotionDeps(settings, state, clockHandle))
+  // 性格漂移：攒在内存里，满一天且够一个阈值才写一次人格文档（每轮都写会把历史刷成流水账）。
+  // 规则见 `persona/drift.ts`；它只由情绪落地的事件推动，不给她任何主动调节的入口。
+  let driftAccumulator: Partial<Record<CharacterAxisKey, number>> = {}
+  let driftLastAt = ''
+  const onEmotionApplied = (pulse: EmotionPulse, at: string): void => {
+    driftAccumulator = accumulate(driftAccumulator, nudgesOf({ shifts: pulse.shifts, warmth: pulse.warmth }))
+    const previous = driftLastAt === '' ? Number.NaN : Date.parse(driftLastAt)
+    // 第一次触达也允许落地（否则要等满一天才有第一笔）；之后至少隔一天。
+    const intervalOk = !Number.isFinite(previous) || Date.parse(at) - previous >= DRIFT_FLUSH_MS
+    if (!dueToFlush(driftAccumulator, intervalOk)) return
+    const pending = driftAccumulator
+    driftAccumulator = {}
+    driftLastAt = at
+    const persona = state.persona
+    if (persona === undefined) return
+    const outcome = applyDrift(persona.section.read(), pending)
+    if (!outcome.changed) return
+    // 写入失败只是这一步没留下：不重试、不影响对话（与情绪落盘同一条纪律）。
+    void persona.section.write(outcome.document, 'agent').catch((error: unknown) => {
+      log.warn('性格漂移写入失败（这一步没留下，不影响对话）', error)
+    })
+  }
+
+  state.emotion = installEmotion(ctx, log, emotionDeps(settings, state, clockHandle, onEmotionApplied))
   // 记忆模块：同样一个入口。模式与存储句柄都**现读不缓存**（P-030）。
-  state.memory = installMemory(ctx, log, memoryDeps(settings, state, compat))
+  state.memory = installMemory(ctx, log, memoryDeps(settings, state, clockHandle))
   // 自进化模块（M5）：整理管线 + 提案系统 + 调度 + 对话内提醒。跨模块句柄现读（P-048）。
   state.evolution = installEvolution(ctx, log, evolutionDeps(settings, state, clockHandle))
   syncModulesEnabled(state, settings.read())
@@ -253,11 +298,18 @@ export function apply(ctx: Context, config: HumanityConfig): void {
   presets = installPresets(ctx, log, () => state.persona?.section.read().identityCard.sealedAt !== '')
   ctx.effect(() => presets?.dispose, 'humanity: 预设卸载')
   if (state.persona !== undefined) {
-    const off = state.persona.section.onDocumentChanged(() => presets?.sync())
+    const off = state.persona.section.onDocumentChanged(() => {
+      presets?.sync()
+      // 封存（或解封）就在这一刻发生：把"是否已启动"重新算一遍，其余模块跟着醒来/睡下。
+      // 反过来的顺序同样重要 —— 只靠装配时那一次判断，封存后它们永远醒不过来。
+      syncModulesEnabled(state, settings.read())
+    })
     ctx.effect(() => off, 'humanity: 预设随封存切换')
     // 启动时"数据可读"比"有写入"更早发生也更关键：那一刻才知道人格到底封没封存。
     const offAttached = state.persona.section.onAttached(() => {
       presets?.sync()
+      // 命名空间接上（含存储晚就绪）也要重算一次：那时才读得到真实的封存状态。
+      syncModulesEnabled(state, settings.read())
       // 存储可能晚于设置接上；升级是幂等的，两个就绪点各叫一次最省事。
       void state.persona?.upgrade()
     })

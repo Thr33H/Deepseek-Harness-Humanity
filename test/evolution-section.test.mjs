@@ -69,7 +69,6 @@ async function boot(options = {}) {
     ops: () => ({ runner, proposals, refresh: () => {}, warn: () => {} }),
     // 0.1.9：`storeReady` 由宿主**现算**（不再由投影层写死 true）⇒ 这里也如实跟着存储句柄走。
     status: () => ({ enabled: true, storeReady, scanReady: true, modelReady: true }),
-    memoryPendingCount: () => options.memoryPending ?? 0,
     nextRunAt: () => options.nextRunAt ?? 0,
     dailyCallCap: () => 20,
   })
@@ -123,7 +122,7 @@ test('接上设置服务即注册并投影：宿主字段齐、命令槽为空',
     const doc = harness.view()
     assert.deepEqual(doc.runs, [])
     assert.deepEqual(doc.proposals, [])
-    assert.deepEqual(doc.pendingCounts, { memory: 0, persona: 0, route: 0, total: 0 })
+    assert.deepEqual(doc.pendingCounts, { persona: 0, route: 0, total: 0 })
     assert.deepEqual(doc.status, { enabled: true, storeReady: true, scanReady: true, modelReady: true })
     assert.equal(doc.dailyCallCap, 20)
     assert.equal(doc.request.op, '')
@@ -132,8 +131,8 @@ test('接上设置服务即注册并投影：宿主字段齐、命令槽为空',
   }
 })
 
-test('存储里有内容 → 投影带出运行/提案/计数；记忆 pending 并入总数（P-042）', async () => {
-  const harness = await boot({ memoryPending: 2 })
+test('存储里有内容 → 投影带出运行/提案/计数（2026-11-20 起只剩提案三类）', async () => {
+  const harness = await boot()
   try {
     const run = createRunRecord('dream', 'scheduled', '2026-09-25T03:00:00.000Z')
     await harness.state.putRun({ ...run, status: 'completed', narrative: '一段梦', insights: ['洞察'] })
@@ -144,7 +143,7 @@ test('存储里有内容 → 投影带出运行/提案/计数；记忆 pending �
     assert.equal(doc.runs.length, 1)
     assert.equal(doc.runs[0].narrative, '一段梦')
     assert.equal(doc.proposals.length, 1)
-    assert.deepEqual(doc.pendingCounts, { memory: 2, persona: 1, route: 0, total: 3 })
+    assert.deepEqual(doc.pendingCounts, { persona: 1, route: 0, total: 1 })
   } finally {
     await harness.dispose()
   }
@@ -259,7 +258,6 @@ test('设置服务缺席：不抛、attached=false（G-002 降级）', async () 
     state: () => state,
     ops: () => undefined,
     status: () => ({ enabled: true, storeReady: true, scanReady: false, modelReady: false }),
-    memoryPendingCount: () => 0,
     nextRunAt: () => 0,
     dailyCallCap: () => 20,
   })

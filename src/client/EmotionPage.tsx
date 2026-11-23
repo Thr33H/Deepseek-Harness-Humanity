@@ -19,31 +19,82 @@ export interface EmotionPageProps extends PropsLocale<typeof NS> {
   controller: EmotionWorkbenchController
 }
 
-/** 强度条的底槽。 */
+/** 强度条的底槽。样式与人格页的性格轨道一致（`CharacterCard.tsx` 的 `track`）。 */
 const barTrack = {
+  position: 'relative',
   height: 6,
   borderRadius: 3,
-  background: 'var(--dsw-alias-border-l1)',
-  overflow: 'hidden',
+  background: 'var(--dsw-alias-border-l2)',
+  overflow: 'visible',
 } as const
 
-/** 一条情绪的整行（名字 | 条 | 档位）。名字那列要放得下"对自己悲伤"这种带对象的写法。 */
-const chargeRow = {
-  display: 'grid',
-  gridTemplateColumns: '96px 1fr 56px',
-  alignItems: 'center',
-  gap: 12,
-  marginTop: 10,
+/** 底槽里表示"当前值"的那一段：半透明品牌色，与性格轨道的"天生范围"同一套语言。 */
+const barFill = {
+  position: 'absolute',
+  top: 0,
+  bottom: 0,
+  left: 0,
+  borderRadius: 3,
+  background: 'var(--dsw-alias-brand-primary)',
+  opacity: 0.4,
 } as const
 
-/** 一条敏感痕迹的整行（名字 | 条）。只有两栏：这一层不需要档位，也不需要原因。 */
-const sensitivityRow = {
+/** 此刻的位置：一根竖线（与性格轨道的当前位置同一个画法）。 */
+const barMarker = {
+  position: 'absolute',
+  top: -4,
+  width: 2,
+  height: 14,
+  borderRadius: 1,
+  background: 'var(--dsw-alias-brand-primary)',
+} as const
+
+/**
+ * 底槽里表示"比上一次多/少"的那一段（用户 2026-11-22 要的：用红绿条代替箭头）。
+ *
+ * 画法：上一次的值 → 这一次的值之间这一截，涨了涂绿、跌了涂红。
+ * 不画整条变色 —— 整条是"现在有多重"，只给整条换色会把"变化"和"大小"混成一个信号。
+ */
+const barDelta = {
+  position: 'absolute',
+  top: 0,
+  bottom: 0,
+  borderRadius: 3,
+} as const
+
+/**
+ * 一条情绪的小分区：**两行**（用户 2026-11-22 定）。
+ *
+ * 第一行 = 名称 · 原因 · 比上次多/少的箭头；第二行 = 强度轨道与数值。
+ *
+ * 为什么分成两行：一行里塞"名字 + 原因 + 条 + 档位"，原因被挤成一小截、条也短，
+ * 眼睛没法比较两条谁更高。拆开之后原因可以写完整、轨道能占满宽度 —— 看的是"哪里长短"。
+ */
+const chargeBlock = {
+  padding: '10px 0 2px',
+  borderTop: '1px solid var(--dsw-alias-border-l1)',
+} as const
+
+/** 第一行：名称（定宽，对齐）· 原因（可折行）· 增减箭头。 */
+const chargeHead = {
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: 12,
+} as const
+
+/** 第二行：轨道 · 数值 · 档位。 */
+const chargeTrackRow = {
   display: 'grid',
-  gridTemplateColumns: '96px 1fr',
+  gridTemplateColumns: '1fr 44px 56px',
   alignItems: 'center',
   gap: 12,
-  marginTop: 10,
+  marginTop: 6,
 } as const
+
+/** 比上次多（绿）/ 少（红）—— 只看"增减"，不判断好坏（用户明确要的）。 */
+const DELTA_UP_COLOR = '#3fb950'
+const DELTA_DOWN_COLOR = '#f85149'
+
 
 /** 补充说明的次级文字。 */
 const meta = {
@@ -124,35 +175,51 @@ function ChargeRow({ t, charge, now }: { t: EmotionPageProps['t']; charge: Emoti
   const duration = absent ? '' : durationText(t, charge.since, now)
   const cause = charge.cause === '' ? t('emotion.noCause') : charge.cause
   const color = absent ? 'var(--dsw-alias-label-tertiary)' : 'var(--dsw-alias-label-primary)'
+  // 变化段：上一次评估**之前**的值 → 现在。中间既有当时的增减，也有时间流逝的衰减，
+  // 所以时间过去、值掉下来了，这一段会自己变成红色（用户 2026-11-23 指出的那个"一直绿着"）。
+  // `before < 0` = 老数据没记过起点：宁可什么都不画，也不要拿 0 当起点画出一条假绿。
+  const cur = Math.max(0, Math.min(100, charge.intensity))
+  const before = Math.max(0, Math.min(100, charge.before))
+  const from = Math.min(before, cur)
+  const change = Math.abs(cur - before)
+  const changed = charge.before >= 0 && charge.delta !== 0 && change > 0
+  const grew = cur >= before
   return (
-    <div>
-      <div style={chargeRow}>
-        <span style={{ fontWeight: absent ? 400 : 600, color, whiteSpace: 'nowrap' }}>
+    <div style={chargeBlock}>
+      <div style={chargeHead}>
+        <span style={{ fontWeight: absent ? 400 : 600, color, whiteSpace: 'nowrap', minWidth: 96 }}>
           {charge.targetLabel}
           {charge.label}
         </span>
-        <span style={barTrack}>
-          <span
-            style={{
-              display: 'block',
-              height: '100%',
-              width: `${Math.max(0, Math.min(100, charge.intensity))}%`,
-              borderRadius: 3,
-              // 强度越高越不透明：同一块颜色就能看出轻重，不必再读数字。
-              background: `color-mix(in srgb, ${color} ${Math.max(25, Math.round(charge.intensity))}%, transparent)`,
-            }}
-          />
-        </span>
-        <span style={{ ...meta, margin: 0, textAlign: 'right' }}>
-          {absent ? t('emotion.absent') : t(TIER_KEYS[charge.tier as keyof typeof TIER_KEYS] ?? 'emotion.tier.calm')}
+        <span style={{ ...meta, margin: 0, flex: 1, color: absent ? 'var(--dsw-alias-label-tertiary)' : meta.color }}>
+          {absent
+            ? t('emotion.absent')
+            : `${t('emotion.cause')}：${cause}${duration === '' ? '' : ` · ${duration}`}`}
         </span>
       </div>
-      {absent ? null : (
-        <p style={{ ...meta, marginLeft: 76 }}>
-          {t('emotion.cause')}：{cause}
-          {duration === '' ? '' : ` · ${duration}`}
-        </p>
-      )}
+      <div style={chargeTrackRow}>
+        <span style={barTrack}>
+          <span style={{ ...barFill, width: `${cur}%`, opacity: absent ? 0.2 : 0.4 }} />
+          <span style={{ ...barMarker, left: `${cur}%`, opacity: absent ? 0.3 : 1 }} />
+          {changed ? (
+            <span
+              title={(grew ? t('emotion.deltaUp') : t('emotion.deltaDown')).replace('{n}', String(Math.round(change)))}
+              style={{
+                ...barDelta,
+                left: `${from}%`,
+                width: `${change}%`,
+                background: grew ? DELTA_UP_COLOR : DELTA_DOWN_COLOR,
+              }}
+            />
+          ) : null}
+        </span>
+        <span style={{ ...meta, margin: 0, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+          {Math.round(cur)}
+        </span>
+        <span style={{ ...meta, margin: 0 }}>
+          {absent ? '' : t(TIER_KEYS[charge.tier as keyof typeof TIER_KEYS] ?? 'emotion.tier.calm')}
+        </span>
+      </div>
     </div>
   )
 }
@@ -228,25 +295,50 @@ export function EmotionPage({ t, controller }: EmotionPageProps) {
               {document.sensitivities.length === 0 ? (
                 <p style={{ ...meta, marginTop: 8 }}>{t('emotion.sensitivityEmpty')}</p>
               ) : (
-                document.sensitivities.map((entry) => (
-                  <div key={`${entry.kind}-${entry.target}`} style={sensitivityRow}>
-                    <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
-                      {entry.targetLabel}
-                      {entry.label}
-                    </span>
-                    <span style={barTrack}>
-                      <span
-                        style={{
-                          display: 'block',
-                          height: '100%',
-                          width: `${Math.round(Math.max(0, Math.min(1, entry.level)) * 100)}%`,
-                          borderRadius: 3,
-                          background: 'var(--dsw-alias-label-primary)',
-                        }}
-                      />
-                    </span>
-                  </div>
-                ))
+                document.sensitivities.map((entry) => {
+                  const when = agoText(t, entry.at, now)
+                  // 这一次磨上去的那一小截：被磨之前的水平 → 现在。
+                  const level = Math.max(0, Math.min(1, entry.level))
+                  const before = Math.max(0, Math.min(1, entry.levelBefore))
+                  const from = Math.min(before, level) * 100
+                  const width = Math.abs(level - before) * 100
+                  return (
+                    <div key={`${entry.kind}-${entry.target}`} style={chargeBlock}>
+                      <div style={chargeHead}>
+                        <span style={{ fontWeight: 600, whiteSpace: 'nowrap', minWidth: 96 }}>
+                          {entry.targetLabel}
+                          {entry.label}
+                        </span>
+                        <span style={{ ...meta, margin: 0, flex: 1 }}>
+                          {entry.cause === ''
+                            ? t('emotion.sensitivityNoCause')
+                            : `${t('emotion.cause')}：${entry.cause}${entry.at === '' ? '' : ` · ${when}`}`}
+                        </span>
+                      </div>
+                      <div style={chargeTrackRow}>
+                        <span style={barTrack}>
+                          <span style={{ ...barFill, width: `${Math.round(level * 100)}%` }} />
+                          <span style={{ ...barMarker, left: `${Math.round(level * 100)}%` }} />
+                          {width <= 0 || entry.at === '' ? null : (
+                            <span
+                              title={t('emotion.sensitivityDelta')}
+                              style={{
+                                ...barDelta,
+                                left: `${from}%`,
+                                width: `${width}%`,
+                                background: level >= before ? DELTA_UP_COLOR : DELTA_DOWN_COLOR,
+                              }}
+                            />
+                          )}
+                        </span>
+                        <span style={{ ...meta, margin: 0, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                          {Math.round(level * 100)}%
+                        </span>
+                        <span style={{ ...meta, margin: 0 }} />
+                      </div>
+                    </div>
+                  )
+                })
               )}
             </section>
 

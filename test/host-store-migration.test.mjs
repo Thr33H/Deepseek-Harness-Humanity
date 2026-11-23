@@ -21,7 +21,7 @@ import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import { createLog } from '../lib/log.js'
-import { createMemoryEntry } from '../lib/memory/model.js'
+import { createMemoryRecord } from '../lib/memory/model.js'
 import { DOMAIN_NAME, HISTORY_TABLE, installHumanityStore, PERSONA_DATA_SCHEMA_VERSION } from '../lib/store.js'
 
 const INSTALLED_AT = '2026-01-01T00:00:00.000Z'
@@ -161,19 +161,17 @@ test('记忆表：第 2 代旧文件（没有该表）打开后自动补空表�
   const { dir, root } = await makeRoot('humanity-memory-')
   // 第 2 代文件的 global 有 schemaVersion=2 —— 正是"有历史表、没有记忆表"的样子。
   await seedUnit(root, 1, { installedAt: INSTALLED_AT, schemaVersion: 2 })
-  const item = createMemoryEntry({
-    scope: 'long-term',
-    content: '用户偏好简短回复',
-    origin: 'user-stated',
-    sourceSessionId: 'session-1',
-    status: 'active',
+  const item = createMemoryRecord({
+    what: '对方偏好简短回复',
+    about: 'user',
+    certain: 'told',
   })
 
   const first = await boot(root)
   try {
     const store = await first.waitReady()
-    assert.equal(store.memory.get(item.dedupeKey), undefined, '旧文件里没有这张表，读出空而不是报错')
-    await store.memory.put(item.dedupeKey, item)
+    assert.equal(store.memory.get(item.id), undefined, '旧文件里没有这张表，读出空而不是报错')
+    await store.memory.put(item.id, item)
     assert.deepEqual(await readUnit(root).then((unit) => unit.global.schemaVersion), PERSONA_DATA_SCHEMA_VERSION)
   } finally {
     await first.dispose()
@@ -182,9 +180,9 @@ test('记忆表：第 2 代旧文件（没有该表）打开后自动补空表�
   const second = await boot(root)
   try {
     const reopened = await second.waitReady()
-    const readBack = reopened.memory.get(item.dedupeKey)
-    assert.equal(readBack?.content, '用户偏好简短回复', '记忆必须真的落盘并过一遍 schema')
-    assert.equal(readBack?.origin, 'user-stated', '来源不能被存储层改写（P-033）')
+    const readBack = reopened.memory.get(item.id)
+    assert.equal(readBack?.what, '对方偏好简短回复', '记忆必须真的落盘并过一遍 schema')
+    assert.equal(readBack?.certain, 'told', '确定度不能被存储层改写（她是听说的，不是亲眼见的）')
   } finally {
     await second.dispose()
     await rm(dir, { recursive: true, force: true })

@@ -22,7 +22,7 @@ import type { PersonaWorkbenchController } from './persona-controller.js'
 import { emptyEvolutionState, type EvolutionWorkbenchState } from './evolution-document.js'
 import { NS } from './locales.js'
 import type { MemoryWorkbenchController } from './memory-controller.js'
-import { emptyMemoryState, type MemoryWorkbenchState } from './memory-document.js'
+import { emptyMemoryDocument, type MemoryWorkbenchState } from './memory-document.js'
 import { headingWithHint, panel, panelTitle } from './styles.js'
 import { metricLabelSmall, metricList, metricRow, metricValueStrong } from './metric-styles.js'
 
@@ -33,7 +33,7 @@ const NOOP_SUBSCRIBE = (): (() => void) => () => {}
 
 // 缺席时的快照：`idle` ⇒ 总览如实显示"读不到"，不编数字。
 // 对象只造一次（快照引用每次都变会让 React 判定状态在变，进而反复重渲染）。
-const DETACHED_MEMORY_STATE = emptyMemoryState()
+const DETACHED_MEMORY_STATE: MemoryWorkbenchState = { status: 'unavailable', doc: emptyMemoryDocument() }
 const DETACHED_EVOLUTION_STATE = emptyEvolutionState()
 const DETACHED_MEMORY = { subscribe: NOOP_SUBSCRIBE, getSnapshot: () => DETACHED_MEMORY_STATE }
 const DETACHED_EVOLUTION = { subscribe: NOOP_SUBSCRIBE, getSnapshot: () => DETACHED_EVOLUTION_STATE }
@@ -73,7 +73,7 @@ function unavailable(memory: MemoryWorkbenchState, evolution: EvolutionWorkbench
 function policyLabel(t: Translate, memory: MemoryWorkbenchState, evolution: EvolutionWorkbenchState): string {
   if (unavailable(memory, evolution)) return t('workbench.metric.unavailable')
   return t('workbench.metric.policyValue', {
-    memory: t(`memory.mode.${memory.policy.mode}` as never),
+    memory: t('memory.total').replace('{count}', String(memory.doc?.stats.total ?? 0)),
     evolution: t(`evolution.schedule.${evolution.config.schedule.mode}` as never),
   })
 }

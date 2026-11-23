@@ -50,6 +50,19 @@ export interface PersonaSection {
   /** 是否已接上设置服务；false 表示只读。 */
   readonly attached: boolean
   /**
+   * **数据真的可读了**（存储面就绪）。
+   *
+   * 工具注册必须等它，不能等 `attached` —— 原因见 `SectionState.storeReady`。
+   */
+  readonly ready: boolean
+  /**
+   * 存储刚就绪：补一次"数据可读了"的重判。
+   *
+   * 与 `onAttached` 的分工：那个是"命名空间注册上了"，这个是"里面真有数据了"。
+   * 少了后者，工具注册会停在"按默认文档判定"的那一版（真机：封存了却还给她 init）。
+   */
+  notifyStoreReady(): void
+  /**
    * 订阅「文档写入成功」（任何来源）；返回退订动作。
    * 唯一用途：初始化状态翻转后重判工具注册（封存后 init 下线），见 `tools.ts`。
    */
@@ -122,6 +135,9 @@ function attachSection(ctx: Context, log: Log, state: SectionState): void {
     settings.installSection(ctx, PERSONA_NAMESPACE, PersonaSchema, state.fallback, hooks)
 
     log.info('人格命名空间已接入设置服务')
+    // 官方 settings 里数据是**同步可读**的：注册完就能 `get` 到真值，不需要等存储。
+    // 只有下面那条自有数据面（值落在 documents 表里）才有"注册早、数据晚"的窗口。
+    state.storeReady = true
     state.attached = true
     for (const listener of state.attachedListeners ?? []) listener()
 
@@ -142,7 +158,12 @@ function attachSection(ctx: Context, log: Log, state: SectionState): void {
  * @returns 人格读写入口。
  */
 export function installPersonaSection(ctx: Context, log: Log, history: () => HistorySink | undefined): PersonaSection {
-  const state: SectionState = { attached: false, fallback: PersonaSchema({}), changedListeners: new Set() }
+  const state: SectionState = {
+    attached: false,
+    storeReady: false,
+    fallback: PersonaSchema({}),
+    changedListeners: new Set(),
+  }
   attachSection(ctx, log, state)
 
   return {
@@ -152,6 +173,16 @@ export function installPersonaSection(ctx: Context, log: Log, history: () => His
     write: (next, writeSource, options) => writePersona(state, history, next, writeSource, options),
     get attached() {
       return state.attached
+    },
+    get ready() {
+      return state.attached && state.storeReady
+    },
+    notifyStoreReady: () => {
+      state.storeReady = true
+      // 用 `changedListeners` 那一组：订阅者要的都是"再判一次"，两者语义一致，
+      // 分成两套只会让某一套被忘掉（上一轮的 `onAttached` 就是这样没人订的）。
+      for (const listener of state.changedListeners ?? []) listener()
+      log.info('人格数据已可读：工具注册按真实状态重判')
     },
     onDocumentChanged: (listener) => {
       state.changedListeners?.add(listener)

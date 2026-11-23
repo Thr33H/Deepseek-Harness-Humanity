@@ -33,6 +33,20 @@ export interface EmotionChargeView {
   /** 对象前缀（"对TA" / "对自己" / 空串）；空串表示对事，不写。 */
   targetLabel: string
   intensity: number
+  /**
+   * 比**上一次评估之前**多了还是少了（正数=多、负数=少；0=上一轮没动这一条）。
+   *
+   * 界面拿它画那个绿/红段。为什么不自己拿两次视图相减：视图只在被打开时取，
+   * 中间可能隔了很多轮，相减出来的是"这段时间的总变化"，不是"上一次那一下"。
+   */
+  delta: number
+  /**
+   * 上一次评估**之前**的值（0–100；`-1` = 老数据没记过，不知道该从哪儿画）。
+   *
+   * 界面用它画"从上次评估到现在净变了多少"的那一段：这中间既有当时的增减，也有时间流逝的衰减。
+   * 只看 `delta` 的话，十小时后那条已经掉下来了、段却还绿着（用户 2026-11-23 指出的就是它）。
+   */
+  before: number
   /** 表达档位（`calm` / `faint` / `clear` / `burst`）。 */
   tier: EmotionTierId
   cause: string
@@ -56,12 +70,20 @@ export interface SensitivityView {
   /** 对象前缀（"对TA" / "对自己" / 空串）。 */
   targetLabel: string
   /**
-   * 0–1 的饱和水平（界面画成条，不显示数字）。
+   * 0–1 的饱和水平（界面画成条，也写出百分比）。
    *
    * 与强度不同，它不是"现在有多重"，而是"这一处有多容易被点着"：
    * 工作台上它是一条独立的、退得更慢的痕迹。
    */
   level: number
+  /** 最后一次磨它的原因（空串=老状态没记过，或那一笔没有原因）。 */
+  cause: string
+  /** 最后一次磨它的增量：正=那条情绪被顶上来（▲），负=被削下去（▼）。 */
+  delta: number
+  /** 被这一笔磨之前的水平（画"这次涨了多少"的那一小截用）。 */
+  levelBefore: number
+  /** 最后一次被磨的时刻。 */
+  at: string
 }
 
 /** 工作台看到的整份状态。 */
@@ -145,6 +167,11 @@ export function compositeOf(
 export function viewOf(state: EmotionState): EmotionView {
   const live = reconcile(state.charges, new Set(state.lastTouched))
   const seen = new Set(live.map((charge) => charge.kind))
+  const lastOf = (kind: EmotionKind, target: EmotionTarget): { delta: number; before: number } => {
+    const entry = state.lastDeltas?.find((item) => item.kind === kind && item.target === target)
+    // `null` = 老数据没记过起点：交给界面一个不可能的哨兵值，界面据此不画段。
+    return { delta: entry?.delta ?? 0, before: entry?.before ?? -1 }
+  }
   const charges: EmotionChargeView[] = live.map((charge) => ({
     kind: charge.kind,
     label: EMOTION_LABELS[charge.kind],
@@ -154,20 +181,28 @@ export function viewOf(state: EmotionState): EmotionView {
     tier: tierOf(charge.intensity),
     cause: charge.cause,
     since: charge.since,
+    delta: lastOf(charge.kind, charge.target).delta,
+    before: lastOf(charge.kind, charge.target).before,
   }))
   // 没出现过的种类补在后面（顺序用 `EMOTION_KINDS` 的固定顺序，结果稳定可预期）。
   // 补的都是 `world`（对事）：给它一个"对TA"的壳会让人以为它真的对你有什么情绪。
+  //
+  // ⚠️ 例外：**上一轮刚掉到 0 的那条**要保留它原来的对象与减量 —— 那正是"减了多少"最该被看到的时候。
+  // 用 `world` 补上去，箭头会指着一个从没存在过的"对事愤怒"。
   for (const kind of EMOTION_KINDS) {
     if (seen.has(kind)) continue
+    const went = state.lastDeltas?.find((entry) => entry.kind === kind)
     charges.push({
       kind,
       label: EMOTION_LABELS[kind],
-      target: 'world',
-      targetLabel: EMOTION_TARGET_LABELS.world,
+      target: went?.target ?? 'world',
+      targetLabel: EMOTION_TARGET_LABELS[went?.target ?? 'world'],
       intensity: 0,
       tier: 'calm',
       cause: '',
       since: '',
+      delta: went?.delta ?? 0,
+      before: went?.before ?? -1,
     })
   }
   // 有值的在前、没值的在后（`sort` 是稳定的，所以 0 值之间保持 `EMOTION_KINDS` 的顺序）。
@@ -181,6 +216,10 @@ export function viewOf(state: EmotionState): EmotionView {
       target: entry.target,
       targetLabel: EMOTION_TARGET_LABELS[entry.target],
       level: entry.level,
+      cause: entry.lastCause ?? '',
+      delta: entry.lastDelta ?? 0,
+      levelBefore: entry.lastLevelBefore ?? 0,
+      at: entry.lastAt ?? '',
     }))
   return {
     charges,

@@ -20,7 +20,7 @@ import type { Translate } from './PersonaIssues.js'
 import { headingWithHint, panel, panelTitle } from './styles.js'
 
 /** 两张卡片共用的属性：字典、控制器与当前快照。 */
-interface CardProps {
+export interface CardProps {
   t: Translate
   controller: PersonaWorkbenchController
   state: PersonaWorkbenchState
@@ -35,7 +35,7 @@ interface CardProps {
  * @param props - 字典、控制器与当前快照。
  * @returns 保存按钮。
  */
-function CardSaveButton({ t, controller, state }: CardProps) {
+export function CardSaveButton({ t, controller, state }: CardProps) {
   const busy = state.saving
   return (
     <Button

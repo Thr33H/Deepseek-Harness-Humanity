@@ -7,6 +7,7 @@
  * @module deepseek-harness-humanity/client/persona-controller
  */
 import { describeError } from '../host/log.js'
+import type { CharacterAxisKey } from '../host/persona/constants.js'
 import { effectivePersona, normalizePersona } from '../host/persona/normalize.js'
 import { validatePersona } from '../host/persona/validate.js'
 import type { PersonaDocument, PersonaIssue } from '../host/persona/types.js'
@@ -21,6 +22,7 @@ import {
   removeItem,
   renameItem,
   sealPersona,
+  setCharacterReason,
   setIdentityKey,
   setIdentityValue,
   setSectionText,
@@ -192,6 +194,9 @@ export class PersonaWorkbenchController extends PersonaStateBase {
   addIdentityField(): void { this.edit(addIdentityField) }
   removeIdentityField(index: number): void { this.edit((draft) => removeIdentityField(draft, index)) }
   setSectionText(title: string, text: string): void { this.edit((draft) => setSectionText(draft, title, text)) }
+  setCharacterReason(key: CharacterAxisKey, value: string): void {
+    this.edit((draft) => setCharacterReason(draft, key, value))
+  }
 
   // ⚠️ 0.1.14：`setUserDefined` / `addUserDefined` / `removeUserDefined` 三个入口随「用户定义」区块
   // 一起下线（用户："用户自定义可以删了，它跟添加小节重复了"）。数据仍在文档里，只是不再可编辑。

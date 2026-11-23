@@ -25,7 +25,6 @@ import SettingsFile from '@deepseek-ai/dsh-settings-file'
 import * as Humanity from '../lib/index.js'
 import { PERSONA_NAMESPACE } from '../lib/persona/section.js'
 import { SETTINGS_NAMESPACE } from '../lib/settings.js'
-import { MEMORY_NAMESPACE } from '../lib/memory/section.js'
 import { EXPECTED_DEFAULTS } from './helpers/expected-defaults.mjs'
 
 // 默认值快照的说明与出处见 helpers/expected-defaults.mjs（与 host-config.test.mjs 共用一份）。
@@ -206,17 +205,17 @@ test('组合配置作为 base 层：用户只覆盖自己写过的字段', async
   const { ctx, dispose } = await boot(Humanity.Config({ enabled: true }))
   try {
     const settings = ctx.get('settings')
-    await settings.update(SETTINGS_NAMESPACE, { modules: { memory: { mode: 'manual' } } })
+    await settings.update(SETTINGS_NAMESPACE, { modules: { memory: { maxInject: 1 } } })
 
     const descriptor = descriptorOf(ctx)
-    assert.equal(descriptor.value.modules.memory.mode, 'manual')
+    assert.equal(descriptor.value.modules.memory.maxInject, 1)
     // 没被用户写过的字段仍然继承默认值 —— 这是"升级零迁移"的关键：老配置不需要补齐新字段。
     assert.equal(descriptor.value.modules.persona.enabled, true)
-    assert.deepEqual(descriptor.user, { modules: { memory: { mode: 'manual' } } })
+    assert.deepEqual(descriptor.user, { modules: { memory: { maxInject: 1 } } })
 
     // 写入必须穿过真实的文件提供方落到磁盘，而不只是改了内存。
     const document = await readFile(path.join(ctx.get('settings').documentPath), 'utf8')
-    assert.match(document, /manual/)
+    assert.match(document, /maxInject/)
   } finally {
     await dispose()
   }
@@ -344,19 +343,5 @@ test('DSH 0.1.7 的 settings（没有 installSection）⇒ 降级不抛，DSH �
     assert.notEqual(ctx.get('settings'), undefined)
   } finally {
     await ctx.fiber.dispose()
-  }
-})
-
-test('配置变更后策略视图自动重投影：切模式不必等命令消费或手动重载（round 48c 视频取证）', async () => {
-  const { ctx, dispose } = await boot(Humanity.Config({}))
-  try {
-    const settings = ctx.get('settings')
-    const policyOf = () => settings.get(MEMORY_NAMESPACE)?.policy
-    await waitFor(async () => policyOf()?.mode === 'balanced', '记忆命名空间首次投影')
-
-    await settings.update(SETTINGS_NAMESPACE, { modules: { memory: { mode: 'manual' } } })
-    await waitFor(async () => policyOf()?.mode === 'manual', '配置变更后策略视图自动重投影')
-  } finally {
-    await dispose()
   }
 })

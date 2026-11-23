@@ -12,10 +12,21 @@
  * 宿主校验还会独立拦一次（见 `validate-mutable.ts` 的 `checkLockedSections`）。
  * @module deepseek-harness-humanity/client/persona-edits
  */
-import { isLockedSectionTitle } from '../host/persona/constants.js'
+import { isLockedSectionTitle, type CharacterAxisKey } from '../host/persona/constants.js'
 import { isUntouchedIdentityCard } from '../host/persona/predicates.js'
 import type { PersonaDocument } from '../host/persona/types.js'
 import { addFormReady, canDeleteItem, parseItemId, renameIssue, type PersonaAddForm } from './persona-document.js'
+
+/**
+ * 改一根性格轴的理由（"像我这样一个人，凭什么只能到这儿"）。
+ *
+ * 范围（`min`/`max`）**没有写入入口**：它在初始化时由她推导一次就定住，
+ * 界面上只显示（用户 2026-11-20 定："不给编辑权限"）。所以这里只有理由这一格。
+ */
+export function setCharacterReason(draft: PersonaDocument, key: CharacterAxisKey, value: string): void {
+  const axis = draft.character?.axes?.find((item) => item.key === key)
+  if (axis !== undefined) axis.reason = value
+}
 
 /** 改一个底色字段的值。 */
 export function setIdentityValue(draft: PersonaDocument, index: number, value: string): void {

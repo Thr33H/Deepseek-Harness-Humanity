@@ -16,13 +16,17 @@ import {
   EMOTION_FLOOR,
   EMOTION_HALF_LIFE_MINUTES,
   EMOTION_MAX,
+  EMOTION_STING_DIRECTION,
   EMOTION_TIERS,
   ENERGY_DAWN_HOUR,
   ENERGY_DAWN_RECOVERY,
   ENERGY_DRAIN_PER_HOUR,
   ENERGY_MAX,
   ENERGY_SLEEP_HOURS,
+  HABITUATION_SLOPE,
+  HABITUATION_WINDOW_MINUTES,
   MAX_CHARGES,
+  NOVELTY_DELTA,
   SENSITIVITY_HALF_LIFE_MINUTES,
   SOOTHE_HALF_LIFE_FACTOR,
   SOOTHE_QUIET_MINUTES,
@@ -33,7 +37,7 @@ import {
   type EmotionTierId,
 } from './constants.js'
 import { decaySensitivity, isAversive, isSting, recordSting, sensitivityFactor } from './sensitivity.js'
-import type { EmotionCharge, EmotionState } from './types.js'
+import type { EmotionCharge, EmotionDelta, EmotionState } from './types.js'
 
 /** 一次情绪变化（由事件评估产出，或由对方在对话里直接触发）。 */
 export interface EmotionShift {
@@ -281,6 +285,23 @@ function decayRatioOf(charge: EmotionCharge, fromMs: number, minutes: number): n
 }
 
 /**
+ * 这条正面情绪是不是还在"这一段"里（{@link HABITUATION_WINDOW_MINUTES} 之内被推过）。
+ *
+ * 旧数据没有 `recentGainsAt`（空串）⇒ 当作"这一段还没开始"，第一次照常满额 ——
+ * 与没有适应机制之前一样，不会因为迁移而突然打折。
+ * @param charge - 已有情绪；`undefined` 表示这是新的一条。
+ * @param now - 本次事件的时刻（ISO 8601）。
+ * @returns 在窗口内为 `true`。
+ */
+function withinHabituationWindow(charge: EmotionCharge | undefined, now: string): boolean {
+  if (charge === undefined) return false
+  const at = Date.parse(charge.recentGainsAt)
+  const to = Date.parse(now)
+  if (!Number.isFinite(at) || !Number.isFinite(to)) return false
+  return to - at <= HABITUATION_WINDOW_MINUTES * 60_000
+}
+
+/**
  * 施加一次评估结果。**先结算再叠加**，所以"两个小时后补一次事件"和"当时就补"结果一致
  * （差在半衰期的中间段，这正是不该被忽略的部分）。
  * @param state - 当前状态（最好是已结算到 `now` 的）。
@@ -307,13 +328,20 @@ export function apply(state: EmotionState, pulse: EmotionPulse, now: string, tim
   /** 本轮**真的被改到**的 key（用来标记"当下这件事"，见 `EmotionState.lastTouched`）。 */
   const touched = new Set<string>()
   /**
+   * 本轮每一处的**净增减**（工作台画箭头用）。
+   *
+   * 记在循环里而不是拿前后状态相减：同一条情绪被削到 0 会从 `charges` 里删掉，
+   * 事后相减就只剩"前后都没有"；而且这样记下来的是**这一轮真实的增量**（含衰减之后的净效果）。
+   */
+  const deltas = new Map<string, EmotionDelta>()
+  /**
    * 本轮这些地方**被刺痛**过 → 刺激的原始大小（记账用，见 `sensitivity.ts`）。
    *
    * 为什么按 key 去重：一条脉冲 = 一次事件。评估偶尔会给同一处两条增减（"愤怒 +15、愤怒 +10"），
    * 那仍然是一件事，记两次账等于把一次伤害当成两次。取绝对值最大的那笔当刺激大小，
    * 于是结果不受 shift 的排列顺序影响（`apply` 的可复现性不靠调用方的书写顺序）。
    */
-  const stings = new Map<string, { kind: EmotionKind; target: EmotionTarget; delta: number }>()
+  const stings = new Map<string, { kind: EmotionKind; target: EmotionTarget; delta: number; cause: string }>()
 
   for (const shift of pulse.shifts) {
     const target = shift.target ?? 'world'
@@ -333,6 +361,25 @@ export function apply(state: EmotionState, pulse: EmotionPulse, now: string, tim
       && isSting(shift.kind, shift.delta)
     const delta = sting ? shift.delta * sensitivityFactor(settled.sensitivities, shift.kind, target) : shift.delta
     /**
+     * **适应**：同一段里，同一条正面情绪被推得越多，这一次的效果越小（依据见 `constants.ts`）。
+     *
+     * 只作用于**正面情绪的上升**：
+     * - 负面情绪的重复由敏感化负责（越伤越重），方向相反，不能在这里再打折；
+     * - 单次增量够大（{@link NOVELTY_DELTA}）算"新的事"，不按重复处理、并把计数重置 ——
+     *   否则一段长关系里的大事会被前面几十次寒暄拖成一两分。
+     */
+    const pleasant = EMOTION_STING_DIRECTION[shift.kind] === -1
+    /**
+     * 这一笔算不算"又一次好事"：正面情绪的**上升**，且不是回声。
+     *
+     * 回声不进适应：想起一件旧事不是"又发生了一次"（与敏感化那边同一条边界）。
+     */
+    const pleasantGain = pleasant && delta > 0 && shift.echo !== true
+    const repeat = pleasantGain
+      && shift.delta < NOVELTY_DELTA
+      && withinHabituationWindow(existing, now)
+    const habituation = repeat ? 1 / (1 + HABITUATION_SLOPE * (existing?.recentGains ?? 0)) : 1
+    /**
      * **边际递减**：强度越高，同样的好话效果越小。
      *
      * 实测抓到的：连夸三轮，信任 55→67→87→99，增量 +12 → +20 → +12。
@@ -344,16 +391,30 @@ export function apply(state: EmotionState, pulse: EmotionPulse, now: string, tim
      *
      * ⚠️ 只对**增强**打折。削弱不打折：坏消息一向是全额生效的，
      * 而且打折会让"哄回来"变得很慢 —— 那不符合"气消得快"的观察。
+     * ⚠️ 适应（{@link HABITUATION_SLOPE}）是**第二道**刹车，与这道相乘：剩余空间管"有多满"，
+     * 适应管"这是这一段里第几次"。只有第一道时，一场闲聊能把信任顶到爆档（实机现场）。
      */
-    const gain = delta > 0 ? delta * ((EMOTION_MAX - current) / EMOTION_MAX) : delta
+    const gain = delta > 0 ? delta * ((EMOTION_MAX - current) / EMOTION_MAX) * habituation : delta
     const next = current + gain
     const intensity = Math.max(0, Math.min(EMOTION_MAX, next))
+    // 增减：先记再做"归零即移除"，否则被削到消失的那条会连"掉了多少"一起消失。
+    const change = intensity - current
+    if (change !== 0) {
+      const seen = deltas.get(k)
+      deltas.set(k, {
+        kind: shift.kind,
+        target,
+        delta: (seen?.delta ?? 0) + change,
+        // 只认第一次见到的"之前"：同一条脉冲里连续两笔也还是从同一个起点算。
+        before: seen?.before ?? current,
+      })
+    }
     touched.add(k)
     // 刺痛记账：即使这一笔把情绪削到消失（"开心被浇灭"）也照样算一次伤害。
     if (sting) {
       const seen = stings.get(k)
       if (seen === undefined || Math.abs(shift.delta) > Math.abs(seen.delta)) {
-        stings.set(k, { kind: shift.kind, target, delta: shift.delta })
+        stings.set(k, { kind: shift.kind, target, delta: shift.delta, cause: shift.cause ?? '' })
       }
     }
     /**
@@ -381,6 +442,11 @@ export function apply(state: EmotionState, pulse: EmotionPulse, now: string, tim
       since: existing !== undefined && cause === existing.cause ? existing.since : now,
       // `lastAt` 每次被碰到都刷新：自调节要靠它判断"这段时间里有没有被重新戳过"。
       lastAt: now,
+      // 适应计数：只有"正面情绪的上升（不是回声）"才算一次；重复计数，大事或隔久了重新从 1 开始。
+      recentGains: pleasantGain
+        ? (repeat ? (existing?.recentGains ?? 0) + 1 : 1)
+        : (existing?.recentGains ?? 0),
+      recentGainsAt: pleasantGain ? now : (existing?.recentGainsAt ?? ''),
     })
   }
 
@@ -400,7 +466,7 @@ export function apply(state: EmotionState, pulse: EmotionPulse, now: string, tim
    */
   let sensitivities = settled.sensitivities
   for (const sting of stings.values()) {
-    sensitivities = recordSting(sensitivities, sting.kind, sting.target, sting.delta)
+    sensitivities = recordSting(sensitivities, sting.kind, sting.target, sting.delta, { cause: sting.cause, at: now })
   }
 
   return {
@@ -415,6 +481,7 @@ export function apply(state: EmotionState, pulse: EmotionPulse, now: string, tim
     lastTouched: [...touched].filter((key) =>
       kept.some((charge) => chargeKey(charge.kind, charge.target) === key),
     ),
+    lastDeltas: [...deltas.values()],
     sensitivities,
     warmth,
     warmthCause,

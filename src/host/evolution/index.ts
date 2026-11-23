@@ -19,7 +19,6 @@ import type { ClockReport } from '../clock.js'
 import type { Log } from '../log.js'
 import type { HumanityStore } from '../store-schema.js'
 import type { MemoryStore } from '../memory/store.js'
-import type { MemoryPolicy } from '../memory/types.js'
 import type { PersonaSection } from '../persona/section.js'
 import { installActivityTracker } from './activity.js'
 import { createLlmAccess } from '../llm.js'
@@ -38,7 +37,6 @@ export interface EvolutionDeps {
   store(): HumanityStore | undefined
   config(): HumanityConfig
   memoryStore(): MemoryStore | undefined
-  memoryPolicy(): MemoryPolicy | undefined
   personaSection(): PersonaSection | undefined
   /** 时间基准状态（工作台展示"现在用哪个时区、从哪来的"）。缺席时投影为空串。 */
   clock?(): ClockReport | undefined
@@ -78,7 +76,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   const sessionQuery = sessionQueryReader(ctx)
   const llm = createLlmAccess(ctx, log)
   const activity = installActivityTracker(ctx)
-  const pending = pendingFacts(readState, deps.memoryStore)
+  const pending = pendingFacts(readState)
   const moduleEnabled = (): boolean => {
     const config = deps.config()
     return internal.enabled && config.enabled && config.modules.evolution.enabled
@@ -106,7 +104,6 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       scanReady: sessionQuery() !== undefined,
       modelReady: llm.route() !== undefined,
     }),
-    memoryPendingCount: () => deps.memoryStore()?.list(undefined, 'pending').length ?? 0,
     nextRunAt: () => internal.scheduler?.nextRunAt() ?? 0,
     dailyCallCap: () => deps.config().modules.evolution.budget.dailyCallCap,
     // 「今天」按调度时区算，与运行记账共用 `dayKeyOf`（审计 E5：UTC 日期与调度日差 8 小时）。

@@ -12,7 +12,7 @@
  * 因为要验的恰恰是"真实后端在一条坏记录上的行为"。假设施会把这件事一起假掉。
  *
  * 三态 + 跨表覆盖：无坏记录 / 一条坏记录 / 多条坏记录 / 坏记录同时落在
- * `memory_entries` 与 `persona_history` 两张表。
+ * `memories` 与 `persona_history` 两张表。
  */
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, writeFile, mkdir, rm } from 'node:fs/promises'
@@ -27,50 +27,37 @@ import { createLog } from '../lib/log.js'
 import { DOMAIN_NAME } from '../lib/store-schema.js'
 import { openDomain } from '../lib/store-open.js'
 
-/** 一条**合法**的记忆记录（字段对齐 `MemoryEntrySchema`）。 */
+/** 一条**合法**的记忆记录（字段对齐 `MemoryRecordSchema`）。 */
 function goodEntry(id) {
   return {
     id,
-    scope: 'long-term',
-    content: `好记录 ${id}`,
-    tags: [],
-    importance: 2,
-    confidence: 0.8,
-    sensitive: false,
-    pinned: false,
-    origin: 'user-stated',
-    sourceSessionId: 's1',
-    sourceMessageId: '',
-    ownerId: '',
+    what: `好记录 ${id}`,
+    detail: '',
+    when: '2026-10-04T00:00:00.000Z',
+    about: 'user',
+    felt: { kind: 'trust', intensity: 40 },
+    certain: 'told',
+    strength: 0.6,
+    recalled: 0,
+    recalledAt: '',
+    cost: 0.2,
+    costWhy: '',
+    tier: 'episode',
     createdAt: '2026-10-04T00:00:00.000Z',
-    updatedAt: '2026-10-04T00:00:00.000Z',
-    lastUsedAt: '',
-    useCount: 0,
-    status: 'active',
-    archivedAt: '',
-    dedupeKey: id,
-    conflictWith: [],
-    confirmedVia: '',
-    entryVersion: 1,
+    covers: [],
+    version: 1,
   }
 }
 
-/** 一条**违反 schema** 的记忆记录（scope 枚举外、importance 非数字、日期非法）。 */
+/** 一条**违反 schema** 的记忆记录（about / certain / tier 都在枚举外、强度是字符串）。 */
 const BAD_ENTRY = {
   id: 'bad-1',
-  scope: 'not-a-valid-scope',
-  content: '坏记录',
-  tags: ['x'],
-  importance: '非常高',
-  confidence: '也许',
-  sensitive: 'no',
-  pinned: 'no',
-  origin: 'bogus-origin',
-  sourceSessionId: '',
+  what: '坏记录',
+  about: 'not-a-valid-about',
+  certain: 'bogus-certainty',
+  tier: 'not-a-tier',
+  strength: '非常牢',
   createdAt: 'not-a-date',
-  updatedAt: 'not-a-date',
-  useCount: '很多',
-  dedupeKey: 'bad-1',
 }
 
 /** 一条违反 `PersonaHistorySchema` 的历史记录。 */
@@ -121,12 +108,12 @@ async function openWithSeededRecords(seed) {
   const parsed = JSON.parse(await readFile(file, 'utf8'))
   parsed.tables = parsed.tables ?? {}
   for (const [table, records] of [
-    ['memory_entries', seed.memory ?? []],
+    ['memories', seed.memory ?? []],
     ['persona_history', seed.history ?? []],
   ]) {
     parsed.tables[table] = parsed.tables[table] ?? {}
     for (const record of records) {
-      const key = record.id ?? record.dedupeKey ?? record.at ?? `seeded-${Math.random()}`
+      const key = record.id ?? record.id ?? record.at ?? `seeded-${Math.random()}`
       parsed.tables[table][String(key)] = record
     }
   }
@@ -198,13 +185,13 @@ test('F3 ②：**一条**坏记录 ⇒ 领域照常打开、坏记录被隔离�
     const joined = stderr.join('\n')
     assert.match(joined, /\[humanity\]/, '可 grep 的前缀')
     assert.match(joined, /bad-1/, '要点名是哪一条')
-    assert.match(joined, /memory_entries/, '要说清在哪张表')
+    assert.match(joined, /memories/, '要说清在哪张表')
     assert.match(joined, /原始值/, '要带上原始值（single 布局没有介质备份，这行是唯一副本）')
     // ⚠️ 这条断言是拿真实事故换来的：第一版用 `z.union([schema, Marked.catch(…)])`，
     // `Marked` 是 `$strip` 对象会把 `raw` 剥掉，日志实际写成 `原始值=undefined` ——
     // 等于把"这一条到底存了什么"这条最重要的线索丢了。`preprocess` 版本才带得住。
     assert.doesNotMatch(joined, /原始值=undefined/, '原始值不许是 undefined（必须带上真实内容）')
-    assert.match(joined, /not-a-valid-scope/, '原始值里要能看到坏字段的真实内容')
+    assert.match(joined, /not-a-valid-about/, '原始值里要能看到坏字段的真实内容')
 
     await store.close()
   } finally {
@@ -212,9 +199,9 @@ test('F3 ②：**一条**坏记录 ⇒ 领域照常打开、坏记录被隔离�
   }
 })
 
-test('F3 ③：**多条**坏记录 + 跨表（memory_entries 与 persona_history）⇒ 逐条隔离，好记录全在', async () => {
+test('F3 ③：**多条**坏记录 + 跨表（memories 与 persona_history）⇒ 逐条隔离，好记录全在', async () => {
   const booted = await openWithSeededRecords({
-    memory: [goodEntry('ok-1'), BAD_ENTRY, { ...BAD_ENTRY, id: 'bad-2', dedupeKey: 'bad-2' }, goodEntry('ok-2')],
+    memory: [goodEntry('ok-1'), BAD_ENTRY, { ...BAD_ENTRY, id: 'bad-2', id: 'bad-2' }, goodEntry('ok-2')],
     history: [BAD_HISTORY, {
       at: '2026-10-04T00:00:00.000Z',
       source: 'user',

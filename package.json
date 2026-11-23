@@ -1,6 +1,6 @@
 {
   "name": "deepseek-harness-humanity",
-  "version": "0.1.19",
+  "version": "0.1.72",
   "description": "Humanity: a personification suite for DeepSeek Harness — persona, memory, self-evolution and dreaming behind one native Web workbench.",
   "keywords": [
     "dsh",
@@ -68,12 +68,12 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-settings": "^0.1.5-rc.2 || ^0.2.0-rc.2",
-    "@deepseek-ai/dsh-storage-domain": "^0.1.5-rc.2 || ^0.2.0-rc.2",
-    "@deepseek-ai/dsh-tools": "^0.1.5-rc.2 || ^0.2.0-rc.2",
-    "@deepseek-ai/dsh-typert-protocol": "^0.1.5-rc.2 || ^0.2.0-rc.2",
-    "@deepseek-ai/dsh-user-approval": "^0.1.5-rc.2 || ^0.2.0-rc.2",
-    "@deepseek-ai/dsh-llm": "^0.1.5-rc.2 || ^0.2.0-rc.2"
+    "@deepseek-ai/dsh-settings": "^0.1.5-rc.2 || ^0.2.0-rc.2 || ^0.2.2-rc.3",
+    "@deepseek-ai/dsh-storage-domain": "^0.1.5-rc.2 || ^0.2.0-rc.2 || ^0.2.2-rc.3",
+    "@deepseek-ai/dsh-tools": "^0.1.5-rc.2 || ^0.2.0-rc.2 || ^0.2.2-rc.3",
+    "@deepseek-ai/dsh-typert-protocol": "^0.1.5-rc.2 || ^0.2.0-rc.2 || ^0.2.2-rc.3",
+    "@deepseek-ai/dsh-user-approval": "^0.1.5-rc.2 || ^0.2.0-rc.2 || ^0.2.2-rc.3",
+    "@deepseek-ai/dsh-llm": "^0.1.5-rc.2 || ^0.2.0-rc.2 || ^0.2.2-rc.3"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {

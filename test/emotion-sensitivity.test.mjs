@@ -145,9 +145,9 @@ test('最多记六条，超了丢最浅的那条旧痕迹', () => {
     ['sadness', 'world'],
   ]
   let entries = []
-  // 刺激一次比一次重 ⇒ 先记下的那几条总是最浅的。
+  // 刺激一次比一次重（1…9 分，当量 6 ⇒ 权重 1/6…1）⇒ 先记下的那几条总是最浅的。
   keys.forEach(([kind, target], index) => {
-    entries = recordSting(entries, kind, target, 4 + index)
+    entries = recordSting(entries, kind, target, 1 + index)
   })
   assert.equal(entries.length, MAX_SENSITIVITIES)
   assert.equal(
@@ -267,7 +267,7 @@ test('工作台能看到痕迹：按深浅降序，带中文名与对象前缀',
     createInitialEmotionState(T0),
     [
       { kind: 'anger', target: 'user', delta: 30, cause: '被否定' },
-      { kind: 'sadness', target: 'self', delta: 10, cause: '又搞砸了' },
+      { kind: 'sadness', target: 'self', delta: 3, cause: '又搞砸了' },
     ],
     T0,
   )
@@ -326,4 +326,49 @@ test('同样一句话：没被磨过时什么都不说，被磨过之后才够�
   assert.equal(worn.tier, 'faint', '同样 22 分，这次到 30.8')
   assert.match(worn.text, /恼怒/, '注入里给的是"恼怒"这一档的词')
   assert.match(worn.text, /不说出来/, '低档位照旧不许说破')
+})
+
+test('磨痕：记下最后一次的原因、增量与时刻（用户 2026-11-22 要"能看出为什么敏感"）', async () => {
+  const { recordSting } = await import('../lib/emotion/sensitivity.js')
+  const first = recordSting([], 'anger', 'user', 4, { cause: '被命令', at: '2026-11-22T12:43:00.000Z' })
+  assert.equal(first[0].lastCause, '被命令')
+  assert.equal(first[0].lastDelta, 4)
+  assert.equal(first[0].lastAt, '2026-11-22T12:43:00.000Z')
+
+  // 第二次覆盖成最近一次（只留最近，不做历史）。
+  const second = recordSting(first, 'anger', 'user', 7, { cause: '被否定', at: '2026-11-22T12:45:00.000Z' })
+  assert.equal(second[0].lastCause, '被否定')
+  assert.equal(second[0].lastDelta, 7)
+  assert.equal(second[0].lastAt, '2026-11-22T12:45:00.000Z')
+
+  // 没给原因时保留旧的（不能把已有的说明擦成空）。
+  const third = recordSting(second, 'anger', 'user', 3, { at: '2026-11-22T12:50:00.000Z' })
+  assert.equal(third[0].lastCause, '被否定')
+  assert.equal(third[0].lastDelta, 3)
+})
+
+test('磨痕：视图把原因/增量/时刻带给界面', async () => {
+  const { createInitialEmotionState } = await import('../lib/emotion/model.js')
+  const { apply: applyPulse } = await import('../lib/emotion/state.js')
+  const { viewOf } = await import('../lib/emotion/view.js')
+  const raised = applyPulse(createInitialEmotionState(T0), { shifts: [{ kind: 'anger', delta: 8, cause: '被命令' }] }, T0)
+  const row = viewOf(raised).sensitivities.find((entry) => entry.kind === 'anger')
+  assert.equal(row.cause, '被命令')
+  assert.equal(Math.round(row.delta), 8)
+  assert.equal(row.at, T0)
+})
+
+test('存储契约：增减与磨痕出处不能被 schema 静默剥掉', async () => {
+  // 2026-11-22 真机：状态里明明记了增减，投影出来全是 0 —— 因为 `lastDeltas` 没写进 zod schema，
+  // `z.object` 解析时把它连同磨痕的 lastCause/lastDelta/lastAt 一起剥掉了。
+  const { EmotionStateSchema } = await import('../lib/emotion/model.js')
+  const parsed = EmotionStateSchema.parse({
+    sensitivities: [{ kind: 'anger', target: 'user', level: 0.5, lastCause: '被命令', lastDelta: 6, lastAt: T0 }],
+    lastDeltas: [{ kind: 'joy', target: 'user', delta: 5 }],
+  })
+  assert.equal(parsed.lastDeltas.length, 1)
+  assert.equal(parsed.lastDeltas[0].delta, 5)
+  assert.equal(parsed.sensitivities[0].lastCause, '被命令')
+  assert.equal(parsed.sensitivities[0].lastDelta, 6)
+  assert.equal(parsed.sensitivities[0].lastAt, T0)
 })

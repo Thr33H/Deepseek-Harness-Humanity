@@ -106,3 +106,39 @@ export function opposesByNegation(left: string, right: string): boolean {
 export function neutralizePromptVars(value: string): string {
   return value.replace(/\{(?=\{)/g, '{ ')
 }
+
+/**
+ * 汉字二元组集合（英文/数字按整词收）。
+ *
+ * 为什么是二元组：中文没有空格，切词要词典或模型；二元组不需要任何依赖，
+ * 而它在这个用途上（判断两句话像不像）已经够用 —— 我们在比"同一件事的两种说法"，
+ * 不是在做语义检索。
+ * @param text - 原始文本。
+ * @returns 记号集合。
+ */
+function bigramsOf(text: string): Set<string> {
+  const tokens = new Set<string>()
+  const cleaned = text.toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '')
+  for (const word of text.toLowerCase().match(/[a-z0-9]{2,}/g) ?? []) tokens.add(word)
+  for (let index = 0; index + 1 < cleaned.length; index += 1) tokens.add(cleaned.slice(index, index + 2))
+  return tokens
+}
+
+/**
+ * 两段文本的 Dice 相似度（0–1）。
+ *
+ * 用 Dice 而不是 Jaccard：短文本上它更宽容一点，而我们要比的是"同一件事的两种说法"
+ * （长度接近、共同记号多），Dice 的读数更直观。
+ * @param left - 文本 A。
+ * @param right - 文本 B。
+ * @returns 相似度；任一侧没有记号时返回 0（空文本不该与任何东西"像"）。
+ */
+export function similarity(left: string, right: string): number {
+  const a = bigramsOf(left)
+  const b = bigramsOf(right)
+  const total = a.size + b.size
+  if (total === 0) return 0
+  let shared = 0
+  for (const token of a) if (b.has(token)) shared += 1
+  return (2 * shared) / total
+}

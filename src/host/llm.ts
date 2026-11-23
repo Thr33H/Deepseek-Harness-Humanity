@@ -48,6 +48,20 @@ export interface TokenUsageLike {
 export interface LlmLike {
   stream(options: unknown): AsyncIterable<StreamChunkLike>
   listProviders(): Array<{ id: string; name?: string }>
+  /**
+   * 查一个具体模型的元信息（官方 API：`resolveModelInfo(provider, model)`）。
+   *
+   * 可选：旧宿主没有它时，后台调用就不指定思考档，行为与以前相同。
+   * ⚠️ 名字是 `resolveModelInfo` 而**不是** `resolveModel`：后者是适配器那一层的口，
+   * 服务这一层没有（2026-11-22 真机：照文档写成 `resolveModel`，`typeof` 是 undefined，
+   * 于是"取最低档"静默失效，归拢继续被思考吃掉全部输出额度）。
+   */
+  resolveModelInfo?(provider: string, model: string, signal?: AbortSignal): Promise<ModelReasoningLike>
+}
+
+/** `resolveModel` 返回里我们用到的那一小块：可用思考档（由低到高）。 */
+export interface ModelReasoningLike {
+  reasoning?: { efforts?: ReadonlyArray<{ id?: string }> }
 }
 
 /** `ctx.agentDefaultModel` 的窄面。 */
@@ -142,6 +156,39 @@ async function collectStream(stream: AsyncIterable<StreamChunkLike>): Promise<St
 }
 
 /**
+ * 后台调用该用哪一档思考：**能用多低就用多低**。
+ *
+ * ### 为什么必须显式给
+ *
+ * 2026-11-22 真机：归拢一次都没成，日志里是 `finish: max-tokens, outTok: 2000, 正文 0 字` ——
+ * 请求没写思考档，适配器就按模型默认值 `high` 补齐，模型的思考过程把输出预算全吃光，
+ * 正文一个字都没轮到。这不是"模型偶尔抽风"，而是**每一次都会这样**，而且从外面看只是
+ * "什么都没发生"（失败被设计成安静的）。
+ *
+ * ### 为什么取最低档
+ *
+ * 后台这些活都是**提取/分类**：抽一段对话里值得记的事、给一句话打分、把几条同类事合成一句。
+ * 深度思考在这类任务上换不来更好的结果，却会花掉用户的钱、拖慢后台。
+ * 按官方目录的约定，`efforts` 是从低到高排的，取第一个。
+ *
+ * 查不到（旧宿主没有 `resolveModelInfo`、或这个模型不报档位）就**不指定**，与以前的行为一致；
+ * 绝不自己编一个档位名塞进去 —— 不支持的档位会被拒，那等于把后台调用整个打死。
+ * @param llm - `ctx.llm` 窄面。
+ * @param route - 本次调用的 provider + model。
+ * @returns 最低档的 id；查不到时 `undefined`。
+ */
+export async function lowestEffortOf(llm: LlmLike, route: ModelRoute): Promise<string | undefined> {
+  if (typeof llm.resolveModelInfo !== 'function') return undefined
+  try {
+    const info = await llm.resolveModelInfo(route.provider, route.model)
+    const first = info?.reasoning?.efforts?.[0]?.id
+    return typeof first === 'string' && first !== '' ? first : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * 造后台模型调用入口。
  * @param ctx - 插件上下文。
  * @param log - 日志门面（只用于可选包载入失败的一次性告警）。
@@ -153,6 +200,8 @@ export function createLlmAccess(ctx: Context, log: Log): LlmAccess {
     modulePromise ??= loadOptional<LlmModuleLike>('@deepseek-ai/dsh-llm', log)
     return modulePromise
   }
+  /** 档位查询结果（按 provider/model 缓存：它不随对话变，没必要每次调用都问一遍）。 */
+  const effortCache = new Map<string, string | undefined>()
 
   return {
     route: () => resolveRoute(ctx),
@@ -168,10 +217,18 @@ export function createLlmAccess(ctx: Context, log: Log): LlmAccess {
       // 墙钟上限 + 外部取消合成一个信号（两者都是标准 API，三平台可用，G-006）。
       const deadline = AbortSignal.timeout(input.timeoutMs)
       const signal = input.signal === undefined ? deadline : AbortSignal.any([input.signal, deadline])
+      const key = `${input.route.provider}/${input.route.model}`
+      let effort = effortCache.get(key)
+      if (!effortCache.has(key)) {
+        effort = await lowestEffortOf(llm, input.route)
+        effortCache.set(key, effort)
+      }
       return collectStream(
         llm.stream({
           provider: input.route.provider,
           model: input.route.model,
+          // 只在该模型真的报了档位时才传（见 `lowestEffortOf`）。
+          ...(effort === undefined ? {} : { reasoningEffort: effort }),
           messages,
           system: input.system,
           maxTokens: input.maxTokens,

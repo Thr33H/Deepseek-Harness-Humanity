@@ -348,7 +348,7 @@ test('总览四项：接上投影后显示真实策略 / 最近活动 / 预算�
   client.apply(ctx)
   const translate = translator(localeNamespaces)
 
-  const memory = fakeSnapshotController({ status: 'ready', policy: { mode: 'balanced' } })
+  const memory = fakeSnapshotController({ status: 'ready', doc: { entries: [], stats: { total: 9 }, projectedAt: '', storeReady: true } })
   const evolution = fakeSnapshotController({
     status: 'ready',
     config: { schedule: { mode: 'idle' } },
@@ -361,7 +361,7 @@ test('总览四项：接上投影后显示真实策略 / 最近活动 / 预算�
   })
   const markup = render(nodeRequire('react').createElement(client.OverviewPanel, { t: translate, memory, evolution }))
 
-  assert.match(markup, /记忆 平衡（默认） · 自进化 空闲自动/, '策略摘要读生效配置')
+  assert.match(markup, /记忆 共 9 条 · 自进化 空闲自动/, '策略摘要读记忆条数与调度方式')
   assert.match(markup, /09-26 02:54 · 失败/, '最近活动取时间线里最后一条（不是第一条）')
   assert.match(markup, /今日 5 \/ 20 次调用/, '预算读宿主账本')
   assert.ok(!markup.includes('暂时读不到'), '有数据时不该再说读不到')
@@ -1365,3 +1365,316 @@ test('情绪页：旧宿主投影里没有这个字段时，照常渲染并明�
   assert.match(markup, /还没有哪一处被反复磨到/)
 })
 
+/* ---------------------------------------------------------------------------
+ * 记忆页：删得掉
+ *
+ * 遗忘不等于删除（淡掉的记录还在），所以"删"这件事只能由用户在门口明确要求。
+ * 这里钉两件事：① 每条都有入口，秘密那条同时还有"我要看"；
+ * ② 点"删掉"之后**只写命令**，真正动手的是宿主（客户端没有删除权）。
+ * ------------------------------------------------------------------------- */
+
+/** 装一份记忆文档进控制器，渲染记忆页；同时记下所有写回，供"只写命令"的断言使用。 */
+async function renderMemoryPage(value) {
+  const client = (await loadBundle()).factory(createPlatformRequire())
+  const { ctx, localeNamespaces } = createFakeContext()
+  client.apply(ctx)
+  const controller = new client.MemoryWorkbenchController()
+  const written = []
+  controller.attach({
+    describe: async () => ({
+      ok: true,
+      value: { writable: true, namespaces: [{ ns: 'humanity-memory', value, revision: 1 }] },
+    }),
+    replace: async (ns, section, revision) => {
+      written.push({ ns, section, revision })
+      return { ok: true, value: { revision: 2 } }
+    },
+  })
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (controller.getSnapshot().status === 'ready') break
+    await settle()
+  }
+  assert.equal(controller.getSnapshot().status, 'ready', '记忆页没在预期时间内读到文档')
+  return {
+    markup: render(nodeRequire('react').createElement(client.MemoryPage, { t: translator(localeNamespaces), controller })),
+    controller,
+    written,
+  }
+}
+
+/** 两条记忆：一条普通的、一条秘密（代价高于门槛）。 */
+function memoryDocumentWith(entries) {
+  return {
+    entries,
+    stats: { total: entries.length, episode: entries.length, period: 0, chapter: 0, recalled: 0 },
+    projectedAt: '2026-11-22T00:00:00.000Z',
+    storeReady: true,
+    request: { op: '', id: '' },
+    notice: '',
+  }
+}
+
+test('记忆页：每条都带「删掉」，秘密那条同时带「我要看」', async () => {
+  const { markup } = await renderMemoryPage(
+    memoryDocumentWith([
+      {
+        id: 'a',
+        what: '一件普通的事',
+        when: '2026-11-21T00:00:00.000Z',
+        about: 'user',
+        certain: 'told',
+        feltKind: '',
+        feltIntensity: 0,
+        strength: 0.6,
+        recalled: 1,
+        cost: 0.1,
+        costWhy: '',
+        tier: 'episode',
+        createdAt: '2026-11-21T00:00:00.000Z',
+      },
+      {
+        id: 'b',
+        what: '不想说的事',
+        when: '2026-11-21T00:00:00.000Z',
+        about: 'self',
+        certain: 'witnessed',
+        feltKind: 'fear',
+        feltIntensity: 45,
+        strength: 0.5,
+        recalled: 0,
+        cost: 0.9,
+        costWhy: '',
+        tier: 'episode',
+        createdAt: '2026-11-21T00:00:00.000Z',
+      },
+    ]),
+  )
+  assert.equal((markup.match(/删掉/g) ?? []).length >= 2, true, '两条各有一个删除入口')
+  assert.match(markup, /我要看/, '秘密那条还有解锁入口')
+})
+
+test('记忆页：点「删掉」只写命令，不在这里动手（执行权在宿主）', async () => {
+  const { controller, written } = await renderMemoryPage(
+    memoryDocumentWith([
+      {
+        id: 'a',
+        what: '一件普通的事',
+        when: '2026-11-21T00:00:00.000Z',
+        about: 'user',
+        certain: 'told',
+        feltKind: '',
+        feltIntensity: 0,
+        strength: 0.6,
+        recalled: 0,
+        cost: 0.1,
+        costWhy: '',
+        tier: 'episode',
+        createdAt: '2026-11-21T00:00:00.000Z',
+      },
+    ]),
+  )
+
+  assert.equal(await controller.remove('a'), true)
+  assert.equal(written.length, 1, '只写一次')
+  assert.equal(written[0].ns, 'humanity-memory')
+  assert.deepEqual(written[0].section.request, { op: 'delete', id: 'a' })
+  assert.equal(controller.getSnapshot().doc.entries.length, 1, '命令送出去了，界面上的条目还在（等宿主真删完再重读）')
+})
+
+test('记忆页：显示「上一次她想起的」，秘密那条只说不想说', async () => {
+  const document = memoryDocumentWith([
+    {
+      id: 'a',
+      what: '一件普通的事',
+      when: '2026-11-21T00:00:00.000Z',
+      about: 'user',
+      certain: 'told',
+      feltKind: '',
+      feltIntensity: 0,
+      strength: 0.6,
+      recalled: 1,
+      cost: 0.1,
+      costWhy: '',
+      tier: 'episode',
+      covers: 0,
+      createdAt: '2026-11-21T00:00:00.000Z',
+    },
+  ])
+  document.lastRecall = {
+    at: '2026-11-22T04:00:00.000Z',
+    cue: '你还记得那天吗',
+    items: [
+      { what: '一件普通的事', match: 'high', withheld: false },
+      { what: '', match: 'mid', withheld: true },
+    ],
+  }
+
+  const { markup } = await renderMemoryPage(document)
+  assert.match(markup, /上一次她想起的/)
+  assert.match(markup, /你还记得那天吗/)
+  assert.match(markup, /很相关/)
+  assert.match(markup, /（有一条她不想说）/)
+  assert.equal(markup.includes('那件我一直没说的事'), false, '秘密的正文不许从这块窗里出去')
+})
+
+test('记忆页：每条显示「当时的感受」，用人话而不是种类代码', async () => {
+  const { markup } = await renderMemoryPage(
+    memoryDocumentWith([
+      {
+        id: 'a',
+        what: '那件事',
+        when: '2026-11-21T00:00:00.000Z',
+        about: 'self',
+        certain: 'witnessed',
+        feltKind: 'fear',
+        feltLabel: '害怕',
+        feltIntensity: 45,
+        strength: 0.7,
+        recalled: 0,
+        cost: 0.1,
+        costWhy: '',
+        tier: 'episode',
+        covers: 0,
+        createdAt: '2026-11-21T00:00:00.000Z',
+      },
+    ]),
+  )
+  assert.match(markup, /当时：害怕/)
+  assert.equal(markup.includes('fear'), false, '种类代码不该出现在界面上')
+})
+
+
+test('记忆页：休眠时说"人格未封存"，不说"还没有记下什么"', async () => {
+  const document = memoryDocumentWith([])
+  document.dormant = true
+  const { markup } = await renderMemoryPage(document)
+  assert.match(markup, /人格未封存/)
+  assert.equal(markup.includes('还没有记下什么'), false, '休眠不是"没记"，是"还没开始"')
+})
+
+test('情绪页：比上次多/少的箭头（绿上红下）与磨痕的出处', async () => {
+  const markup = await renderEmotionPage({
+    charges: [
+      {
+        kind: 'joy',
+        label: '喜悦',
+        target: 'user',
+        targetLabel: '对TA',
+        intensity: 22,
+        tier: 'calm',
+        cause: '正合我意',
+        since: '2026-11-22T12:43:00.000Z',
+        delta: 6,
+        before: 16,
+      },
+      {
+        kind: 'sadness',
+        label: '悲伤',
+        target: 'self',
+        targetLabel: '对自己',
+        intensity: 12,
+        tier: 'calm',
+        cause: '没做到',
+        since: '2026-11-22T12:43:00.000Z',
+        delta: -3,
+        before: 15,
+      },
+      {
+        // 时间流逝导致的下降：上一次评估时是 22，现在只剩 4 —— 段要红、要覆盖 4%→22%。
+        kind: 'trust',
+        label: '信任',
+        target: 'user',
+        targetLabel: '对TA',
+        intensity: 4,
+        tier: 'calm',
+        cause: ' decays ',
+        since: '2026-11-22T12:00:00.000Z',
+        delta: 4,
+        before: 22,
+      },
+    ],
+    sensitivities: [
+      {
+        kind: 'anger',
+        label: '愤怒',
+        target: 'user',
+        targetLabel: '对TA',
+        level: 0.45,
+        cause: '被命令',
+        delta: 8,
+        at: '2026-11-22T12:40:00.000Z',
+      },
+    ],
+    warmth: 40,
+    warmthCause: '',
+    compositeLabel: '',
+    compositeParts: [],
+    perceived: '',
+    perceivedAt: '',
+    energy: 70,
+    energyLevel: 'fresh',
+    settledAt: '2026-11-22T12:43:00.000Z',
+    updatedAt: '2026-11-22T12:43:00.000Z',
+    notice: '',
+  })
+
+  // 箭头取消，改成轨道上的红绿段（用户 2026-11-22 定的语义）。
+  assert.equal(markup.includes('▲'), false, '不再画箭头')
+  assert.equal(markup.includes('▼'), false)
+  // 喜悦 22、上次评估前是 16 ⇒ 段从 16% 到 22%；悲伤 12、上次评估前是 15 ⇒ 段从 12% 到 15%。
+  assert.match(markup, /left:16%/)
+  assert.match(markup, /left:12%/)
+  // 信任：上次评估前是 22，现在只剩 4（时间流逝）⇒ 段从 4% 画到 22%，而且必须是红色。
+  assert.match(markup, /left:4%/)
+  assert.match(markup, /#3fb950|rgb\(63, ?185, ?80\)/i, '增长用绿')
+  assert.match(markup, /#f85149|rgb\(248, ?81, ?73\)/i, '削减/衰减用红')
+  // 磨痕也要说清"为什么敏感"。
+  assert.match(markup, /被命令/)
+  assert.match(markup, /45%/)
+})
+
+test('记忆命令：版本号撞车时自己重读再写，不把整页打成"读不到"', async () => {
+  // 2026-11-23 真机：用户点"我要看"时页面里的版本号已经旧了（对话在中间更新过投影），
+  // 宿主拒绝写入，整页变成「修订号对不上」。命令是"此刻的意图"，应该重读再试，而不是让用户重开。
+  const client = await loadBundle().then((descriptor) => descriptor.factory(createPlatformRequire()))
+  const namespace = 'humanity-memory'
+  let revision = 1
+  let document = {
+    entries: [],
+    stats: { total: 0, episode: 0, period: 0, chapter: 0, recalled: 0 },
+    projectedAt: '',
+    storeReady: true,
+    dormant: false,
+    request: { op: '', id: '' },
+    notice: '',
+    lastRecall: { at: '', cue: '', items: [] },
+  }
+  let race = true
+  const channel = {
+    async describe() {
+      return { ok: true, value: { writable: true, namespaces: [{ ns: namespace, value: document, revision }] } }
+    },
+    async replace(ns, section, expected) {
+      // 模拟"点下去的同一刻，对话又更新了一次投影"。
+      if (race) {
+        race = false
+        revision += 1
+      }
+      if (expected !== revision) {
+        return { ok: false, error: { message: `humanity-memory 的修订号对不上（读到 ${expected}，当前 ${revision}），请重读后再写` } }
+      }
+      document = section
+      revision += 1
+      return { ok: true, value: { ns, value: document, revision } }
+    },
+  }
+
+  const controller = new client.MemoryWorkbenchController()
+  controller.attach(channel)
+  await settle()
+
+  const ok = await controller.reveal('mem-1')
+  assert.equal(ok, true, '撞一次版本号之后要能自己写进去')
+  assert.notEqual(controller.getSnapshot().status, 'failed', '一次点击不该把整页打成失败')
+  assert.deepEqual(document.request, { op: 'reveal', id: 'mem-1' })
+})

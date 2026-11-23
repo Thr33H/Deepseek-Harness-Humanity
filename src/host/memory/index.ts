@@ -1,82 +1,102 @@
 /**
- * 记忆模块的**唯一入口**。
+ * 记忆模块的**唯一入口**：把数据层、写入、检索、注入、工具接在一起。
  *
- * 宿主 `index.ts` 只调 `installMemory(...)` 一行；记忆内部的接线（存储 CRUD、
- * 自动写入管线、待确认、系统提示词引导、Agent 工具、日后的检索/注入/衰减/工作台）
- * 全在这里，加子件时也只改这一个文件 —— 与人格模块同一条约定。
+ * 宿主 `index.ts` 只调 `installMemory(...)` 一行；记忆内部的接线全在这里。
  *
- * **存储是怎么接进来的**：`memory_entries` 表由 `src/host/store.ts` 的
- * `ctx.inject(['storageDomain'], …)` 在打开 humanity 领域时一并声明（一个领域一个打开者）。
+ * ### 存储是怎么接进来的
+ *
+ * `memories` 表由 `src/host/store.ts` 在打开 humanity 领域时一并声明（一个领域一个打开者）。
  * 记忆模块**不再自己 inject 一次 `storageDomain`**：同一领域打开两次只会互相抢生命周期。
  * 这里只从宿主拿"已打开的存储句柄"，句柄没来之前就是降级态（返回 `undefined`，不抛）。
  *
- * 已完成：M3 步骤 1 数据模型 · 步骤 2 存储 CRUD · 步骤 3 自动写入管线 + 待确认数据层 ·
- * 步骤 4 本地检索 · 步骤 5 自动注入 · 步骤 6 `humanity_recall` · 步骤 7 衰减归档 ·
- * 步骤 8 工作台**数据层**（设置命名空间 `humanity-memory` + 命令槽）。
- * 尚未接入（步骤 8 剩余 + 9）：工作台界面组件、高级开关进配置 schema。
+ * ### 三处消费者，一个入口
+ *
+ * - **系统提示词**只放不变的那几句（`MEMORY_GUIDANCE`）；
+ * - **每轮变的那几条**在 `agent/pre-step` 里追加到消息末尾（不碰前缀缓存）；
+ * - **工具**（记住 / 回想）兜底：模型可以主动查，查不到就是没有。
  * @module humanity/memory
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { defineTool as defineToolType } from '@deepseek-ai/dsh-tools'
 
-import type { MemoryAdvancedConfig, MemoryMode } from '../config.js'
-import type { CompatState } from '../preset-compat.js'
 import type { Log } from '../log.js'
+import { createLlmAccess, type LlmAccess } from '../llm.js'
+import { loadOptional } from '../optional.js'
 import type { HumanityStore } from '../store.js'
-import { canRemember, isDegenerateAdvanced, overridesOf, resolveMemoryPolicy } from './policy.js'
 import { installMemoryInjection } from './inject.js'
 import { installMemorySection } from './section.js'
-import type { SearchMood } from './search.js'
 import { createMemoryStore, type MemoryStore } from './store.js'
-import { installMemoryTools } from './tools.js'
-import type { MemoryAffect, MemoryEntry, MemoryPolicy } from './types.js'
+import { defineMemoryTools } from './tools.js'
+import { MEMORY_GUIDANCE } from './render.js'
+import type { MemoryCharacter, MemoryFeeling, MemoryMood, MemoryRecord } from './types.js'
+
+export { MEMORY_GUIDANCE }
+export { MEMORY_RECALL_TOOL, MEMORY_REMEMBER_TOOL } from './constants.js'
 
 /** 宿主交给记忆模块的外部事实（依赖由宿主注入，记忆内部不去猜）。 */
 export interface MemoryDeps {
-  /** 当前生效的预设模式；真源在宿主设置（`modules.memory.mode`）。 */
-  mode(): MemoryMode
-  /** 高级开关（`modules.memory.advanced`）；`customized` 为假时策略完全跟随模式。 */
-  advanced?(): MemoryAdvancedConfig
-  /** preset 兼容性探测状态（工作台据此提示极简模式不注入）。 */
-  compat?(): CompatState
   /** 已就绪的套件存储句柄；未就绪时返回 `undefined`。 */
   store(): HumanityStore | undefined
+  /** 记忆总开关（配置现读）。 */
+  enabled(): boolean
+  /** 每轮最多带几条（配置现读；0 = 只靠工具）。 */
+  maxInject(): number
   /**
-   * 写下这一刻的情绪指纹（宿主从情绪模块现读；缺席时记忆照常写，只是不带温度）。
+   * 写下这一刻她的情绪指纹（宿主从情绪模块现读；缺席时记忆照常写，只是不带温度）。
    *
    * 记忆不该因为情绪模块没接上就写不进去 —— 这条线是**可选增益**，不是前置条件。
    */
-  affect?(): MemoryAffect | undefined
-  /** 这一轮想起了哪几条（宿主转给情绪模块做回声；失败了也只影响心情）。 */
-  onRecalled?(entries: readonly MemoryEntry[]): void
+  feeling?(): MemoryFeeling | undefined
   /** 此刻的心情（心境一致：同向的旧事更容易被想起；缺席时排序与没有这个能力时相同）。 */
-  mood?(): SearchMood | undefined
+  mood?(): MemoryMood | undefined
+  /** 这一轮想起了哪几条（宿主转给情绪模块做回声；失败了也只影响心情）。 */
+  onRecalled?(records: readonly MemoryRecord[]): void
+  /** 对方叫什么（被窥探之后她记的那一笔要用名字）。 */
+  userName?(): string
+  /**
+   * 她的性格（被窥探之后的反应强度由它定）。
+   *
+   * 读不到时传 `undefined`，反应退回基准值 —— 那不等于"她很稳定"。
+   */
+  character?(): MemoryCharacter | undefined
+  /** 生效时区（"昨天/今天"按它算日历日；读不到就按 24 小时）。 */
+  timeZone?(): string | undefined
+  /** 情绪种类 → 人话（工作台要显示"当时：害怕"）。 */
+  feltLabel?(kind: string): string
+  /** 休眠中（人格还没封存）：工作台要如实说"还没开始"，而不是"没有记忆"。 */
+  dormant?(): boolean
 }
 
-/** 记忆模块句柄：宿主、Agent 工具与工作台都由它进入记忆。 */
+/** 记忆模块句柄：宿主与工作台都从这里进入记忆。 */
 export interface MemoryModule {
-  /** 当前生效策略（预设 + 高级开关解析后的结果）。 */
-  policy(): MemoryPolicy
-  /** 记忆读写入口；存储未就绪时为 `undefined`（G-002：降级而不是抛错）。 */
+  /** 记忆读写入口；存储未就绪时为 `undefined`（降级而不是抛错）。 */
   store(): MemoryStore | undefined
-  /** 按配置驱动工具与注入的注册与卸载（幂等；开关即时生效）。 */
+  /** 按配置驱动子件的注册与卸载（幂等；开关即时生效）。 */
   setEnabled(enabled: boolean): void
-  /** 把存储现状重新投影给工作台（宿主写的三个字段）。 */
+  /** 把存储现状重新投影给工作台。 */
   refresh(): Promise<void>
-  /**
-   * 存储刚就绪：补消费积压的命令并重新投影（见 `MemorySection.notifyStoreReady`）。
-   *
-   * 由宿主在 `storageDomain` 打开完成时调用 —— 存储是异步打开的，比命名空间注册晚。
-   */
+  /** 存储刚就绪：重新投影。 */
   notifyStoreReady(): void
-  /** 卸载本模块的全部副作用（fiber 卸载时由 cordis 调用同一函数）。 */
+  /** 卸载本模块的全部副作用。 */
+  dispose(): void
+}
+
+/** 工具服务的窄面（只用到注册一个方法，不固化整个类型面）。 */
+interface ToolsLike {
+  register(tool: unknown): () => void
+}
+
+/** 工具注册句柄。 */
+interface MemoryToolsHandle {
+  setEnabled(enabled: boolean): void
   dispose(): void
 }
 
 /**
  * 造一个"现读存储句柄"的函数。
  *
- * 存储是**异步打开**的，所以不能也不该在装配时缓存一个当下必然为空的引用 ——
- * 每次调用现读，句柄没来就返回 `undefined`（G-002 降级而不是抛错）。
+ * 存储是**异步打开**的，不能在装配时缓存一个当下必然为空的引用 ——
+ * 每次调用现读，句柄没来就返回 `undefined`。
  * @param deps - 宿主注入的外部事实。
  */
 function createStoreReader(deps: MemoryDeps): () => MemoryStore | undefined {
@@ -87,47 +107,108 @@ function createStoreReader(deps: MemoryDeps): () => MemoryStore | undefined {
 }
 
 /**
+ * 注册两个工具（记住 / 回想）。
+ *
+ * 工具**总是**注册：执行时若存储还没就绪，它返回一句"还没就绪"，而不是让工具从目录里消失 ——
+ * 工具目录本来就是每次装配现读的，跟着一起变只会制造"有时有、有时没有"的怪现象。
+ * @param ctx - 本插件的上下文。
+ * @param log - 日志门面。
+ * @param store - 现读存储句柄。
+ * @param deps - 情绪指纹与开关。
+ * @param changed - 写入后让工作台重新投影。
+ * @returns 可开关的注册句柄。
+ */
+function installTools(
+  ctx: Context,
+  log: Log,
+  store: () => MemoryStore | undefined,
+  deps: MemoryDeps,
+  changed: () => void,
+): MemoryToolsHandle {
+  let disposers: Array<() => void> = []
+  let active = false
+
+  const clear = (): void => {
+    for (const dispose of disposers) {
+      try {
+        dispose()
+      } catch (error) {
+        log.warn('记忆工具卸载失败（继续卸载其余）', error)
+      }
+    }
+    disposers = []
+  }
+
+  const sync = (want: boolean): void => {
+    if (want === active) return
+    active = want
+    clear()
+    if (!want) return
+    const tools = ctx.get('tools') as ToolsLike | undefined
+    if (tools === undefined) return
+    void loadOptional<{ defineTool: typeof defineToolType }>('@deepseek-ai/dsh-tools', log).then((module) => {
+      if (module === undefined || !active) return
+      const defined = defineMemoryTools(module.defineTool, {
+        store,
+        feeling: deps.feeling,
+        changed,
+        timeZone: deps.timeZone,
+        userName: deps.userName,
+        log,
+      })
+      disposers = defined.map((tool) => tools.register(tool))
+    })
+  }
+
+  return {
+    setEnabled: sync,
+    dispose(): void {
+      active = false
+      clear()
+    },
+  }
+}
+
+/**
  * 装配记忆模块。
  * @param ctx - 宿主上下文，用于把清理钩子挂在本模块的 fiber 上。
  * @param log - 日志门面。
  * @param deps - 宿主注入的外部事实。
  */
 export function installMemory(ctx: Context, log: Log, deps: MemoryDeps): MemoryModule {
-  /** 配置层的总开关；工具与注入都现读它（开关即时生效，P-030）。 */
-  let enabled = true
-  /** "三层全关却选了非 off 模式"这条回退只警告一次。 */
-  let warnedDegenerate = false
-  /** 当前生效策略：每次现算（模式真源在设置里，开关一改下一次就是新结果，P-030）。 */
-  const policy = (): MemoryPolicy => {
-    const advanced = deps.advanced?.()
-    const mode = deps.mode()
-    if (advanced !== undefined && isDegenerateAdvanced(advanced, mode)) {
-      // 只警告一次：这个判断在每次拼装提示词时都会被调用，重复刷屏没有意义。
-      if (!warnedDegenerate) {
-        warnedDegenerate = true
-        log.warn('记忆高级开关把三层全关了，但模式不是 off —— 已回退到模式预设（否则记忆会静默失效）')
-      }
-    }
-    return resolveMemoryPolicy(mode, advanced === undefined ? {} : overridesOf(advanced, mode))
-  }
   const store = createStoreReader(deps)
-  // 工作台通道先建：Agent 工具落盘后要让它重新投影（`changed`），否则工作台会停在旧列表上
-  // （真机症状：存储里已有记忆，`entries` 仍是 `[]`）。两者都不依赖对方的构造结果。
-  const section = installMemorySection(ctx, log, { store, policy, advanced: deps.advanced, compat: deps.compat })
-  const tools = installMemoryTools(ctx, log, { store, policy, changed: () => void section.refresh(), affect: deps.affect })
-  // 注入只读：开关、当前消息（事件缓存）与检索都在 inject.ts 里闭环。
+  const llm: LlmAccess = createLlmAccess(ctx, log)
+  let enabled = true
+
+  // 工作台通道先建：写入落盘后要让它重新投影（`changed`），否则界面会停在旧列表上。
+  const section = installMemorySection(ctx, log, {
+    store,
+    userName: deps.userName,
+    character: deps.character,
+    feltLabel: deps.feltLabel,
+    dormant: deps.dormant,
+  })
+  const changed = (): void => {
+    void section.refresh()
+  }
+
+  const tools = installTools(ctx, log, store, deps, changed)
+
   const disposeInjection = installMemoryInjection(ctx, log, {
     store,
-    policy,
-    enabled: () => enabled,
-    onRecalled: deps.onRecalled,
+    enabled: () => enabled && deps.enabled(),
+    maxInject: () => deps.maxInject(),
     mood: deps.mood,
+    onRecalled: deps.onRecalled,
+    userName: deps.userName,
+    llm,
+    changed,
+    onRecallShown: (cue, hits) => section.noteRecall(cue, hits),
+    timeZone: deps.timeZone,
+    feeling: deps.feeling,
   })
 
-  /** 开关 + 策略共同决定"工具在不在模型可见集合里"。 */
-  const sync = (): void => tools.setEnabled(enabled && canRemember(policy()))
-
-  // 装配时就收敛一次：模式为 off 时不该先注册、等宿主下一次配置变更再撤。
+  const sync = (): void => tools.setEnabled(enabled && deps.enabled())
   sync()
 
   const cleanup = (): void => {
@@ -137,19 +218,16 @@ export function installMemory(ctx: Context, log: Log, deps: MemoryDeps): MemoryM
   }
   ctx.effect(() => cleanup, 'humanity: 记忆模块卸载')
 
-  log.info(`记忆模块已装配：${deps.mode()} 模式（数据模型 + 存储 + 写入管线 + 检索 + 注入就绪）`)
+  log.info('记忆模块已装配：写入 / 遗忘 / 检索 / 注入 / 工具 / 工作台已接')
 
   return {
-    policy,
     store,
-    /** 重新投影一次供工作台读取（存储异步打开、或外部批量改动后调用）。 */
-    refresh: section.refresh,
-    /** 存储刚打开：补消费被跳过的命令，并把现状投影给工作台。 */
-    notifyStoreReady: section.notifyStoreReady,
     setEnabled(next) {
       enabled = next
       sync()
     },
+    refresh: section.refresh,
+    notifyStoreReady: section.notifyStoreReady,
     dispose: cleanup,
   }
 }

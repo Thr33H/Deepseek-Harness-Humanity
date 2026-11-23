@@ -70,7 +70,7 @@ test('F2 端到端：存储领域**打开失败** ⇒ `openDomain` 在 stderr �
     open: async () => {
       opened += 1
       // 模拟最常见的那条：一条记录不符合 schema ⇒ 领域打开失败。
-      throw new Error('模拟：memory_entries 里有一条不符合 schema 的记录')
+      throw new Error('模拟：memories 里有一条不符合 schema 的记录')
     },
   }
 

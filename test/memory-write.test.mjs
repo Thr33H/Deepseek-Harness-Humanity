@@ -1,272 +1,471 @@
 /**
- * 自动写入管线（`remember`）与待确认（`confirm` / `reject`）的行为测试。
+ * 写入 / 渲染 / 工具的测试（记忆重构第二批）。
  *
- * 用 Map 假表：这一层要钉的是**判断**（敏感进待确认、同指纹算更新、冲突只标记、策略关掉就不写），
- * 与"数据怎么落盘"无关 —— 落盘由 `host-store-migration.test.mjs` 用真实后端覆盖。
+ * 钉的是"准入"这一环，因为它才是整套记忆最容易烂的地方：
+ * - 整合失败时**一条都不写**（写进垃圾比没记住更糟）；
+ * - 模型给错枚举值时**跳过那一条**，不让脏数据落库；
+ * - 一次整合有硬上限（防一次抽爆）；
+ * - 检索不到时说的是"没有"，不是"没找到" —— 前者是事实，后者会诱导模型继续编。
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { CONTENT_CHAR_LIMIT } from '../lib/memory/constants.js'
-import { confirmPending, listPending, rejectPending } from '../lib/memory/confirm.js'
-import { resolveMemoryPolicy } from '../lib/memory/policy.js'
+
 import { createMemoryStore } from '../lib/memory/store.js'
-import { normalizeMemoryContent, remember } from '../lib/memory/write.js'
-import { createFakeTable } from './helpers/memory-fake.mjs'
+import { MEMORY_GUIDANCE, renderRecalled, whenText } from '../lib/memory/render.js'
+import { integrate, normalizePerspective, remember } from '../lib/memory/write.js'
+import { isGreetingTurn, isMemoryNotice, parseScheduleReminders } from '../lib/memory/inject.js'
+import { splitByDisclosure } from '../lib/memory/disclosure.js'
+import { hitsToValue } from '../lib/memory/tools.js'
+import { createMemoryRecord } from '../lib/memory/model.js'
 
-/** 平衡模式的默认策略（正常写入的基线）。 */
-const balanced = resolveMemoryPolicy('balanced')
-
-/** 一次最小写入请求；`overrides` 用来钉具体字段。 */
-function request(content, overrides = {}) {
-  return { content, scope: 'long-term', sensitivity: 'normal', origin: 'user-stated', sessionId: 's1', ...overrides }
+/** 假表。 */
+function fakeTable() {
+  const records = new Map()
+  return {
+    records,
+    get: (key) => records.get(key),
+    entries: () => records.entries(),
+    put: async (key, value) => {
+      records.set(key, value)
+    },
+    delete: async (key) => records.delete(key),
+  }
 }
 
-/** 起一个空存储。 */
-function boot() {
-  return createMemoryStore(createFakeTable())
+/** 一个总是返回给定文本的模型。 */
+function fakeLlm(text) {
+  return {
+    route: () => ({ provider: 'fake', model: 'fake' }),
+    streamText: async () => ({ text, inputTokens: 0, outputTokens: 0, finishReason: 'stop' }),
+  }
 }
 
-test('普通内容直接生效（低风险稳定信息自动写入，P-025）', async () => {
-  const store = boot()
-  const result = await remember(store, balanced, request('用户偏好简短回复', { tags: ['偏好'] }))
+/** 一个调不通的模型。 */
+const brokenLlm = {
+  route: () => ({ provider: 'fake', model: 'fake' }),
+  streamText: async () => {
+    throw new Error('超时')
+  },
+}
 
-  assert.equal(result.ok, true)
-  assert.equal(result.entry?.status, 'active')
-  assert.equal(result.entry?.sensitive, false)
-  assert.equal(result.entry?.confidence, 1, '用户明确说出的记满分置信度')
-  assert.deepEqual(result.entry?.tags, ['偏好'])
-  assert.equal(store.get(result.entry.dedupeKey)?.content, '用户偏好简短回复')
-})
+/** 静默日志。 */
+const quietLog = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }
 
-test('敏感内容只进待确认：确认之前不参与检索与注入（P-033）', async () => {
-  const store = boot()
-  const result = await remember(store, balanced, request('用户的门禁密码', { sensitivity: 'sensitive' }))
+const events = [
+  { role: 'user', text: '我下周三要去医院复查', at: '2026-11-20T10:00:00.000Z' },
+  { role: 'assistant', text: '那我记着，别忘了', at: '2026-11-20T10:00:05.000Z' },
+]
 
-  assert.equal(result.ok, true)
-  assert.equal(result.entry?.status, 'pending')
-  assert.equal(result.entry?.sensitive, true)
-  assert.deepEqual(store.list(undefined, 'active'), [], '待确认不算生效')
-  assert.equal(listPending(store).length, 1)
-})
+/* ───────────────────────── 整合 ───────────────────────── */
 
-test('同指纹重复写入是更新，不重复新增，也不重置创建时间与使用统计', async () => {
-  const store = boot()
-  const first = await remember(store, balanced, request('用户偏好简短回复'))
-  const used = await store.markUsed(first.entry.dedupeKey, '2026-09-24T00:00:00.000Z')
-  assert.equal(used?.useCount, 1, '使用统计只能由"被用到"推进')
-
-  const again = await remember(store, balanced, request('用户偏好简短回复！'))
-  assert.equal(store.list().length, 1, '归一化后同一条事实只留一行')
-  assert.equal(again.entry?.content, '用户偏好简短回复！', '内容以新写入为准')
-  assert.equal(again.entry?.createdAt, first.entry?.createdAt)
-  assert.equal(again.entry?.useCount, 1, '重新写一遍不等于被使用过')
-  assert.equal(again.entry?.lastUsedAt, '2026-09-24T00:00:00.000Z')
-})
-
-test('待确认条目不会被后来的普通写入提升为生效', async () => {
-  const store = boot()
-  const sensitive = await remember(store, balanced, request('用户的门禁密码', { sensitivity: 'sensitive' }))
-
-  const plain = await remember(store, balanced, request('用户的门禁密码'))
-  assert.equal(plain.entry?.status, 'pending', '指纹相同 ⇒ 安全标记只能收紧，不能放松')
-  assert.equal(plain.entry?.sensitive, true, '敏感标记不能被抹掉')
-  assert.equal(store.get(sensitive.entry.dedupeKey)?.sensitive, true)
-})
-
-test('归档不许被悄悄复活：同一句话再写一遍，仍是归档状态、归档时间原样', async () => {
-  // P-026：归档只影响默认检索，回不回来由用户决定。用户在卡片上点了「归档」，之后模型
-  // 再"想起"同一句话就把它变回活跃 —— 那等于绕过用户。同指纹重写走的是 mergeSafety 那一档。
-  const store = boot()
-  const first = await remember(store, balanced, request('用户偏好简短回复'))
-  const archived = await store.put({
-    ...first.entry,
-    status: 'archived',
-    archivedAt: '2026-09-20T03:00:00.000Z',
+test('整合：模型给什么就写什么，形状照契约补齐', async () => {
+  const store = createMemoryStore(fakeTable())
+  const written = await integrate(store, events, {
+    llm: fakeLlm('[{"what":"对方下周三要去医院复查","about":"user","certain":"told","cost":0.2}]'),
+    log: quietLog,
   })
-
-  const again = await remember(store, balanced, request('用户偏好简短回复'))
-  assert.equal(again.entry?.status, 'archived', '重写不许把它变回生效')
-  assert.equal(again.entry?.archivedAt, '2026-09-20T03:00:00.000Z', '归档时间不许被清空')
-  assert.equal(store.get(archived.dedupeKey)?.status, 'archived')
-  assert.deepEqual(store.list(undefined, 'active'), [], '归档条目不在生效清单里')
+  assert.equal(written.length, 1)
+  assert.equal(written[0].what, '对方下周三要去医院复查')
+  assert.equal(written[0].about, 'user')
+  assert.equal(written[0].certain, 'told')
+  assert.equal(store.all().length, 1)
 })
 
-test('冲突检测：只标记、不阻断，双方都能看到（P-025）', async () => {
-  const store = boot()
-  await remember(store, balanced, request('用户喜欢咖啡'))
-  const conflict = await remember(store, balanced, request('用户不喜欢咖啡'))
-
-  assert.equal(conflict.ok, true, '矛盾内容照样写入：判断权在用户手里')
-  assert.equal(conflict.conflicts.length, 1)
-  assert.equal(conflict.entry?.conflictWith.length, 1, '新条目被标记')
-  const other = store.get(conflict.conflicts[0].dedupeKey)
-  assert.deepEqual(other?.conflictWith, [conflict.entry?.dedupeKey], '旧条目也被标记（双向）')
+test('整合：模型输出解析不了时一条都不写（写进垃圾比没记住更糟）', async () => {
+  const store = createMemoryStore(fakeTable())
+  const written = await integrate(store, events, { llm: fakeLlm('抱歉，我无法完成'), log: quietLog })
+  assert.deepEqual(written, [])
+  assert.equal(store.all().length, 0)
 })
 
-test('冲突标记可撤销：矛盾的来源归档后，重写一次就把幽灵标记拆掉', async () => {
-  const store = boot()
-  const first = await remember(store, balanced, request('用户喜欢咖啡'))
-  const conflict = await remember(store, balanced, request('用户不喜欢咖啡'))
-
-  // 归档其中一方：归档条目不再参与冲突判定（P-026：归档默认不参与检索）。
-  await store.archive(first.entry.dedupeKey)
-  const again = await remember(store, balanced, request('用户不喜欢咖啡'))
-
-  assert.deepEqual(again.entry?.conflictWith, [], '候选自己的标记被重算清空')
-  assert.deepEqual(store.get(first.entry.dedupeKey)?.conflictWith, [], '对方的幽灵标记必须拆掉')
-  assert.equal(conflict.entry?.conflictWith.length, 1, '写入当时确实标记过（不是一开始就没标）')
+test('整合：模型调用失败时安静跳过，不影响对话', async () => {
+  const store = createMemoryStore(fakeTable())
+  const written = await integrate(store, events, { llm: brokenLlm, log: quietLog })
+  assert.deepEqual(written, [])
 })
 
-test('跨作用域不算矛盾（各层各说各的）', async () => {
-  const store = boot()
-  await remember(store, balanced, request('这次用中文回答', { scope: 'session' }))
-  const result = await remember(store, balanced, request('这次不用中文回答', { scope: 'long-term' }))
-
-  assert.deepEqual(result.entry?.conflictWith, [])
+test('整合：枚举写错的那一条被跳过，其余正常写入', async () => {
+  const store = createMemoryStore(fakeTable())
+  const written = await integrate(store, events, {
+    llm: fakeLlm(
+      JSON.stringify([
+        { what: '一条好记录', about: 'user', certain: 'told' },
+        { what: '一条坏记录', about: '关于用户', certain: 'told' },
+        { what: '', about: 'user', certain: 'told' },
+      ]),
+    ),
+    log: quietLog,
+  })
+  assert.equal(written.length, 1, '只有形状对的那条进来了')
+  assert.equal(written[0].what, '一条好记录')
 })
 
-test('会话归属隔离（P-024）：两个会话写同一句话各存各的，谁也不改谁的主人', async () => {
-  // 2026-09-26 审计实测的真缺陷：`remember` 里先改了候选的指纹、再拿它跟备用键比（两边恒等），
-  // 于是备用键从未生效 —— 会话 B 写同一句话会把会话 A 那条覆盖掉、主人也换成 B，
-  // A 里再也检索不到自己说过的话，与 P-024「会话记忆不跨会话」直接矛盾。
-  const store = boot()
-  const session = { scope: 'session', sensitivity: 'normal', origin: 'user-stated' }
-  const first = await remember(store, balanced, { ...session, content: '这次讨论用中文', sessionId: 's1' })
-  const second = await remember(store, balanced, { ...session, content: '这次讨论用中文', sessionId: 's2' })
-
-  assert.equal(store.list().length, 2, '同一句话在两个会话里是两条独立记忆')
-  assert.notEqual(first.entry.dedupeKey, second.entry.dedupeKey, '第二条必须落在带归属的备用键上')
-  assert.equal(store.get(first.entry.dedupeKey)?.ownerId, 's1', 'A 那条的主人一个字都不许动')
-  assert.equal(store.get(first.entry.dedupeKey)?.content, '这次讨论用中文')
-  assert.equal(store.get(second.entry.dedupeKey)?.ownerId, 's2')
+test('整合：一次最多写几条是硬上限（防一次抽爆）', async () => {
+  const store = createMemoryStore(fakeTable())
+  const many = Array.from({ length: 20 }, (_, index) => ({ what: `第 ${index} 件`, about: 'self', certain: 'witnessed' }))
+  const written = await integrate(store, events, { llm: fakeLlm(JSON.stringify(many)), log: quietLog })
+  assert.ok(written.length <= 3, `一次最多 3 条，实际 ${written.length}`)
 })
 
-test('同一会话里重复写同一句话仍然只留一条（备用键不许把去重弄丢）', async () => {
-  const store = boot()
-  const session = { scope: 'session', sensitivity: 'normal', origin: 'user-stated', sessionId: 's1' }
-  await remember(store, balanced, { ...session, content: '这次讨论用中文' })
-  const other = await remember(store, balanced, { ...session, content: '这次用中文讨论' })
-  const again = await remember(store, balanced, { ...session, content: '这次讨论用中文' })
-
-  assert.equal(store.list().length, 1, '同归属的重复写入仍走更新，不新增')
-  assert.equal(again.entry?.dedupeKey, other.entry?.dedupeKey)
-  assert.equal(store.list()[0].ownerId, 's1')
+test('整合：没有原始片段时不调模型（空批次不该花钱）', async () => {
+  const store = createMemoryStore(fakeTable())
+  let called = 0
+  const llm = {
+    route: () => ({ provider: 'fake', model: 'fake' }),
+    streamText: async () => {
+      called += 1
+      return { text: '[]', inputTokens: 0, outputTokens: 0, finishReason: 'stop' }
+    },
+  }
+  assert.deepEqual(await integrate(store, [], { llm, log: quietLog }), [])
+  assert.equal(called, 0)
 })
 
-test('工作区归属隔离：不同工作区的同名事实互不覆盖，同工作区照旧去重', async () => {
-  const store = boot()
-  const base = { scope: 'workspace', sensitivity: 'normal', origin: 'user-stated', sessionId: 's1' }
-  const a = await remember(store, balanced, { ...base, content: '本工作区用 pnpm', workspaceId: 'wa' })
-  const b = await remember(store, balanced, { ...base, content: '本工作区用 pnpm', workspaceId: 'wb' })
-  const a2 = await remember(store, balanced, { ...base, content: '本工作区用 pnpm', workspaceId: 'wa' })
-
-  assert.equal(store.list().length, 2, '两个工作区各留一条')
-  assert.equal(store.get(a.entry.dedupeKey)?.ownerId, 'wa')
-  assert.equal(store.get(b.entry.dedupeKey)?.ownerId, 'wb')
-  assert.equal(a2.entry?.dedupeKey, a.entry?.dedupeKey, '同工作区再写还是更新原来那条')
+test('直接记住：带上当时的感觉，强度按它算', async () => {
+  const store = createMemoryStore(fakeTable())
+  const { record, duplicate } = await remember(store, {
+    what: '他说他不会走',
+    about: 'us',
+    certain: 'told',
+    felt: { kind: 'trust', intensity: 80 },
+  })
+  assert.equal(duplicate, false)
+  assert.ok(record.strength > 0.5, '情绪很强的记忆初始应当更牢')
 })
 
-test('策略关掉就不写：模式 off、或该作用域被关（开关即时生效的落点）', async () => {
-  const store = boot()
-  const off = await remember(store, resolveMemoryPolicy('off'), request('用户偏好简短回复'))
-  assert.equal(off.ok, false)
-  assert.equal(store.list().length, 0)
+test('直接记住：同一件事再记一次不新增，只把旧的那条加固', async () => {
+  // 真机（2026-11-22）："想有人陪"三天里被记了三遍 —— 模型每次觉得重要就记一次，
+  // 而工具这条路原来没有去重。人的做法是"再提一遍就记得更牢"，不是在本子上抄三行。
+  const store = createMemoryStore(fakeTable())
+  const first = await remember(store, { what: '火火说找我主要是想有人陪，以后可能也会要我帮忙', about: 'user', certain: 'told' })
+  const again = await remember(store, { what: '火火说找我主要是想有人陪，以后可能也会要我帮忙。', about: 'user', certain: 'told' })
 
-  const noLongTerm = resolveMemoryPolicy('balanced', { scopes: { 'long-term': false } })
-  const refused = await remember(store, noLongTerm, request('用户偏好简短回复'))
-  assert.equal(refused.ok, false)
-  assert.match(refused.message, /长期记忆/)
-  assert.equal(store.list().length, 0)
+  assert.equal(again.duplicate, true, '必须告诉调用方"这次没有新增"')
+  assert.equal(store.all().length, 1, '库里还是只有一条')
+  assert.equal(again.record.id, first.record.id, '加固的是原来那条')
+  assert.equal(again.record.recalled, 1, '又提了一遍 = 想起过一次')
+  assert.ok(again.record.strength > first.record.strength, '再提一遍应当更牢')
 })
 
-test('规范化：控制字符与 ANSI 被剥掉，空白压平，超长截断而不是拒绝', async () => {
-  assert.equal(normalizeMemoryContent('a\u0000b\u001b[31mc'), 'abc')
-  assert.equal(normalizeMemoryContent('  多  行\n内容\t'), '多 行 内容')
-  assert.equal(normalizeMemoryContent('x'.repeat(CONTENT_CHAR_LIMIT + 50)).length, CONTENT_CHAR_LIMIT)
+test('直接记住：极性相反的两句不是重复（不能替对方改意思）', async () => {
+  // "喜欢下雨" vs "不喜欢下雨"：只差一个字，Dice 很高，但这是两件事 ——
+  // 合并等于把对方的偏好反过来说。人格去重早就守着这条，记忆这里也要守。
+  const store = createMemoryStore(fakeTable())
+  const like = await remember(store, { what: '火火喜欢下雨天', about: 'user', certain: 'told' })
+  const dislike = await remember(store, { what: '火火不喜欢下雨天', about: 'user', certain: 'told' })
 
-  const store = boot()
-  const result = await remember(store, balanced, request('\u001b[31m用户偏好简短回复\u0007'))
-  assert.equal(result.entry?.content, '用户偏好简短回复')
+  assert.equal(like.duplicate, false)
+  assert.equal(dislike.duplicate, false)
+  assert.equal(store.all().length, 2)
 })
 
-test('空内容被拒绝，不会写下一条没有内容的记忆', async () => {
-  const store = boot()
-  const result = await remember(store, balanced, request('   \n\u0000  '))
-
-  assert.equal(result.ok, false)
-  assert.equal(store.list().length, 0)
+test('整合：极性相反也不算重复（去重判据两边共用一套）', async () => {
+  const store = createMemoryStore(fakeTable())
+  await integrate(store, events, {
+    llm: fakeLlm('[{"what":"火火喜欢下雨天","about":"user","certain":"told"}]'),
+    log: quietLog,
+  })
+  const changed = await integrate(store, events, {
+    llm: fakeLlm('[{"what":"火火不喜欢下雨天","about":"user","certain":"told"}]'),
+    log: quietLog,
+  })
+  assert.equal(changed.length, 1, '偏好反过来了，这是新的一条')
+  assert.equal(store.all().length, 2)
 })
 
-test('确认：chat 与 workbench 两端确认同一条记录，各自留下证据（T2 双端同源）', async () => {
-  const store = boot()
-  const pending = await remember(store, balanced, request('用户的门禁密码', { sensitivity: 'sensitive' }))
-  const key = pending.entry.dedupeKey
-
-  const confirmed = await confirmPending(store, key, 'chat')
-  assert.equal(confirmed?.status, 'active')
-  assert.equal(confirmed?.confirmedVia, 'chat')
-  assert.equal(store.get(key)?.confirmedVia, 'chat')
-  // 另一端再确认一次不该产生第二次写入（重复落盘正是双端同源要防的）。
-  assert.equal(await confirmPending(store, key, 'workbench'), undefined)
-
-  const second = await remember(store, balanced, request('用户的支付密码', { sensitivity: 'sensitive' }))
-  const viaWorkbench = await confirmPending(store, second.entry.dedupeKey, 'workbench')
-  assert.equal(viaWorkbench?.confirmedVia, 'workbench')
+test('视角：模型写下"对方/用户"时换成人名（只换这两个词）', () => {
+  // 真机库里真有一条写成「我和对方在园子里散步」——提示词管不住的那部分，用一行确定的替换兜住。
+  assert.equal(normalizePerspective('我和对方在园子里散步', '火火'), '我和火火在园子里散步')
+  assert.equal(normalizePerspective('用户说他喜欢下雨', '火火'), '火火说他喜欢下雨')
+  // "你"不能换：换成"火火记得…"语气就变了，那是另一句话。
+  assert.equal(normalizePerspective('你还记得那天吗', '火火'), '你还记得那天吗')
+  // "他"可能是第三个人，换了就是篡改。
+  assert.equal(normalizePerspective('他说他会来', '火火'), '他说他会来')
+  // 没有名字时一个字都不动。
+  assert.equal(normalizePerspective('对方来了', ''), '对方来了')
 })
 
-test('拒绝：直接删除；不存在的或已生效的条目拒绝无效', async () => {
-  const store = boot()
-  const pending = await remember(store, balanced, request('用户的门禁密码', { sensitivity: 'sensitive' }))
-  const plain = await remember(store, balanced, request('用户偏好简短回复'))
-
-  assert.equal(await rejectPending(store, plain.entry.dedupeKey), false, '生效中的条目不走拒绝路径')
-  assert.equal(await rejectPending(store, pending.entry.dedupeKey), true)
-  assert.equal(store.get(pending.entry.dedupeKey), undefined)
-  assert.equal(await rejectPending(store, 'long-term:不存在'), false)
+test('直接记住：写入时把"对方"换成人名', async () => {
+  const store = createMemoryStore(fakeTable())
+  const { record } = await remember(
+    store,
+    { what: '我和对方在园子里散步', about: 'us', certain: 'witnessed' },
+    { userName: '火火' },
+  )
+  assert.equal(record.what, '我和火火在园子里散步')
 })
 
-test('pending 不会因等待而自动通过或消失（刻意没有超时逻辑）', async () => {
-  const store = boot()
-  const pending = await remember(store, balanced, request('用户的门禁密码', { sensitivity: 'sensitive' }))
-
-  await new Promise((resolve) => setTimeout(resolve, 20))
-  assert.equal(store.get(pending.entry.dedupeKey)?.status, 'pending')
-  assert.equal(listPending(store).length, 1)
+test('整合：带上当时的感觉，并把"对方"换成人名（这条线原来两样都缺）', async () => {
+  // 真机发现：inject 那条线调 integrate 时既没传 feeling、也没有 userName，
+  // 于是整合写下的记忆强度一律按零情绪算，还会留下"对方"这种指代。
+  const store = createMemoryStore(fakeTable())
+  const written = await integrate(store, events, {
+    llm: fakeLlm('[{"what":"对方说他下周三要去医院复查","about":"user","certain":"told"}]'),
+    feeling: () => ({ kind: 'trust', intensity: 60 }),
+    userName: () => '火火',
+    log: quietLog,
+  })
+  assert.equal(written[0].what, '火火说他下周三要去医院复查')
+  assert.deepEqual(written[0].felt, { kind: 'trust', intensity: 60 })
 })
 
-// 近似去重（2026-09-25 真机：同一条"不区分线上/线下"的规矩在库里躺了 4 个平行条目）。
-// 夹具是**合成的等价改写对**（2026-10-10 内容级脱敏）—— 这套判据的风险全在"改写形态"上。
-const TWIN_A =
-  '用户要求：不区分"线上/线下"，示例实例就是示例实例，配置与记录中不留线上线下分隔；' +
-  '只有在用户明确说"线下改设定"时，才以商量规则的方式对话。'
-const TWIN_B =
-  '用户要求：不区分线上/线下，示例实例就是示例实例，配置与记录里不留线上线下分隔；' +
-  '只有在用户明确说「线下改设定」时，才以商量规则的方式对话。'
+test('整合：同一件事被相邻两个窗口各抽一遍时，只留一条', async () => {
+  // 真机实测（2026-11-21）：这两句话在库里躺成了两条。它们 Dice 相似度 0.654 ——
+  // 同一件事的两种说法，但整合每次只看最近几条消息，跨窗口就抽了两遍。
+  const store = createMemoryStore(fakeTable())
+  const first = await integrate(store, events, {
+    llm: fakeLlm('[{"what":"火火告诉我他叫火火、是男生，希望我是女生，其余让我自己决定。","about":"user","certain":"told"}]'),
+    log: quietLog,
+  })
+  assert.equal(first.length, 1)
 
-test('同一条事实的另一种说法被并入，不新增平行条目（2026-09-25 真机回归钉）', async () => {
-  const store = boot()
-  const first = await remember(store, balanced, request(TWIN_A))
-  const again = await remember(store, balanced, request(TWIN_B))
-
-  assert.equal(store.list().length, 1, '改了说法的同一件事不该再占一条')
-  assert.equal(again.entry?.dedupeKey, first.entry?.dedupeKey, '身份沿用已有的指纹（否则等于新增）')
-  assert.match(again.message, /并入/)
+  const second = await integrate(store, events, {
+    llm: fakeLlm('[{"what":"我认识了火火，他告诉我他是男生，并希望我是女生，其余由我自己决定。","about":"user","certain":"told"}]'),
+    log: quietLog,
+  })
+  assert.equal(second.length, 0, '同一件事不该再留一条')
+  assert.equal(store.all().length, 1)
 })
 
-test('语义不同的事实各存一条 —— 并入不能误伤', async () => {
-  const store = boot()
-  await remember(store, balanced, request(TWIN_A))
-  await remember(store, balanced, request('用户喜欢在周末骑车去城郊'))
-  assert.equal(store.list().length, 2)
+test('整合：不同的事照常写入（去重不能误杀）', async () => {
+  const store = createMemoryStore(fakeTable())
+  await integrate(store, events, {
+    llm: fakeLlm('[{"what":"火火告诉我他叫火火、是男生，希望我是女生。","about":"user","certain":"told"}]'),
+    log: quietLog,
+  })
+  const another = await integrate(store, events, {
+    llm: fakeLlm('[{"what":"火火说找我主要是想有人陪，以后可能也会要我帮忙。","about":"user","certain":"told"}]'),
+    log: quietLog,
+  })
+  assert.equal(another.length, 1, '两件不同的事，相似度只有 0.044')
+  assert.equal(store.all().length, 2)
 })
 
-test('并入不放宽安全标记：待确认的敏感条目不会被一次普通改写提升成生效', async () => {
-  const store = boot()
-  const sensitive = await remember(store, balanced, request(TWIN_A, { sensitivity: 'sensitive' }))
-  assert.equal(sensitive.entry?.status, 'pending')
+test('记忆注入：只有本会话第一轮才打招呼（重启不会重新自我介绍）', () => {
+  // 2026-11-22 真机：一晚上部署三次，同一个会话里她"醒来"了三次。
+  // 试过查历史（payload.messages 只有这一条新消息）和 source.kind，都不行；
+  // `payload.turn` 是会话内的轮次号、跨重启连续，才是可靠依据。
+  assert.equal(isGreetingTurn(1), true)
+  assert.equal(isGreetingTurn(2), false)
+  assert.equal(isGreetingTurn(6), false)
+  assert.equal(isGreetingTurn(undefined), false)
+})
 
-  const plain = await remember(store, balanced, request(TWIN_B))
-  assert.equal(plain.entry?.status, 'pending', '既有漏洞的近重复变体：必须同样只收紧不放松')
-  assert.equal(plain.entry?.sensitive, true)
-  assert.equal(store.list().length, 1)
+test('记忆注入：注入消息能从 source.kind 上认出来（排查用）', () => {
+  assert.equal(isMemoryNotice({ role: 'user', content: [], source: { kind: 'humanity-memory' } }), true)
+  assert.equal(isMemoryNotice({ role: 'user', content: [], source: { kind: 'humanity-emotion' } }), false)
+  assert.equal(isMemoryNotice({ role: 'user', content: [] }), false)
+  assert.equal(isMemoryNotice(null), false)
+})
+
+/* ───────────────────────── 秘密 ───────────────────────── */
+
+test('秘密：代价高的那条不进"能说"的一堆，只留一句"不想说"', () => {
+  const now = new Date()
+  const open = createMemoryRecord({ what: '他喜欢先看结论', about: 'user', certain: 'told', cost: 0.1 })
+  const secret = createMemoryRecord({ what: '那件我一直没敢说的事', about: 'self', certain: 'witnessed', cost: 0.9 })
+  const hits = [open, secret].map((record) => ({ record, score: 0.5, parts: { relevance: 1, strength: 0.5, mood: 0 } }))
+
+  const { speakable, withheld } = splitByDisclosure(hits)
+  assert.deepEqual(speakable.map((hit) => hit.record.what), ['他喜欢先看结论'])
+  assert.deepEqual(withheld.map((hit) => hit.record.what), ['那件我一直没敢说的事'])
+
+  // 能说的那句照常渲染；说不出口的那条**内容一个字都不出现**。
+  const text = renderRecalled(speakable, now)
+  assert.match(text, /他喜欢先看结论/)
+})
+
+test('秘密：代价刚好在门槛上的算"能说"（门槛是"超过才藏"）', () => {
+  const record = createMemoryRecord({ what: '边界上的事', about: 'self', certain: 'witnessed', cost: 0.5 })
+  const hits = [{ record, score: 0.5, parts: { relevance: 1, strength: 0.5, mood: 0 } }]
+  assert.equal(splitByDisclosure(hits).withheld.length, 0)
+})
+
+/* ───────────────────────── 定时提醒的留痕 ───────────────────────── */
+
+/** 单条格式（那一轮只有这一条提醒时）。 */
+const REMINDER_TEXT = [
+  '[SCHEDULE REMINDER]',
+  'This is a scheduled reminder you set earlier.',
+  'schedule_id_json: "a3f1"',
+  'occurrence_at: 2026-11-21T07:00:00.000Z',
+  'reminder_prompt_json: "提醒火火吃药"',
+].join('\n')
+
+/**
+ * 批量格式 —— **真机实际发的是这个**，哪怕只有一条（2026-11-21）。
+ *
+ * 我第一版只认单条格式，结果真机一条都没记上；这条用例就是那次事故的护栏。
+ */
+const BATCH_TEXT = [
+  '[SCHEDULE REMINDER BATCH]',
+  'This is a scheduled message from the user',
+  'reminders_json: [{"schedule_id":"schedule-bd4c","occurrence_at":"2026-11-21T14:35:20.000Z","reminder_prompt":"提醒火火喝水"}]',
+].join('\n')
+
+test('定时提醒：单条格式能读出来', () => {
+  const fired = parseScheduleReminders(REMINDER_TEXT)
+  assert.equal(fired.length, 1)
+  assert.equal(fired[0].prompt, '提醒火火吃药')
+  assert.equal(fired[0].at, '2026-11-21T07:00:00.000Z')
+})
+
+test('定时提醒：批量格式也能读出来（真机发的是这个）', () => {
+  const fired = parseScheduleReminders(BATCH_TEXT)
+  assert.equal(fired.length, 1)
+  assert.equal(fired[0].prompt, '提醒火火喝水')
+  assert.equal(fired[0].at, '2026-11-21T14:35:20.000Z')
+})
+
+test('定时提醒：普通消息不会被误认（认不出来就当没有，绝不猜）', () => {
+  assert.deepEqual(parseScheduleReminders('今天有点累，回来了'), [])
+  assert.deepEqual(parseScheduleReminders('[SCHEDULE REMINDER]\nschedule_id_json: "x"'), [], '缺 prompt 就放弃')
+})
+
+/* ───────────────────────── 时间说法 ───────────────────────── */
+
+test('时间说法：今天 / 昨天 / N 天 / N 周 / N 个月 / N 年', () => {
+  const now = new Date('2026-11-20T12:00:00.000Z')
+  const at = (days) => new Date(now.getTime() - days * 86400000).toISOString()
+  assert.equal(whenText(at(0), now), '今天')
+  assert.equal(whenText(at(1), now), '昨天')
+  assert.equal(whenText(at(3), now), '3 天前')
+  assert.equal(whenText(at(14), now), '2 周前')
+  assert.equal(whenText(at(90), now), '3 个月前')
+  assert.equal(whenText(at(400), now), '1 年前')
+})
+
+test('时间说法：读不出时间时返回空串（宁可不提，也不要瞎说"很久以前"）', () => {
+  assert.equal(whenText('不是时间', new Date()), '')
+  assert.equal(whenText('', new Date()), '')
+})
+
+test('时间说法：给时区就按日历日算"昨天"，不给就还是 24 小时', () => {
+  // 上海 11-22 00:30（= 11-21T16:30Z）回忆 11-21 23:30（= 11-21T15:30Z）的事：
+  // 毫秒差只有 1 小时，旧口径会说"今天"；可对过日子的她来说，那是昨晚。
+  const now = new Date('2026-11-21T16:30:00.000Z')
+  const lastNight = '2026-11-21T15:30:00.000Z'
+  assert.equal(whenText(lastNight, now), '今天', '不传时区时保持旧口径（不静默改变别的调用方）')
+  assert.equal(whenText(lastNight, now, 'Asia/Shanghai'), '昨天')
+})
+
+test('时间说法：时区名写错时不炸，退回 24 小时口径', () => {
+  const now = new Date('2026-11-20T12:00:00.000Z')
+  const at = new Date(now.getTime() - 3 * 86400000).toISOString()
+  assert.equal(whenText(at, now, 'Mars/Olympus'), '3 天前')
+})
+
+/* ───────────────────────── 注入文本 ───────────────────────── */
+
+test('注入文本：没有想起来的就不占一个 token', () => {
+  assert.equal(renderRecalled([], new Date()), '')
+})
+
+test('注入文本：带时间感，且不显示任何分数', () => {
+  const now = new Date('2026-11-20T12:00:00.000Z')
+  const record = createMemoryRecord({
+    what: '我们那天吵了一架',
+    about: 'us',
+    certain: 'witnessed',
+    when: '2026-11-17T12:00:00.000Z',
+  })
+  const text = renderRecalled([{ record, score: 0.63, parts: { relevance: 0.8, strength: 0.5, mood: 0 } }], now)
+  assert.match(text, /想起来的几件事/)
+  assert.match(text, /3 天前/)
+  assert.match(text, /我们那天吵了一架/)
+  assert.equal(/0\.63/.test(text), false, '分数不该出现在给她看的文本里')
+})
+
+test('注入文本：刚发生的事带上当时的原话，久了就不再带（细节会褪）', () => {
+  const now = new Date('2026-11-22T12:00:00.000Z')
+  const fresh = createMemoryRecord({
+    what: '他慢慢亲了我一下',
+    detail: '「这风声，微微的，挺惬意的」',
+    about: 'us',
+    certain: 'witnessed',
+    when: now.toISOString(),
+  })
+  const hit = (record) => [{ record, score: 0.9, parts: { relevance: 0.8, strength: 0.6, mood: 0 } }]
+
+  assert.match(renderRecalled(hit(fresh), now), /这风声，微微的，挺惬意的/, '刚发生的事要带原话')
+
+  // 同一个把月前（超过细节寿命 60 天）：事还在，原话已经想不起来了。
+  const stale = { ...fresh, createdAt: '2026-08-01T00:00:00.000Z' }
+  const staleText = renderRecalled(hit(stale), now)
+  assert.match(staleText, /他慢慢亲了我一下/, '事还在')
+  assert.equal(staleText.includes('这风声'), false, '原话不该再出现')
+})
+
+test('注入文本：细节受字数预算约束（宁可少一句原话，也不塞满上下文）', () => {
+  const now = new Date('2026-11-22T12:00:00.000Z')
+  const hits = Array.from({ length: 5 }, (_, index) => ({
+    record: createMemoryRecord({
+      what: `第 ${index} 件事` + '啊'.repeat(180),
+      detail: '细节'.repeat(60),
+      about: 'us',
+      certain: 'witnessed',
+      when: now.toISOString(),
+    }),
+    score: 1,
+    parts: { relevance: 1, strength: 1, mood: 0 },
+  }))
+  const detailLines = renderRecalled(hits, now)
+    .split('\n')
+    .filter((line) => line.startsWith('  '))
+  assert.ok(detailLines.length >= 1, '第一条的细节应当带上')
+  assert.ok(detailLines.length < 5, '五条都带就超预算了')
+})
+
+
+/* ───────────────────────── 工具：回忆工具也要守秘密 ───────────────────────── */
+
+/** 造一条带 cost 的记忆。 */
+function memoryOf(what, cost, overrides = {}) {
+  return createMemoryRecord({ what, about: 'user', certain: 'told', cost, ...overrides })
+}
+
+test('回忆工具：秘密只报"有这么一条"，正文一个字都不给模型', () => {
+  // 2026-11-22 发现：注入那条路一直守着披露门槛，**工具这条路一个都没守** ——
+  // 模型只要主动查一次，秘密就整段看到了，"她不想说"当场形同虚设。
+  const open = memoryOf('一件普通的事', 0.1)
+  const secret = memoryOf('那件我一直没说的事', 0.9)
+  const value = hitsToValue(
+    [
+      { record: open, score: 0.9, parts: { relevance: 0.8, strength: 0.5, mood: 0 } },
+      { record: secret, score: 0.8, parts: { relevance: 0.7, strength: 0.5, mood: 0 } },
+    ],
+    new Date(),
+  )
+
+  assert.equal(value.entries.length, 1)
+  assert.equal(value.entries[0].what, '一件普通的事')
+  assert.match(value.message, /不想说/)
+  assert.equal(JSON.stringify(value).includes('那件我一直没说的事'), false, '秘密的正文不能出现在工具结果里')
+})
+
+test('回忆工具：只命中了秘密时，不退回"最牢的几条"（否则等于从后门漏）', () => {
+  const secret = memoryOf('那件我一直没说的事', 0.9)
+  const value = hitsToValue([{ record: secret, score: 0.8, parts: { relevance: 0.8, strength: 0.8, mood: 0 } }], new Date())
+  assert.deepEqual(value.entries, [])
+  assert.match(value.message, /不想说/)
+})
+
+test('整合：两段并发整合不会写出两条一模一样的记忆（先查后写不是原子动作）', async () => {
+  // 真机 2026-11-22：同一分钟出现两条一字不差的记忆。整合是后台 void 出去的，
+  // 上一段没写完、下一段就开始查重 —— 谁也看不见对方刚写的那条。现在排队串行。
+  const store = createMemoryStore(fakeTable())
+  const reply = '[{"what":"火火说找我主要是想有人陪","about":"user","certain":"told"}]'
+  await Promise.all([
+    integrate(store, events, { llm: fakeLlm(reply), log: quietLog }),
+    integrate(store, events, { llm: fakeLlm(reply), log: quietLog }),
+  ])
+  assert.equal(store.all().length, 1, '后一段应当看得到前一段写下的东西')
+})
+
+test('记忆的说明自己讲边界：记忆的事与人格的事分开（系统提示词不再代管）', () => {
+  // 2026-11-22：人格的系统提示词里原本写着"稳定事实用 humanity_remember 记"，那是记忆
+  // 还在系统提示词里当兄弟段落的年代留下的。拆开后两边各守一侧：记忆这边也要说清"什么不归我"。
+  assert.match(MEMORY_GUIDANCE, /人格/, '记忆的说明里要指一下另一个人格那边')
+  assert.equal(MEMORY_GUIDANCE.includes('humanity_persona'), false, '记忆的说明不教人格工具')
+  assert.equal(MEMORY_GUIDANCE.includes('humanity_remember'), true, '记忆自己的工具由它自己说')
 })

@@ -59,7 +59,6 @@ export function buildRunner(parts: RuntimeParts, state: EvolutionState): Runner 
     llm: parts.llm,
     classify: () => ({
       memoryStore: deps.memoryStore,
-      memoryPolicy: deps.memoryPolicy,
       persona: deps.personaSection,
       state,
       log,

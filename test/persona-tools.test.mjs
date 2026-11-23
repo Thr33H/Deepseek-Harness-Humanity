@@ -114,6 +114,14 @@ const initArgs = {
     { key: '人格偏好', value: '温和、直接' },
     { key: '主语言', value: '中文' },
   ],
+  // 2026-11-20 起，初始化必须同时给出性格的四根范围（笼子）：底色与性格一起封存，
+  // 只写一半会让"她是谁"停在半成品上，而底色封存后再也写不进去。
+  character: [
+    { key: 'stability', min: 0.35, max: 0.62, reason: '看起来淡定，其实心里会翻' },
+    { key: 'extraversion', min: 0.28, max: 0.52, reason: '不太主动，但熟了话会变多' },
+    { key: 'agreeableness', min: 0.55, max: 0.8, reason: '不爱起冲突，但也不会什么都忍' },
+    { key: 'openness', min: 0.72, max: 0.96, reason: '对没见过的东西几乎没有抵抗力' },
+  ],
 }
 
 test('两个工具都注册进了真实工具表，且参数契约对模型可见', async () => {

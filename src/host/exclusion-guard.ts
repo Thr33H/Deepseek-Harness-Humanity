@@ -18,8 +18,7 @@ import type { Context } from '@deepseek-ai/cordis'
 
 import { presetOfAgent } from './agent-scope.js'
 import type { Log } from './log.js'
-import { MEMORY_RECALL_TOOL } from './memory/tools-recall.js'
-import { MEMORY_REMEMBER_TOOL } from './memory/tools-remember.js'
+import { MEMORY_RECALL_TOOL, MEMORY_REMEMBER_TOOL } from './memory/index.js'
 import { PERSONA_INIT_TOOL } from './persona/init.js'
 import { PERSONA_UPDATE_TOOL } from './persona/update.js'
 

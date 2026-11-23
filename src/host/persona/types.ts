@@ -4,7 +4,7 @@
  * 与 `constants.ts` 的分工：这里只放形状（interface / 联合类型），不放值。
  * @module humanity/persona/types
  */
-import type { ConfirmableIssueCode, PersonaIssueCode } from './constants.js'
+import type { CharacterAxisKey, ConfirmableIssueCode, PersonaIssueCode } from './constants.js'
 
 /** 底色的一个字段。`custom` 区分默认三段式与对方自行添加的字段。 */
 export interface IdentityField {
@@ -41,11 +41,55 @@ export interface MutableLayer {
   userDefined: UserDefinedEntry[]
 }
 
+/**
+ * 性格的一根轴：**一个范围 + 此刻的值**（2026-11-20 新增）。
+ *
+ * 为什么不是单个数字：底色决定"她最多能变到哪儿"（`min`/`max` 是她天生画出来的笼子），
+ * 经历只能在笼子里推 `value`。没有笼子，一根轴被反复往一个方向推，跑一年就会漂成另一个人；
+ * 有笼子，就只会在"还是她"的范围内长大。
+ *
+ * 三者的分工与心理学里的层级对应：域（几乎不动）→ 笼子由域算出来；facet（几年尺度）→
+ * 就是 `value` 能走的那条路；状态（分钟级）不落库，由情绪模块当轮现算。
+ */
+export interface CharacterAxis {
+  /** 这根轴能推到的最低点（0–1）。 */
+  min: number
+  /** 这根轴能推到的最高点（0–1）。 */
+  max: number
+  /** 此刻的值，恒在 `[min, max]` 内。 */
+  value: number
+  /**
+   * 为什么是这个范围 —— 初始化时她自己的话。
+   *
+   * 不是装饰字段：以后想知道"她为什么这么怕被说胖"，只能顺着它找回源头。
+   * 空的理由等于一个没有来历的设定。
+   */
+  reason: string
+}
+
+/** 一根轴连同它的键（用数组存，避免把键名当对象属性名带来的转义问题）。 */
+export interface CharacterAxisEntry extends CharacterAxis {
+  key: CharacterAxisKey
+}
+
+/**
+ * 性格层。
+ *
+ * `derivedAt` 为空串 = **还没有性格**（未初始化）。这时文档里没有任何轴，
+ * 校验不能因此判它"缺轴" —— 与底色的 `initializedAt` 同一个口径。
+ */
+export interface CharacterLayer {
+  /** 笼子的推导时刻（ISO 8601）。 */
+  derivedAt: string
+  axes: CharacterAxisEntry[]
+}
+
 /** 完整人格文档。 */
 export interface PersonaDocument {
   schemaVersion: number
   identityCard: IdentityCard
   mutableLayer: MutableLayer
+  character: CharacterLayer
 }
 
 /** 谁在写。对方在工作台里的编辑是权威输入，Agent 的自动整理才受高风险约束。 */

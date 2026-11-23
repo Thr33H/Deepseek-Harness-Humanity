@@ -81,9 +81,9 @@ test('总开关关闭时所有模块都是 disabled', () => {
   )
 })
 
-test('记忆模式为 off 时记忆模块 disabled，其余模块不受影响', () => {
+test('记忆关掉时记忆模块 disabled，其余模块不受影响', () => {
   const registry = createModuleRegistry(MODULES, createFakeLog())
-  registry.install({}, Config({ modules: { memory: { mode: 'off' } } }))
+  registry.install({}, Config({ modules: { memory: { enabled: false } } }))
   const states = Object.fromEntries(registry.snapshot().map((state) => [state.id, state.status]))
   assert.equal(states.memory, 'disabled')
   assert.equal(states.persona, 'active')

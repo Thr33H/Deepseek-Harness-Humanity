@@ -7,6 +7,7 @@
  */
 import { CONFIRMABLE_ISSUES } from './constants.js'
 import type { PersonaDocument, PersonaIssue, PersonaValidation, ValidateOptions, WriteSource } from './types.js'
+import { checkCharacter } from './validate-character.js'
 import { checkIdentity } from './validate-identity.js'
 import { checkMutable } from './validate-mutable.js'
 
@@ -31,6 +32,7 @@ export function validatePersona(
 
   checkIdentity(next, prev, source, issues)
   checkMutable(next, prev, source, issues)
+  checkCharacter(next, prev, source, issues)
 
   // 白名单在这里**再拦一次**，不只在工具层拦：`confirmed` 是"对方点头了"的凭证，
   // 而 `validatePersona` 是所有人（工具、设置钩子、客户端直写）都会经过的那道门。

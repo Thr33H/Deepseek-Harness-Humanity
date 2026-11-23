@@ -24,7 +24,6 @@ async function boot(options = {}) {
   const { state } = fakeEvolutionState()
   let enabled = options.enabled ?? true
   let pendingActive = options.pendingActive ?? true
-  const memory = { count: options.memoryPending ?? 0, ids: [] }
 
   const dispose = installProposalNotification(ctx, createLog(ctx, 'test'), {
     state: () => (options.noStore === true ? undefined : state),
@@ -32,11 +31,7 @@ async function boot(options = {}) {
       pendingActive
         ? {
             proposalIds: () => state.listProposals('pending').map((record) => record.id),
-            memoryFingerprints: () => memory.ids,
-            counts: () => {
-              const counts = state.countPending()
-              return { ...counts, memory: memory.count, total: counts.total + memory.count }
-            },
+            counts: () => state.countPending(),
           }
         : undefined,
     enabled: () => enabled,
@@ -50,7 +45,6 @@ async function boot(options = {}) {
     state,
     main,
     child,
-    memory,
     setEnabled: (next) => {
       enabled = next
     },
@@ -106,26 +100,6 @@ test('同一批只提醒一次：第二次装配为空；新提案改变批次�
     await seedProposal(harness.state, 'persona', '新的提案')
     const text = await harness.turn(harness.main)
     assert.match(text, /2 条/, '新批次：再提醒一次')
-  } finally {
-    await harness.dispose()
-  }
-})
-
-test('记忆 pending 也计入批次（P-042 分类含记忆）：数量合并、指纹参与水位', async () => {
-  const harness = await boot()
-  try {
-    harness.memory.count = 3
-    harness.memory.ids = ['fp1', 'fp2', 'fp3']
-    const first = await harness.turn(harness.main)
-    assert.match(first, /3 条/)
-    assert.match(first, /记忆 3 条/)
-    await flush()
-    assert.equal(await harness.turn(harness.main), '')
-
-    // 记忆侧多了一条 pending：批次变了，应当再提醒。
-    harness.memory.count = 4
-    harness.memory.ids = ['fp1', 'fp2', 'fp3', 'fp4']
-    assert.match(await harness.turn(harness.main), /4 条/)
   } finally {
     await harness.dispose()
   }

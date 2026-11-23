@@ -16,7 +16,7 @@ import { CursorRecordSchema, ProposalRecordSchema, RunRecordSchema, StateRecordS
 import { EMOTION_TABLE } from './emotion/constants.js'
 import { EmotionStateSchema } from './emotion/model.js'
 import { MEMORY_TABLE } from './memory/constants.js'
-import { MemoryEntrySchema } from './memory/model.js'
+import { MemoryRecordSchema } from './memory/model.js'
 import { loadOptional } from './optional.js'
 import {
   COMPATIBLE_DOMAIN_VERSIONS,
@@ -272,7 +272,7 @@ export async function openDomain(facility: DomainFacility, log: Log): Promise<Hu
         global: { schema: MetaSchema, initial: META_INITIAL },
         tables: {
           [HISTORY_TABLE]: module.domainTable(tolerantRecord(PersonaHistorySchema)),
-          [MEMORY_TABLE]: module.domainTable(tolerantRecord(MemoryEntrySchema)),
+          [MEMORY_TABLE]: module.domainTable(tolerantRecord(MemoryRecordSchema)),
           [RUNS_TABLE]: module.domainTable(tolerantRecord(RunRecordSchema)),
           [PROPOSALS_TABLE]: module.domainTable(tolerantRecord(ProposalRecordSchema)),
           [CURSORS_TABLE]: module.domainTable(tolerantRecord(CursorRecordSchema)),

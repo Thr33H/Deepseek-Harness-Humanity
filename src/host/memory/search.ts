@@ -1,205 +1,186 @@
 /**
- * 本地检索引擎：给定当前对方发话，从活跃记忆里挑出最相关的 0–N 条。
+ * 检索：此刻她"想得起来"哪几条（**纯函数**，不碰存储）。
  *
- * 单一方向：`对方发话` → {@link tokenize} → {@link scoreEntry} 打分 → 阈值筛 → 取前 N
- * → `MemoryStore.markUsed`（为 P-026 的衰减提供"最近有没有用过"）。
+ * ### 为什么不用向量
  *
- * 四条硬约束（改动前先读）：
- * 1. **不调用模型做查询改写**（P-029）：查询就是对方那句话本身，分词是本地规则；
- * 2. **只查 `active`**（P-026）：归档记忆默认不参与检索，要看得去工作台手动调回；
- * 3. **会话记忆不跨会话**（§4.2.1）：别的会话的会话记忆一律不参与，哪怕关键词全中；
- * 4. **作用域开关即时生效**（P-030）：被关掉的层不参与，和"模式 off"是同一套策略对象。
+ * 单用户、几千条、一年增长不到 3000 行 —— 这个量级上关键词重合 + 强度 + 心情已经够用，
+ * 而向量要额外的模型调用、要维护索引、还会让"她为什么想起这条"变得无法解释。
  *
- * 向量检索**刻意不在这里**（P-027：默认关闭、可选增强、派生可重建）。
+ * ### 分数拆成三块，不合成一个黑箱
+ *
+ * 「相关」「还牢不牢」「跟此刻的心情对不对味」是三件不同的事。工作台要能回答
+ * "她这会儿为什么带进这一条"，所以三块分开返回，合成只是最后一步。
  * @module humanity/memory/search
  */
-import type { MemoryStore } from './store.js'
-import { maybeRunDecay } from './decay.js'
-import { MOOD_BONUS, MOOD_TONE } from './constants.js'
-import { matchesQuery, scoreEntry, type SearchContext } from './scoring.js'
-import { tokenize } from './tokenize.js'
-import type { MemoryScope } from './constants.js'
-import type { MemoryEntry, MemoryPolicy } from './types.js'
+import { IDENTITY_HINTS, MIN_SHARED_RELEVANCE, MIN_SHARED_TOKENS, RELEVANCE_THRESHOLD } from './constants.js'
+import { isFaded, strengthAt } from './decay.js'
+import { foldedIds } from './tiers.js'
+import type { MemoryHit, MemoryMood, MemoryRecord } from './types.js'
 
-/** 一次检索的输入。 */
-export interface SearchQuery {
-  /** 当前对方发话（原样，不做改写）。 */
-  message: string
-  /** 当前会话 id。 */
-  sessionId: string
-  /** 当前工作区 id；无工作区时为空串。 */
-  workspaceId: string
-  /**
-   * 此刻的心情（"心境一致"用）：同向的旧事更容易被想起。
-   *
-   * 缺省表示调用方不提供 —— 此时检索行为与没有这个能力时**逐位相同**，
-   * 所以它不会影响回忆工具、干跑对比，也不会让老测试变红。
-   */
-  mood?: SearchMood
-}
+/** 三块的权重：相关最重要，其次是她还记不记得住，最后是心情。 */
+const WEIGHT = { relevance: 0.55, strength: 0.3, mood: 0.15 } as const
 
-/** 心境一致的输入面（只读两个事实，不 import 情绪模块）。 */
-export interface SearchMood {
-  /** 当前主导情绪种类（空串 = 平静）。 */
-  kind: string
-  /** 当前关系温度（0–100）。 */
-  warmth: number
-}
-
-/** 检索的可选调整（缺省全部走策略）。 */
-export interface SearchOptions {
-  /** 只在这个作用域里找（recall 的 scope 参数用它）；缺省 = 全部开启的层。 */
-  scope?: MemoryScope
-  /** 最多返回几条；缺省用 `policy.injectLimit`。 */
-  limit?: number
-  /** 相关度阈值；缺省用 `policy.relevanceThreshold`。 */
-  threshold?: number
-  /** 是否顺带记一次"被使用"；缺省 true（干跑对比时置 false，免得污染统计）。 */
-  markUsed?: boolean
+/** 中文按双字切、英文按词切；标点与空白丢掉。 */
+function tokensOf(text: string): Set<string> {
+  const tokens = new Set<string>()
+  const cleaned = text.toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '')
+  // 英文/数字：整词收一遍（双字切法会把 "vram" 切成 "vr"/"ra"，认不出整词）。
+  for (const word of text.toLowerCase().match(/[a-z0-9]{2,}/g) ?? []) tokens.add(word)
+  // 中文双字：中文没有空格，2-gram 是最省事又能用的近似。
+  for (let index = 0; index + 1 < cleaned.length; index += 1) tokens.add(cleaned.slice(index, index + 2))
+  return tokens
 }
 
 /**
- * 这条记忆是否**有资格**进入本次检索。
+ * 一条记录"能被哪些字眼找到"。
  *
- * 三条：作用域开关开着、是生效状态、会话记忆只属于当前会话。
- * @param entry - 待判定条目。
- * @param query - 检索输入。
- * @param policy - 当前生效策略。
- * @returns 可以参与检索时为 true。
- */
-function isEligible(entry: MemoryEntry, query: SearchQuery, policy: MemoryPolicy): boolean {
-  if (entry.status !== 'active') return false
-  if (!policy.scopes[entry.scope]) return false
-  // 归属必须对得上（2026-09-26 审计实测的真缺陷）：原来只对会话层设卡，区域记忆在别的工作区
-  // 里只是**扣 0.15 分**，照样越过默认阈值被检索、被注入 —— 「只在某个工作目录里被想起」这句话
-  // 就成了空话（也算跨区泄露）。归属读不到时**不猜**：宁可不注入，也不把别处的记忆带过来。
-  if (entry.scope === 'session') return query.sessionId !== '' && entry.ownerId === query.sessionId
-  if (entry.scope === 'workspace') return query.workspaceId !== '' && entry.ownerId === query.workspaceId
-  return true
-}
-
-/**
- * 排序：分数降序，然后重要度、更新时间降序，最后指纹升序 —— 同分时结果也必须稳定，
- * 否则同一句话两轮注入的顺序会不一样（提示词缓存与对方观感都会抖）。
- */
-function compareScored(
-  left: { entry: MemoryEntry; score: number },
-  right: { entry: MemoryEntry; score: number },
-): number {
-  if (left.score !== right.score) return right.score - left.score
-  if (left.entry.importance !== right.entry.importance) return right.entry.importance - left.entry.importance
-  if (left.entry.updatedAt !== right.entry.updatedAt) return left.entry.updatedAt < right.entry.updatedAt ? 1 : -1
-  return left.entry.dedupeKey < right.entry.dedupeKey ? -1 : 1
-}
-
-/**
- * 心境一致的**排序加成**（同向的旧事更容易浮上来）。
+ * 概括只有一句话，但它是从几件事攒出来的，而对方提起来的往往是**具体那件事里的词**
+ * （"我们还去园子里散步吗"）。所以可检索文本 = 它自己的话 + 它收进来的那些记录的话
+ * （递归，带环保护）。
  *
- * 只加不减：反向的记忆不会被压下去，只是不会被提前 —— "心情差所以格外想起开心的事"
- * 是另一个现象，这里不做（那需要一套"对比"语义，容易变成玄学）。
- * @param entry - 候选条目。
- * @param mood - 当前心情。
- * @returns 加成（0 或 `MOOD_BONUS`）。
+ * 不这样做，归拢会让记忆**更难被想起来**：明明有"十月那阵子我们不太顺"，
+ * 问"那阵子是不是老在夜里聊天"却答不记得 —— 那是把归拢做成了删除。
+ * @param records - 全部记忆。
+ * @returns id → 可检索文本。
  */
-function moodBonus(entry: MemoryEntry, mood: SearchMood | undefined): number {
-  if (mood === undefined || mood.kind === '') return 0
-  const current = MOOD_TONE[mood.kind]
-  const remembered = MOOD_TONE[entry.affect.kind]
-  if (current === undefined || remembered === undefined) return 0
-  // 中性情绪（惊讶）不构成"心境一致"：两边都中性并不等于同一种心情。
-  if (current === 0 || remembered === 0) return 0
-  return current === remembered ? MOOD_BONUS : 0
-}
-
-/**
- * 排序与筛选：**同步**（只读内存里的表快照），不推进使用统计。
- *
- * 为什么必须是同步的：系统提示词的 `section.text` 回调**只能返回字符串**
- * （`dsh-system-prompt` 的 `PromptSection.text` 签名），注入路径里没有 await 的机会。
- * 于是把"选哪些条目"（纯计算，同步）与"记一次使用"（要写盘，异步）拆开：
- * 注入用 {@link rankMemories} + 日志式异步补记，工具/recall 用 {@link searchMemory}。
- * @param store - 记忆读写入口。
- * @param policy - 当前生效策略。
- * @param query - 检索输入。
- * @param options - 可选调整（`markUsed` 在这里无意义，见 {@link searchMemory}）。
- * @returns 命中条目（可能为空数组）。
- */
-export function rankMemories(
-  store: MemoryStore,
-  policy: MemoryPolicy,
-  query: SearchQuery,
-  options: SearchOptions = {},
-): MemoryEntry[] {
-  const tokens = tokenize(query.message)
-  if (tokens.size === 0) return []
-
-  const context: SearchContext = { sessionId: query.sessionId, workspaceId: query.workspaceId }
-  const now = new Date().toISOString()
-  const threshold = options.threshold ?? policy.relevanceThreshold
-  const limit = Math.max(0, options.limit ?? policy.injectLimit)
-
-  const scored = store
-    .list(undefined, 'active')
-    .filter((entry) => isEligible(entry, query, policy))
-    .filter((entry) => options.scope === undefined || entry.scope === options.scope)
-    // 先过"有交集"的门，再谈分数：低阈值下质量底噪会淹没相关性（见 `matchesQuery`）。
-    .filter((entry) => matchesQuery(entry, tokens))
-    .map((entry) => {
-      const score = scoreEntry({ entry, queryTokens: tokens, context, now })
-      // `rank` 只用于排序，`score` 仍用于阈值判定 —— 两者分开，
-      // 加成才有资格"只改先后、不改准入"（见 `MOOD_BONUS` 的说明）。
-      return { entry, score, rank: score + moodBonus(entry, query.mood) }
-    })
-    .filter((item) => item.score >= threshold)
-    .sort((a, b) => compareScored({ entry: a.entry, score: a.rank }, { entry: b.entry, score: b.rank }))
-    .slice(0, limit)
-
-  return scored.map((item) => item.entry)
-}
-
-/**
- * 记一次"被使用"（`markUsed`）：这是使用统计的唯一推进入口，也是 P-026 判断"长期未用"的依据。
- *
- * 一次检索命中几条就记几条；失败**不抛**给调用方（统计是派生数据，写不进去不该毁掉这次检索）。
- * @param store - 记忆读写入口。
- * @param entries - 本轮命中的条目。
- * @param onError - 单条失败时的回调（日志）；缺省静默（由调用方决定要不要记）。
- */
-export async function markMemoriesUsed(
-  store: MemoryStore,
-  entries: readonly MemoryEntry[],
-  onError?: (error: unknown) => void,
-): Promise<void> {
-  for (const entry of entries) {
-    try {
-      await store.markUsed(entry.dedupeKey)
-    } catch (error) {
-      onError?.(error)
-    }
+function searchableText(records: readonly MemoryRecord[]): Map<string, string> {
+  const byId = new Map(records.map((record) => [record.id, record]))
+  const cache = new Map<string, string>()
+  const expand = (id: string, seen: Set<string>): string => {
+    const cached = cache.get(id)
+    if (cached !== undefined) return cached
+    const record = byId.get(id)
+    if (record === undefined || seen.has(id)) return ''
+    seen.add(id)
+    const parts = [record.what, record.detail]
+    for (const cover of record.covers) parts.push(expand(cover, seen))
+    const text = parts.filter((part) => part !== '').join(' ')
+    cache.set(id, text)
+    return text
   }
+  const index = new Map<string, string>()
+  for (const record of records) index.set(record.id, expand(record.id, new Set()))
+  return index
 }
 
 /**
- * 检索（带使用统计）：先 {@link rankMemories} 选出条目，再 {@link markMemoriesUsed} 记一次使用。
+ * 这段可检索文本与当前这句话有多相关（0–1），并给出接住了几个词。
  *
- * 次数只影响排序，**不因为高频就注入**（P-031）。`options.markUsed === false` 时跳过统计，
- * 供"干跑对比"用（免得实验本身改变了下一轮的排序）。
- * @param store - 记忆读写入口。
- * @param policy - 当前生效策略。
- * @param query - 检索输入。
- * @param options - 可选调整。
- * @returns 命中条目（可能为空数组）。
+ * 拿"发生了什么"和细节一起比：要点是骨架，细节里常有能被提起的具体词
+ * （一个地名、一部片名）。
+ *
+ * 为什么要一并返回"接住几个词"：长句子的分母大，五个词对上也只有 0.28 ——
+ * 准入不能只看比值（见 `MIN_SHARED_TOKENS` 的说明）。
+ * @param text - 这条记忆的可检索文本（见 `searchableText`）。
+ * @param query - 当前这句话切出来的词。
+ * @returns 相关度与接住的词数。
  */
-export async function searchMemory(
-  store: MemoryStore,
-  policy: MemoryPolicy,
-  query: SearchQuery,
-  options: SearchOptions = {},
-): Promise<MemoryEntry[]> {
-  const hits = rankMemories(store, policy, query, options)
-  if (options.markUsed !== false) await markMemoriesUsed(store, hits)
-  // 顺带维护：到期才真的跑（见 `maybeRunDecay`），**不 await** —— 检索结果先回去，
-  // 维护在后台完成；失败也不影响这次检索。
-  void maybeRunDecay(store, policy, new Date().toISOString())
-  return hits
+function matchOf(text: string, query: Set<string>): { relevance: number; shared: number } {
+  if (query.size === 0) return { relevance: 0, shared: 0 }
+  const hay = tokensOf(text)
+  if (hay.size === 0) return { relevance: 0, shared: 0 }
+  let shared = 0
+  for (const token of query) if (hay.has(token)) shared += 1
+  // 除以查询词数而不是并集：我们问的是"这句话里有多少被这条记忆接住了"。
+  return { relevance: shared / query.size, shared }
+}
+
+/**
+ * 心情对味的加成：同向的旧事更容易被想起。
+ *
+ * 只加成**排序**，不参与阈值 —— 阈值决定"有没有资格被注入"，加成决定"谁排在前面"。
+ * 让加成参与阈值，等于说"心情差的时候更容易想起无关的旧事"，那是噪声。
+ * @param record - 这条记忆。
+ * @param mood - 此刻的心情。
+ * @returns 0 或 1。
+ */
+function moodOf(record: MemoryRecord, mood: MemoryMood | undefined): number {
+  if (mood === undefined || mood.tone === 0 || record.felt.kind === '') return 0
+  const positive = ['joy', 'trust', 'anticipation'].includes(record.felt.kind)
+  const negative = ['sadness', 'disgust', 'anger', 'fear'].includes(record.felt.kind)
+  if (positive && mood.tone === 1) return 1
+  if (negative && mood.tone === -1) return 1
+  return 0
+}
+
+/**
+ * 她此刻**最牢的那几条**（不看当前这句话）。
+ *
+ * ### 为什么需要这条"不看问题"的路
+ *
+ * 纯关键词检索有个死穴：它能回答"你还记得火火吗"，却回答不了"**你还记得我吗**" ——
+ * 后者一个具体的词都没提，和任何记忆都不重合，于是命中 0 条，她就说"第一次见面"。
+ *
+ * 而人不是这样：醒来的时候不会先想"对方今天要聊什么"才决定想起谁。**她本来就该记得你。**
+ * 所以新会话的第一句、以及"查不到直接相关"的时候，都要退回这条路。
+ * @param records - 候选记忆。
+ * @param limit - 最多几条。
+ * @param now - 现在。
+ * @returns 按"牢不牢 × 跟我多大关系"排序，淡掉的不要。
+ */
+export function strongest(records: readonly MemoryRecord[], limit: number, now: Date = new Date()): MemoryHit[] {
+  const hits: MemoryHit[] = []
+  // 已经被归拢成"那阵子"的，不再单独出现：概括已经代表它们了。
+  const folded = foldedIds(records)
+  for (const record of records) {
+    // 已经淡到快没了的，不算"她还记得"；已经被归拢进"那阵子"的，也不再单独出现。
+    if (folded.has(record.id)) continue
+    const strength = strengthAt(record, now)
+    if (isFaded(strength)) continue
+    hits.push({ record, score: strength, parts: { relevance: 0, strength, mood: 0 } })
+  }
+  hits.sort((left, right) => right.score - left.score)
+
+  // 「对方是谁」的那一条提到最前。
+  //
+  // 为什么不让它按强度排队：一句"他叫火火、是男生"的强度往往不高（一次自我介绍没有多少情绪），
+  // 会被"他亲了我"这种强记忆挤下去 —— 于是她知道"有人亲过她"，却不知道眼前这个人是谁，
+  // 整场对话把他当陌生人（2026-11-21 真机）。
+  const isIdentity = (record: MemoryRecord): boolean =>
+    record.about === 'user' && IDENTITY_HINTS.some((hint) => record.what.includes(hint))
+  const anchorAt = hits.findIndex((hit) => isIdentity(hit.record))
+  if (anchorAt > 0) {
+    const [anchor] = hits.splice(anchorAt, 1)
+    hits.unshift(anchor as MemoryHit)
+  }
+  return hits.slice(0, Math.max(0, limit))
+}
+
+/**
+ * 此刻想得起来的那几条，按分数从高到低。
+ *
+ * 三条硬规则：
+ * 1. **淡到几乎没有的不参与**（`isFaded`）—— 它们还在库里，但要靠线索唤醒，不是日常检索；
+ * 2. 低于相关度阈值的**宁可不给**（空着比塞错更安全）；
+ * 3. 条数由调用方截断（`MAX_INJECT`），这里只负责排序。
+ * @param records - 候选记忆（通常是全库）。
+ * @param message - 当前这句话。
+ * @param options - 此刻的心情（可选）。
+ * @returns 命中的记忆，按分数降序。
+ */
+export function recall(
+  records: readonly MemoryRecord[],
+  message: string,
+  options: { mood?: MemoryMood; now?: Date } = {},
+): MemoryHit[] {
+  const now = options.now ?? new Date()
+  const query = tokensOf(message)
+  const text = searchableText(records)
+  const hits: MemoryHit[] = []
+  const folded = foldedIds(records)
+  for (const record of records) {
+    // 已经被归拢的不再单独出现：这一层要的是"那阵子"，不是一堆明细。
+    if (folded.has(record.id)) continue
+    const strength = strengthAt(record, now)
+    if (isFaded(strength)) continue
+    const { relevance, shared } = matchOf(text.get(record.id) ?? record.what, query)
+    const mood = moodOf(record, options.mood)
+    const score = WEIGHT.relevance * relevance + WEIGHT.strength * strength + WEIGHT.mood * mood
+    // 两道准入：比值够高，或者**接住的词够多且不至于太泛**（长句子专用，见 constants）。
+    const admitted =
+      relevance >= RELEVANCE_THRESHOLD || (shared >= MIN_SHARED_TOKENS && relevance >= MIN_SHARED_RELEVANCE)
+    if (!admitted) continue
+    hits.push({ record, score, parts: { relevance, strength, mood } })
+  }
+  return hits.sort((left, right) => right.score - left.score)
 }

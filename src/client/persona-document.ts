@@ -294,6 +294,8 @@ export function emptyDocument(): PersonaDocument {
       sections: STANDARD_SECTION_TITLES.map((title) => ({ title, items: [] })),
       userDefined: [],
     },
+    // 未初始化时还没有性格：空壳与 `model.ts` 的 schema 默认值同形。
+    character: { derivedAt: '', axes: [] },
   }
 }
 
@@ -326,6 +328,12 @@ export function asDocument(value: unknown): PersonaDocument {
     mutableLayer: {
       sections: Array.isArray(candidate.mutableLayer.sections) ? candidate.mutableLayer.sections : [],
       userDefined: Array.isArray(candidate.mutableLayer.userDefined) ? candidate.mutableLayer.userDefined : [],
+    },
+    // 性格层同理：宿主可能还没听说过它（旧版本写入的文档、或这一块没接上），
+    // 缺了就兜成"还没有性格"，界面显示为未推导，不让渲染期炸。
+    character: {
+      derivedAt: candidate.character?.derivedAt ?? '',
+      axes: Array.isArray(candidate.character?.axes) ? candidate.character.axes : [],
     },
   })
 }

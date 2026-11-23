@@ -1,321 +1,259 @@
 /**
- * 记忆命名空间（工作台数据层）的宿主侧测试：**真实设置服务** + 假存储表。
+ * 记忆工作台投影的测试（2026-11-21）。
  *
- * 用真设置服务而不是替身：要证的正是"浏览器写命令 → 钩子真的被调用 → 命令真的落到存储 →
- * 投影真的被写回"这条链路，以及"注册期 validate 不会因为投影数据而把命名空间打挂"（步 1 的教训）。
- * 存储用假表（记忆 CRUD 的语义在 `memory-store.test.mjs` 已单独测过）。
+ * 投影是"给定记录 + 时刻 ⇒ 确定的文档"，所以它能在单元测试里完全钉死。
+ * 这里钉四件事：
+ * 1. **最近的排在前**（工作台是时间线，不是数据库页面）；
+ * 2. **强度在读的时候算**（库里那份是"上次想起时"的值，直接显示会显得她一直没忘）；
+ * 3. **统计不受截断影响**（界面要能说"这是最近 200 条，你一共有 2871 条"）；
+ * 4. **存储没就绪时说"读不到"而不是"没有记忆"**（两件事必须分得开）。
  */
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import path from 'node:path'
 import { test } from 'node:test'
-import { Context } from '@deepseek-ai/cordis'
-import SettingsFile from '@deepseek-ai/dsh-settings-file'
-import { createLog } from '../lib/log.js'
-import { createMemoryEntry } from '../lib/memory/model.js'
-import { overridesOf, resolveMemoryPolicy } from '../lib/memory/policy.js'
-import { installMemorySection, MEMORY_NAMESPACE } from '../lib/memory/section.js'
-import { createMemoryStore } from '../lib/memory/store.js'
-import { createFakeTable } from './helpers/memory-fake.mjs'
 
-const NOW = '2026-09-24T00:00:00.000Z'
+import { createMemoryRecord } from '../lib/memory/model.js'
+import { peekReaction } from '../lib/memory/reaction.js'
+import { projectMemoryDocument, recallViewOf, removeMemory, reveal } from '../lib/memory/section-runtime.js'
+import { VIEW_LIMIT } from '../lib/memory/section-doc.js'
 
-/** 让已排队的微任务跑完（`ctx.inject` 回调与 `onChange` 的异步消费都靠它落地）。 */
-const flush = () => new Promise((resolve) => setImmediate(resolve))
-
-/** 等到条件成立（按时间轮询，理由同 `send`）。 */
-async function waitUntil(check, description, timeoutMs = 5000) {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (check()) return
-    await new Promise((resolve) => setTimeout(resolve, 5))
-  }
-  throw new Error(`等待超时：${description}`)
+/** 造一条记忆，可指定发生时间。 */
+function recordOf(what, when, overrides = {}) {
+  return createMemoryRecord({ what, about: 'user', certain: 'told', when, ...overrides })
 }
 
-/** 起一套真实设置服务 + 记忆命名空间。 */
-async function boot(options = {}) {
-  const dir = await mkdtemp(path.join(tmpdir(), 'humanity-memory-ns-'))
-  const ctx = new Context()
-  await ctx.plugin(SettingsFile, { path: path.join(dir, 'settings.yml') })
-  const store = createMemoryStore(createFakeTable())
-  const advanced = options.advanced ?? {
-    customized: false,
-    longTerm: true,
-    work: true,
-    session: true,
-    maxInject: 3,
-    decay: true,
-    vector: false,
-  }
-  const section = installMemorySection(ctx, createLog(ctx, 'test'), {
-    store: () => store,
-    policy: () => resolveMemoryPolicy('balanced', overridesOf(advanced) ?? {}),
-    advanced: () => advanced,
-  })
-  await flush()
+test('投影：最近发生的排在最前', () => {
+  const now = new Date('2026-11-21T12:00:00.000Z')
+  const records = [
+    recordOf('上周的事', '2026-11-14T00:00:00.000Z'),
+    recordOf('昨天的事', '2026-11-20T00:00:00.000Z'),
+    recordOf('前天的事', '2026-11-19T00:00:00.000Z'),
+  ]
+  const doc = projectMemoryDocument(records, now, true)
+  assert.deepEqual(
+    doc.entries.map((entry) => entry.what),
+    ['昨天的事', '前天的事', '上周的事'],
+  )
+})
 
-  const seed = (content, overrides = {}) =>
-    store.put(
-      createMemoryEntry({
-        scope: 'long-term',
-        content,
-        origin: 'agent-derived',
-        sourceSessionId: 's1',
-        status: 'active',
-        createdAt: NOW,
-        updatedAt: NOW,
-        ...overrides,
-      }),
-    )
-  const view = () => ctx.settings.get(MEMORY_NAMESPACE)
-  /**
-   * 发一条命令并等它被**消费完**。
-   *
-   * 等待必须按**时间**而不是按轮次：消费链路里有真实落盘（设置文件写入），
-   * 整套测试并行跑时它能慢到几十毫秒 —— 用"等 50 个宏任务"会变成随机失败的测试。
-   */
-  const send = async (op, fingerprint = '') => {
-    await ctx.settings.update(MEMORY_NAMESPACE, { request: { op, fingerprint } })
-    const deadline = Date.now() + 5000
-    while (Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 5))
-      const request = ctx.settings.get(MEMORY_NAMESPACE)?.request
-      if (request === undefined || request.op === '') return
-    }
-    throw new Error('命令没有被消费')
-  }
+test('投影：强度按"现在"算，而不是库里那一刻的值', () => {
+  const created = '2026-09-01T00:00:00.000Z'
+  // 到期衰减的基准是"写入时刻"（`createdAt`），所以要连它一起往前挪 —— 只改 `when` 不算数。
+  const record = { ...recordOf('很久以前的事', created), createdAt: created }
+  const fresh = projectMemoryDocument([record], new Date(created), true)
+  const agedDoc = projectMemoryDocument([record], new Date('2026-11-01T00:00:00.000Z'), true)
+  assert.ok(agedDoc.entries[0].strength < fresh.entries[0].strength, '两个月后应当更淡')
+})
 
+test('投影：统计算全库，条目只带最近 200 条', () => {
+  const records = Array.from({ length: VIEW_LIMIT + 25 }, (_, index) =>
+    recordOf(`第 ${index} 件`, new Date(Date.UTC(2026, 0, 1) + index * 3600_000).toISOString()),
+  )
+  const doc = projectMemoryDocument(records, new Date('2026-11-21T12:00:00.000Z'), true)
+  assert.equal(doc.entries.length, VIEW_LIMIT, `只带 ${VIEW_LIMIT} 条`)
+  assert.equal(doc.stats.total, VIEW_LIMIT + 25, '但总数如实')
+})
+
+test('投影：统计按档位分开数，被想起过的也单独数', () => {
+  const records = [
+    recordOf('A', '2026-11-20T00:00:00.000Z', { tier: 'episode' }),
+    recordOf('B', '2026-11-19T00:00:00.000Z', { tier: 'episode' }),
+    recordOf('C', '2026-11-18T00:00:00.000Z', { tier: 'period' }),
+    { ...recordOf('D', '2026-11-17T00:00:00.000Z'), recalled: 3 },
+  ]
+  const doc = projectMemoryDocument(records, new Date('2026-11-21T12:00:00.000Z'), true)
+  assert.equal(doc.stats.total, 4)
+  assert.equal(doc.stats.episode, 3)
+  assert.equal(doc.stats.period, 1)
+  assert.equal(doc.stats.chapter, 0)
+  assert.equal(doc.stats.recalled, 1)
+})
+
+test('投影：存储没就绪时 storeReady 为假，条目为空', () => {
+  const doc = projectMemoryDocument([], new Date(), false)
+  assert.equal(doc.storeReady, false)
+  assert.deepEqual(doc.entries, [])
+  assert.equal(doc.stats.total, 0)
+})
+
+/* ───────────────────────── 被窥探 ───────────────────────── */
+
+/** 假表 + 真 store。 */
+function storeOf(records = []) {
+  const table = new Map(records.map((record) => [record.id, record]))
   return {
-    ctx,
-    store,
-    section,
-    seed,
-    view,
-    send,
-    dispose: async () => {
-      await ctx.fiber.dispose()
-      await rm(dir, { recursive: true, force: true })
+    table,
+    store: {
+      put: async (record) => {
+        table.set(record.id, record)
+        return record
+      },
+      get: (id) => table.get(id),
+      all: () => [...table.values()],
+      remove: async (id) => table.delete(id),
+      touch: async () => undefined,
     },
   }
 }
 
-test('投影：宿主把存储现状与生效策略写进命名空间（工作台读的就是它）', async () => {
-  const harness = await boot()
-  try {
-    const entry = await harness.seed('用户喜欢喝咖啡', { tags: ['咖啡'], importance: 4, status: 'pending' })
-    await harness.section.refresh()
+test('被窥探：看穿之后，那条秘密的代价归零，而且她记下了这件事', async () => {
+  const secret = createMemoryRecord({ what: '我一直没敢说的那件事', about: 'self', certain: 'witnessed', cost: 0.9 })
+  const { store, table } = storeOf([secret])
+  const notice = await reveal(store, secret.id, '火火', new Date('2026-11-21T12:00:00.000Z'))
 
-    const doc = harness.view()
-    assert.equal(harness.section.attached, true)
-    assert.equal(doc.entries.length, 1)
-    assert.equal(doc.entries[0].fingerprint, entry.dedupeKey)
-    assert.deepEqual(doc.entries[0].tags, ['咖啡'])
-    assert.equal(doc.entries[0].status, 'pending')
-    assert.equal(doc.policy.mode, 'balanced', '工作台显示的是生效策略（P-030）')
-    assert.equal(doc.policy.scopes['long-term'], true)
-    assert.equal(doc.request.op, '', '稳态下命令槽是空的')
-    // 界面视图只带叶子字段：内部记录（去重键之外的字段、冲突列表）不该漏出去。
-    assert.equal('conflictWith' in doc.entries[0], false)
-  } finally {
-    await harness.dispose()
-  }
+  assert.match(notice, /她记得你看了/)
+
+  // ① 秘密不再是秘密：代价降下来了（但她没忘掉那件事本身）。
+  const after = table.get(secret.id)
+  assert.equal(after.cost, 0, '被看穿之后就不用再瞒了')
+  assert.equal(after.what, '我一直没敢说的那件事', '事情本身一个字都没改')
+  assert.ok(after.recalled >= 1, '这次"被看"也算想起了一次')
+
+  // ② 她心里多了一笔，但这一笔**不是秘密** —— 它是关系的账（"你翻我东西了"她有权直接提）。
+  // 如果它也带秘密标记，界面上就会永远有新 🔒 可点，越点越多（2026-11-21 真机的死循环）。
+  const added = [...table.values()].filter((record) => record.id !== secret.id)
+  assert.equal(added.length, 1)
+  assert.match(added[0].what, /火火.*看了/, '用名字，不用"他/对方"')
+  assert.ok(added[0].cost < 0.5, '这条不该再是一个秘密')
 })
 
-test('确认与拒绝：命令从命令槽进来，落到存储，并回一句结论', async () => {
-  const harness = await boot()
-  try {
-    const pending = await harness.seed('用户的门禁密码', { status: 'pending', sensitive: true })
-    await harness.section.refresh()
-
-    await harness.send('confirm', pending.dedupeKey)
-    assert.equal(harness.store.get(pending.dedupeKey).status, 'active')
-    assert.equal(harness.store.get(pending.dedupeKey).confirmedVia, 'workbench', 'T2：记下是哪一端确认的')
-    assert.match(harness.view().notice, /已确认/)
-
-    const second = await harness.seed('用户随口一提', { status: 'pending' })
-    await harness.section.refresh()
-    await harness.send('reject', second.dedupeKey)
-    assert.equal(harness.store.get(second.dedupeKey), undefined, '拒绝即删除')
-    assert.match(harness.view().notice, /已拒绝/)
-  } finally {
-    await harness.dispose()
-  }
+test('被窥探：本来就说得出的一条，不该被这样看', async () => {
+  const open = createMemoryRecord({ what: '一件普通的事', about: 'user', certain: 'told', cost: 0.1 })
+  const { store, table } = storeOf([open])
+  const notice = await reveal(store, open.id, '火火', new Date())
+  assert.match(notice, /本来就说得出/)
+  assert.equal(table.size, 1, '不该写任何东西')
 })
 
-test('归档 / 恢复 / 固定 / 删除：四条命令都能从工作台发起', async () => {
-  const harness = await boot()
-  try {
-    const entry = await harness.seed('旧项目信息')
-    await harness.send('archive', entry.dedupeKey)
-    assert.equal(harness.store.get(entry.dedupeKey).status, 'archived')
-
-    await harness.send('restore', entry.dedupeKey)
-    assert.equal(harness.store.get(entry.dedupeKey).status, 'active')
-
-    await harness.send('pin', entry.dedupeKey)
-    assert.equal(harness.store.get(entry.dedupeKey).pinned, true)
-    await harness.send('unpin', entry.dedupeKey)
-    assert.equal(harness.store.get(entry.dedupeKey).pinned, false)
-
-    await harness.send('remove', entry.dedupeKey)
-    assert.equal(harness.store.get(entry.dedupeKey), undefined)
-  } finally {
-    await harness.dispose()
-  }
+test('被窥探：那条已经不在了', async () => {
+  const { store } = storeOf([])
+  const notice = await reveal(store, 'nope', '火火', new Date())
+  assert.match(notice, /已经不在了/)
 })
 
-test('重复命令是幂等的：第二次不会产生副作用，只如实说明', async () => {
-  const harness = await boot()
-  try {
-    const entry = await harness.seed('用户偏好简短回复')
-    await harness.send('archive', entry.dedupeKey)
-    await harness.send('archive', entry.dedupeKey)
+/* ──────────────── 被窥探之后：反应由性格定 ────────────────
+ *
+ * 2026-11-22 补的一条线：之前写死"怕 45"，不管她什么性子反应都一样。
+ * 现在强度由情绪稳定性定、种类由宜人性定 —— 下面这几条把这个映射钉死，
+ * 免得以后有人顺手又改回一个常数。
+ */
 
-    assert.equal(harness.store.get(entry.dedupeKey).status, 'archived')
-    assert.match(harness.view().notice, /已归档/)
-  } finally {
-    await harness.dispose()
-  }
-})
-
-test('不认识的命令在写入时就被拒（validate 只查命令槽，不查条目）', async () => {
-  const harness = await boot()
-  try {
-    await assert.rejects(
-      harness.ctx.settings.update(MEMORY_NAMESPACE, { request: { op: '格式化硬盘', fingerprint: 'x' } }),
-      /不认识的记忆操作/,
-    )
-    // 投影里带着投影数据时，注册期与写入期的 validate 都不会因为它们而失败。
-    await harness.seed('用户喜欢喝咖啡')
-    await harness.section.refresh()
-    assert.equal(harness.view().entries.length, 1)
-  } finally {
-    await harness.dispose()
-  }
-})
-
-test('存储未就绪：命名空间照常注册（工作台能看到空列表），命令不落盘也不抛', async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), 'humanity-memory-ns-'))
-  const ctx = new Context()
-  await ctx.plugin(SettingsFile, { path: path.join(dir, 'settings.yml') })
-  const section = installMemorySection(ctx, createLog(ctx, 'test'), {
-    store: () => undefined,
-    policy: () => resolveMemoryPolicy('balanced'),
+test('被窥探：性格读不到时退回基准反应，不替她假设性子', () => {
+  assert.deepEqual(peekReaction(undefined), { kind: 'fear', intensity: 45 })
+  // 轴坏了（NaN）等同于读不到：不能因为一个脏数字就变成"她完全不介意"。
+  assert.deepEqual(peekReaction({ stability: Number.NaN, agreeableness: 0.5 }), {
+    kind: 'fear',
+    intensity: 45,
   })
-  try {
-    await flush()
-    assert.equal(section.attached, true, '没有存储也要注册：否则工作台连"记忆为空"都看不到')
-    await ctx.settings.update(MEMORY_NAMESPACE, { request: { op: 'remove', fingerprint: 'x' } })
-    await flush()
-    assert.equal(ctx.settings.get(MEMORY_NAMESPACE).entries.length, 0)
-  } finally {
-    await ctx.fiber.dispose()
-    await rm(dir, { recursive: true, force: true })
+})
+
+test('被窥探：越不稳定，这一下越重', () => {
+  const calm = peekReaction({ stability: 0.9, agreeableness: 0.8 })
+  const shaky = peekReaction({ stability: 0.1, agreeableness: 0.8 })
+  assert.equal(calm.intensity, 21, '稳的人 45 − 24')
+  assert.equal(shaky.intensity, 69, '易崩的人 45 + 24')
+  assert.ok(shaky.intensity > calm.intensity)
+  assert.equal(calm.kind, 'fear')
+})
+
+test('被窥探：宜人性低的人更可能是恼，不是怕', () => {
+  assert.equal(peekReaction({ stability: 0.5, agreeableness: 0.2 }).kind, 'anger')
+  assert.equal(peekReaction({ stability: 0.5, agreeableness: 0.9 }).kind, 'fear')
+})
+
+test('被窥探：两个端点都在可读的范围里（15 / 75，不贴 0 和 100）', () => {
+  assert.equal(peekReaction({ stability: 1, agreeableness: 0.5 }).intensity, 15)
+  assert.equal(peekReaction({ stability: 0, agreeableness: 0.5 }).intensity, 75)
+})
+
+test('被窥探：她记下的那一笔带着性格算出来的反应', async () => {
+  const secret = createMemoryRecord({ what: '我一直没说的事', about: 'self', certain: 'witnessed', cost: 0.9 })
+  const { store, table } = storeOf([secret])
+  await reveal(store, secret.id, '火火', new Date(), { stability: 0.1, agreeableness: 0.2 })
+
+  const added = [...table.values()].find((record) => record.id !== secret.id)
+  assert.equal(added.felt.intensity, 69)
+  assert.equal(added.felt.kind, 'anger')
+})
+
+/* ───────────────────────── 删除 ─────────────────────────
+ *
+ * 遗忘不等于删除：淡掉的记录还在，能被线索唤醒；删掉的是"这件事再也不会发生在她身上了"。
+ * 所以这条路径只由用户明确要求触发，而且必须把归拢记录里的引用一起摘掉 ——
+ * 否则那条概括会声称自己"是从一件已经不存在的事攒出来的"。
+ */
+
+test('删除：那条真的没了，归拢记录里的引用也跟着摘掉', async () => {
+  const episode = createMemoryRecord({ what: '一件小事', about: 'self', certain: 'witnessed' })
+  const period = {
+    ...createMemoryRecord({ what: '那阵子的小事', about: 'self', certain: 'inferred', tier: 'period' }),
+    covers: [episode.id],
   }
+  const { store, table } = storeOf([episode, period])
+
+  const notice = await removeMemory(store, episode.id)
+  assert.match(notice, /删掉了/)
+  assert.equal(table.has(episode.id), false, '删掉的那条不在了')
+  assert.deepEqual(table.get(period.id).covers, [], '概括不再引用它')
+  assert.equal(table.get(period.id).what, '那阵子的小事', '概括本身一个字都没改')
 })
 
-test('投影带出高级开关与「自定义」标记（工作台据此显示与编辑）', async () => {
-  const custom = { customized: true, longTerm: false, work: true, session: true, maxInject: 2, decay: false, vector: true }
-  const harness = await boot({ advanced: custom })
-  try {
-    await harness.section.refresh()
-    const doc = harness.view()
-    assert.equal(doc.policy.customized, true, '用户调过高级开关 ⇒ 界面显示「自定义」')
-    assert.equal(doc.policy.scopes['long-term'], false)
-    assert.equal(doc.advanced.maxInject, 2)
-    assert.equal(doc.advanced.decay, false)
-    assert.equal(doc.policy.vector, false, '向量开关真值为 true，但生效策略里恒为 false（P-027）')
-  } finally {
-    await harness.dispose()
-  }
+test('删除：那条已经不在了', async () => {
+  const { store } = storeOf([])
+  assert.match(await removeMemory(store, 'nope'), /已经不在了/)
 })
 
-test('三层全关但模式不是 off：开关显示**生效值**（宿主已回退成按模式），不和作用域标签打架', async () => {
-  // 2026-09-26 审计 C6：配置里存在 `customized + 三层全关 + balanced` 这种宿主会回退的组合时，
-  // 旧投影把开关原样显示成"全关"，而「生效作用域」按回退后的策略显示"三层全在" ——
-  // 两个控件贴着摆却互相打脸，用户不知道该信哪个。现在两者同源于 policy。
-  const degenerate = { customized: true, longTerm: false, work: false, session: false, maxInject: 3, decay: true, vector: false }
-  const harness = await boot({ advanced: degenerate })
-  try {
-    await harness.section.refresh()
-    const doc = harness.view()
-    assert.equal(doc.policy.mode, 'balanced', '模式本身没变')
-    for (const scope of ['long-term', 'workspace', 'session']) {
-      assert.equal(doc.policy.scopes[scope], true, `策略里 ${scope} 生效（回退到预设）`)
-    }
-    assert.deepEqual(
-      [doc.advanced.longTerm, doc.advanced.work, doc.advanced.session],
-      [true, true, true],
-      '开关显示的就是生效值（回退后的真值），不是配置里的原值',
-    )
-    assert.equal(doc.advanced.maxInject, 3, '数字项仍显示用户填的原值（它没有被回退）')
-  } finally {
-    await harness.dispose()
-  }
+/* ─────────────────── 为什么想起（工作台唯一的解释窗） ─────────────────── */
+
+test('为什么想起：秘密只留"她不想说"，正文一个字都不进这扇没门槛的窗', () => {
+  const open = createMemoryRecord({ what: '一件普通的事', about: 'user', certain: 'told' })
+  const secret = createMemoryRecord({ what: '那件我一直没说的事', about: 'self', certain: 'witnessed', cost: 0.9 })
+  const hits = [
+    { record: open, score: 0.9, parts: { relevance: 0.8, strength: 0.5, mood: 0 } },
+    { record: secret, score: 0.8, parts: { relevance: 0.5, strength: 0.6, mood: 0 } },
+  ]
+
+  const view = recallViewOf('你还记得那件事吗', hits, new Date('2026-11-22T12:00:00.000Z'))
+  assert.equal(view.cue, '你还记得那件事吗')
+  assert.equal(view.items[0].what, '一件普通的事')
+  assert.equal(view.items[0].match, 'high', '0.8 的相关度是"很相关"')
+  assert.equal(view.items[1].withheld, true)
+  assert.equal(view.items[1].what, '', '秘密的正文不能从这里出去，要去时间线走「我要看」')
+  assert.equal(view.items[1].match, 'mid', '0.5 的相关度是"有点相关"')
 })
 
-test('工作台的「整理记忆」命令走同一个命令槽', async () => {
-  const harness = await boot()
-  try {
-    await harness.seed('用户喜欢喝咖啡', { importance: 2, updatedAt: '2026-01-01T00:00:00.000Z' })
-    await harness.send('decay')
-    assert.equal(harness.store.list(undefined, 'archived').length, 1)
-    assert.match(harness.view().notice, /记忆维护/)
-  } finally {
-    await harness.dispose()
-  }
+test('为什么想起：那句触发的话会截断（它可能是一整段）', () => {
+  const view = recallViewOf(`  ${'一'.repeat(200)}  `, [], new Date())
+  assert.equal(view.cue.length, 61, '留 60 个字加一个省略号')
+  assert.ok(view.cue.endsWith('…'))
 })
 
-test('客户端常量与宿主一致：命名空间名不许两边各写一个不同的值', async () => {
-  const { readFileSync } = await import('node:fs')
-  const bundle = readFileSync('lib/client.js', 'utf8')
-  assert.ok(bundle.includes(MEMORY_NAMESPACE), '客户端 bundle 必须使用同一个命名空间名')
+test('投影：带上一次回忆；没有过时是空值而不是缺字段', () => {
+  const now = new Date('2026-11-22T12:00:00.000Z')
+  assert.deepEqual(projectMemoryDocument([], now, true).lastRecall, { at: '', cue: '', items: [] })
+
+  const doc = projectMemoryDocument([], now, true, { lastRecall: recallViewOf('在吗', [], now) })
+  assert.equal(doc.lastRecall.cue, '在吗')
+  assert.equal(doc.lastRecall.at, now.toISOString())
 })
 
-test('存储晚于命名空间就绪：notifyStoreReady 补投影 + 补消费被跳过的命令', async () => {
-  // 真机症状的复现：存储是异步打开的，比命名空间注册晚。就绪之前收到的命令被跳过、
-  // 投影提前返回 —— 没有这个回调，工作台会一直停在空列表上（存储里其实已有记忆）。
-  const dir = await mkdtemp(path.join(tmpdir(), 'humanity-memory-ready-'))
-  const ctx = new Context()
-  await ctx.plugin(SettingsFile, { path: path.join(dir, 'settings.yml') })
-  const table = createFakeTable()
-  const store = createMemoryStore(table)
-  let ready = false
-  const section = installMemorySection(ctx, createLog(ctx, 'test'), {
-    store: () => (ready ? store : undefined),
-    policy: () => resolveMemoryPolicy('balanced'),
+test('投影：当时的感受用人话（宿主借情绪词表；借不到就退回种类）', () => {
+  const now = new Date('2026-11-22T12:00:00.000Z')
+  const record = createMemoryRecord({
+    what: '那件事',
+    about: 'self',
+    certain: 'witnessed',
+    felt: { kind: 'fear', intensity: 45 },
   })
-  try {
-    await flush()
-    const entry = await store.put(
-      createMemoryEntry({
-        scope: 'long-term',
-        content: '用户喜欢喝咖啡',
-        origin: 'agent-derived',
-        sourceSessionId: 's1',
-        status: 'active',
-        createdAt: NOW,
-        updatedAt: NOW,
-      }),
-    )
 
-    // 存储未就绪时发一条命令：会被跳过，命令槽留着，投影也是空的。
-    await ctx.settings.update(MEMORY_NAMESPACE, { request: { op: 'archive', fingerprint: entry.dedupeKey } })
-    await flush()
-    assert.equal(store.get(entry.dedupeKey).status, 'active', '存储未就绪时命令确实被跳过')
-    assert.equal(ctx.settings.get(MEMORY_NAMESPACE).entries.length, 0, '未就绪时投影为空')
+  const labelled = projectMemoryDocument([record], now, true, { feltLabel: (kind) => (kind === 'fear' ? '害怕' : kind) })
+  assert.equal(labelled.entries[0].feltLabel, '害怕')
 
-    // 存储就绪：一次通知既补消费积压命令，也补投影。
-    ready = true
-    section.notifyStoreReady()
-    await waitUntil(() => store.get(entry.dedupeKey).status === 'archived', '积压命令被补消费')
-    await waitUntil(() => ctx.settings.get(MEMORY_NAMESPACE).entries.length === 1, '投影补上存储现状')
-    assert.equal(ctx.settings.get(MEMORY_NAMESPACE).entries[0].fingerprint, entry.dedupeKey)
-    assert.match(ctx.settings.get(MEMORY_NAMESPACE).notice, /已归档/)
-  } finally {
-    await ctx.fiber.dispose()
-    await rm(dir, { recursive: true, force: true })
-  }
+  const bare = projectMemoryDocument([record], now, true)
+  assert.equal(bare.entries[0].feltLabel, 'fear', '借不到词表时至少别空着')
+})
+
+test('投影：休眠时带标记（界面要说"还没开始"，而不是"没有记忆"）', () => {
+  const now = new Date('2026-11-22T12:00:00.000Z')
+  assert.equal(projectMemoryDocument([], now, true).dormant, false, '默认不是休眠')
+  assert.equal(projectMemoryDocument([], now, true, { dormant: true }).dormant, true)
 })

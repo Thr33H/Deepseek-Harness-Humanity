@@ -16,6 +16,7 @@ import { EvolutionSettings } from './EvolutionSettings.js'
 import { InfoHint } from './InfoHint.js'
 import { NS } from './locales.js'
 import { ProposalList } from './ProposalList.js'
+import { useVisibleRefresh } from './use-visible-refresh.js'
 import { RunTimeline } from './RunTimeline.js'
 import { headingWithHint, hint, panel, panelTitle } from './styles.js'
 import { metricLabel, metricRow, metricValue } from './metric-styles.js'
@@ -155,6 +156,12 @@ function ActionPanel({ t, state, controller }: { t: Translate; state: EvolutionW
 export function EvolutionPage(props: EvolutionPageProps) {
   const { t, controller } = props
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
+  // 切回本页时静默重取一次：对话里时钟学到时区、调度重排都会改这里的投影，
+  // 而页面只在挂载时取一次（见 `use-visible-refresh` 的说明）。
+  const reload = useCallback(() => {
+    void controller.load({ quiet: true })
+  }, [controller])
+  useVisibleRefresh(reload)
   const readOnly = !state.writable
 
   if (state.status === 'unavailable' || state.status === 'idle') {

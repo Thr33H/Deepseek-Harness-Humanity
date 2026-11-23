@@ -49,6 +49,8 @@ export const EmotionDocSchema = Schema.object({
       tier: Schema.string().default('calm'),
       cause: Schema.string().default(''),
       since: Schema.string().default(''),
+      delta: Schema.number().default(0),
+      before: Schema.number().default(0),
     }),
   ).default([]),
   // 被磨出来的敏感：没有时是空数组（工作台据此显示"还没有哪一处被磨到"）。
@@ -59,6 +61,10 @@ export const EmotionDocSchema = Schema.object({
       target: Schema.string().default('world'),
       targetLabel: Schema.string().default(''),
       level: Schema.number().default(0),
+      cause: Schema.string().default(''),
+      delta: Schema.number().default(0),
+      levelBefore: Schema.number().default(0),
+      at: Schema.string().default(''),
     }),
   ).default([]),
   warmth: Schema.number().default(WARMTH_BASELINE),
@@ -80,6 +86,16 @@ export interface EmotionSection {
   refresh(): Promise<void>
   /** 是否已接上设置服务；false 表示工作台此刻读不到。 */
   readonly attached: boolean
+  /**
+   * 读**另一个**命名空间的当前值（只读）。
+   *
+   * 用途是取人格的「立场快照」（见 `stance.ts`）：判断对方的这句话对她意味着什么，
+   * 需要知道她是谁。为什么从这里读、而不是让上层把人格传进来 —— 读人格要用**已经接上的**
+   * 设置句柄，而那个句柄本来就住在这里（`state.settings`）；再加一条装配参数只是多一个会漏传的入口。
+   * @param ns - 命名空间名。
+   * @returns 当前值；没接上、没写过或读取抛错时 `undefined`。
+   */
+  read(ns: string): unknown
 }
 
 /** 命名空间接线状态：设置句柄与就绪标记（注册与投影共享同一个对象）。 */
@@ -189,6 +205,17 @@ export function installEmotionSection(
     refresh: () => project(deps),
     get attached() {
       return state.attached
+    },
+    read: (ns) => {
+      const settings = state.settings
+      if (settings === undefined) return undefined
+      try {
+        return settings.get(ns)
+      } catch (error) {
+        // 读不到人格只影响"判断得更准一点"，不该让情绪评估整条挂掉（G-002 同一条纪律）。
+        log.warn(`读命名空间 ${ns} 失败：这次按通用判断（不影响对话）`, error)
+        return undefined
+      }
     },
   }
 }

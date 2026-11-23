@@ -226,7 +226,7 @@ test('侧栏红点：有待确认画点、没有不画；订阅面缺失退化�
   assert.doesNotMatch(bare, /border-radius:50%/)
 })
 
-test('待确认页：记忆与提案两个区都在，计数徽标如实', async () => {
+test('待确认页：只剩提案（记忆侧待确认已随重构删除）', async () => {
   const evolution = new EvolutionWorkbenchController()
   evolution.attach(fakeChannel())
   const memory = new MemoryWorkbenchController()
@@ -257,10 +257,12 @@ test('待确认页：记忆与提案两个区都在，计数徽标如实', async
   })
   await settle()
 
-  const markup = render(createElement(PendingDetails, { t: keyT, evolution, memory }))
+  const markup = render(createElement(PendingDetails, { t: keyT, evolution }))
   // 标题与计数徽标归 `PendingCard`（常驻顶部那张卡），明细只管"有哪些待办"。
   assert.doesNotMatch(markup, /evolution\.pending\.title/, '明细不自带标题（避免与卡片重复）')
-  assert.match(markup, /用户的门禁密码/, '记忆待确认条目必须出现在统一待确认页')
+  // 2026-11-21：记忆侧的待确认区整块删除 —— 那条路换成了「说出来要付多大代价」，
+  // 由她自己决定说不说，不再排队等对方点头。
+  assert.doesNotMatch(markup, /用户的门禁密码/, '记忆条目不该再出现在待确认页')
   assert.match(markup, /底色字段：归属地 → 示例城市/, 'pending 提案在列')
   assert.doesNotMatch(markup, /weekly-report/, '已处理提案不出现在待确认页')
 })

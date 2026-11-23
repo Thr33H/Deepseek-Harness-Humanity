@@ -44,6 +44,13 @@ export interface PersonaModule {
   /** 按配置开关驱动 Agent 工具的注册与卸载。 */
   setEnabled(enabled: boolean): void
   /**
+   * 存储刚就绪：把"数据可读了"告诉 section，让工具注册按真实状态重判。
+   *
+   * 少了这一步，已封存的实例会被注册成未封存那套工具（`humanity_persona_init` 还在），
+   * 因为注册发生在存储就绪之前、那时读到的是默认文档（2026-11-22 真机）。
+   */
+  notifyStoreReady(): void
+  /**
    * 立刻按保留期清理一次人格历史（启动就绪后 / 配置变更后由宿主调用）。
    * **永不抛**：清理是维护动作，失败只记日志（见 `history-retention.ts`）。
    * @returns 删除的条数。
@@ -155,6 +162,7 @@ export function installPersona(
   return {
     section,
     setEnabled: (next) => tools.setEnabled(next),
+    notifyStoreReady: () => section.notifyStoreReady(),
     pruneHistory: pruneNow,
     /**
      * 一次性数据迁移：把「关系」从底色搬进信息（2026-11-16 用户拍板 A）。

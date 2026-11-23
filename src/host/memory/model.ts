@@ -1,178 +1,144 @@
 /**
- * 记忆的 schema、默认值、工厂与**策略解析**（宿主侧；浏览器不 import 本文件）。
+ * 记忆的 schema、默认值与工厂（**默认值的唯一真源**）。
  *
- * 两件事放在一起的理由：它们都以同一组常量与同一个 schema 为真源 ——
- * 拆开只会产生"工厂补一套默认值、schema 再补一套"的分叉。
- * （预设模式与高级开关的解析在 `policy.ts`：那是"开关怎么算出生效行为"，与数据形状无关。）
- *
- * 单一方向的数据流（与人格模块同构，后续步骤照此实现）：
- * `写入方` → `createMemoryEntry`（补齐默认值 + 指纹）→ `MemoryEntrySchema`（契约校验）
- * → 存储 → `status === 'active'` 的条目才参与检索与注入。
+ * 单一方向：`写入方` → {@link createMemoryRecord}（补默认值 + 算初始强度）→ zod 校验 → 存储。
  * @module humanity/memory/model
  */
 import { z } from 'zod'
 
 import {
-  CONTENT_CHAR_LIMIT,
-  MEMORY_CONFIRM_SOURCES,
-  NOT_CONFIRMED,
-  DEFAULT_CONFIDENCE,
-  DEFAULT_IMPORTANCE,
-  DEFAULT_INJECT_LIMIT,
-  DEFAULT_INJECT_TOKEN_BUDGET,
-  IMPORTANCE_MAX,
-  MAX_INJECT_LIMIT,
+  AROUSAL_WEIGHT,
+  DEFAULT_DISCLOSURE_COST,
+  DETAIL_CHAR_LIMIT,
+  MEMORY_ABOUTS,
+  MEMORY_CERTAINTIES,
   MEMORY_ENTRY_VERSION,
-  MEMORY_ORIGINS,
-  MEMORY_SCOPES,
-  MEMORY_STATUSES,
-  NEW_ENTRY_STATUS,
-  TAG_LIMIT,
+  MEMORY_TIERS,
+  SELF_WEIGHT,
+  STRENGTH_BASE,
+  WHAT_CHAR_LIMIT,
 } from './constants.js'
-import type { MemoryEntry, MemoryAffect, MemoryEntryInput } from './types.js'
-
+import type { MemoryAbout } from './constants.js'
+import type { MemoryFeeling, MemoryInput, MemoryRecord } from './types.js'
 /**
- * 情绪指纹（见 `types.ts` 的 {@link MemoryAffect}）。
+ * 感觉的契约。
  *
- * 全部字段都有默认值：旧条目**没有这个字段**，读出来必须是"平静"而不是让整表解析失败
- * （坏一条害死整库的教训见 `store-open.ts` 的 F3）。
+ * `kind` 用宽松字符串而不是枚举：取值要与情绪模块的 `EMOTION_KINDS` 对齐，但记忆模块
+ * **不 import 情绪模块**（模块互相隔离）。加一种情绪却忘了这里时，最坏结果只是这一条
+ * 感觉渲染不出词，不该让整段记忆解析失败。
  */
-export const MemoryAffectSchema = z.object({
+export const MemoryFeelingSchema = z.object({
   kind: z.string().default(''),
-  /**
-   * 这股情绪当时是**冲谁的**（与 `emotion` 的 `EmotionTarget` 同一套取值）。
-   *
-   * 必须记下来：回声要把它加回**同一条**情绪上。只记种类的话，想起"她对我说的那句话"
-   * 会加到"对事"的那一条上 —— 实测抓到的正是这个：trust:user 40 旁边凭空多出 trust:world 5。
-   * 旧数据没有这个字段，读成 `world`（最中性的默认）。
-   */
-  target: z.string().default('world'),
   intensity: z.number().min(0).max(100).default(0),
-  // 0 = 没有记录。不用 50 是因为"没记录"与"关系温度正好在基线"是两件事，
-  // 混成一个值之后，召回时就分不清"当时的温度"和"当时根本没测"。
-  warmth: z.number().min(0).max(100).default(0),
 })
 
-/** 出厂的情绪指纹：平静、无温度记录。 */
-export const EMPTY_AFFECT: MemoryAffect = { kind: '', target: 'world', intensity: 0, warmth: 0 }
-
 /**
- * 记忆条目的存储契约。**默认值的唯一真源**。
+ * 一条记忆的存储契约。
  *
- * 哪些字段有默认值、哪些必填是有讲究的：`origin`/`sourceSessionId`/`content`/`dedupeKey`
- * 必填 —— 没有来源的记忆是传闻，没有指纹的记忆无法去重，而 `origin` 一旦可省略就会
- * 被自动管线悄悄改写成"对方说的"（P-033）。
+ * 旧字段（`scope` / `status` / `tags` / `importance` / `dedupeKey` / `pinned` / `sensitive`）
+ * **全部不再存在** —— 它们属于"待办清单式的记忆"。这一版换成
+ * `about`（关于谁）、`tier`（哪一档）、`cost`（说出来的代价）、`strength`（多牢）。
  *
- * `status` 的默认值是 `active` 而不是新条目的 `pending`：解析的是**已落库**的数据，
- * 缺这个字段只可能是早期版本写下的生效条目，把它们判成"待确认"等于凭空冻结老数据。
- * 新建条目的初始状态见 {@link createMemoryEntry}。
+ * `what` 必填且非空：没有要点的记忆是一条不知道是什么的记录。
  */
-export const MemoryEntrySchema = z.object({
+export const MemoryRecordSchema = z.object({
   id: z.string().min(1),
-  scope: z.enum(MEMORY_SCOPES),
-  content: z.string().min(1).max(CONTENT_CHAR_LIMIT),
-  tags: z.array(z.string()).max(TAG_LIMIT).default([]),
-  importance: z.number().int().min(0).max(IMPORTANCE_MAX).default(DEFAULT_IMPORTANCE),
-  confidence: z.number().min(0).max(1).default(DEFAULT_CONFIDENCE),
-  sensitive: z.boolean().default(false),
-  pinned: z.boolean().default(false),
-  origin: z.enum(MEMORY_ORIGINS),
-  sourceSessionId: z.string().min(1),
-  sourceMessageId: z.string().default(''),
-  ownerId: z.string().default(''),
+  what: z.string().min(1).max(WHAT_CHAR_LIMIT),
+  detail: z.string().max(DETAIL_CHAR_LIMIT).default(''),
+  when: z.string().default(''),
+  about: z.enum(MEMORY_ABOUTS),
+  felt: MemoryFeelingSchema.default({ kind: '', intensity: 0 }),
+  certain: z.enum(MEMORY_CERTAINTIES),
+  strength: z.number().min(0).max(1),
+  recalled: z.number().int().nonnegative().default(0),
+  recalledAt: z.string().default(''),
+  cost: z.number().min(0).max(1).default(DEFAULT_DISCLOSURE_COST),
+  costWhy: z.string().default(''),
+  tier: z.enum(MEMORY_TIERS).default('episode'),
   createdAt: z.string().min(1),
-  updatedAt: z.string().min(1),
-  lastUsedAt: z.string().default(''),
-  useCount: z.number().int().nonnegative().default(0),
-  status: z.enum(MEMORY_STATUSES).default('active'),
-  archivedAt: z.string().default(''),
-  dedupeKey: z.string().min(1),
-  conflictWith: z.array(z.string()).default([]),
-  confirmedVia: z.enum(['', ...MEMORY_CONFIRM_SOURCES]).default(NOT_CONFIRMED),
-  entryVersion: z.number().int().positive().default(MEMORY_ENTRY_VERSION),
-  // 旧条目没有这个字段：默认值让它们读成"平静"，不需要任何迁移。
-  affect: MemoryAffectSchema.default(EMPTY_AFFECT),
+  covers: z.array(z.string()).default([]),
+  version: z.number().int().positive().default(MEMORY_ENTRY_VERSION),
 })
 
 /**
- * 归一化正文用于**比较**（去重与冲突检测共用同一把尺子）。
+ * 「这件事跟我自己有多大关系」（0–1）。
  *
- * 规则：NFKC 折全角、忽略大小写、去掉空白与标点。它只服务于"这两句是不是在说同一件事"，
- * 不改变落盘正文 —— 对方看到的仍然是他自己那句话。
- * @param content - 正文。
+ * 自我参照效应是记忆心理学里最稳的效应之一 —— 判成"关于我"的信息，记得明显更牢。
+ * 所以 `about` 不只是分类，它直接参与初始强度。
+ * @param about - 这件事关于谁。
+ * @returns 自我相关权重。
  */
-export function normalizeMemoryText(content: string): string {
-  return content
-    .normalize('NFKC')
-    .toLowerCase()
-    .replace(/[\s\p{P}\p{S}]+/gu, '')
+export function selfRelevanceOf(about: MemoryAbout): number {
+  switch (about) {
+    case 'self':
+      return 1
+    case 'us':
+      return 0.8
+    case 'user':
+      return 0.4
+    default:
+      return 0.2
+  }
 }
 
 /**
- * 生成去重指纹。
+ * 算一条记忆的初始强度。
  *
- * 加上作用域前缀，是因为同一句话在不同层是**不同**的记忆
- * （会话里的临时约定 vs 长期偏好），跨层去重会把对方明确分开的东西合并掉。
- * @param scope - 作用域。
- * @param content - 正文。
+ * 只有两项加权：**当时情绪多强**、**这事跟我自己多大关系**。
+ * 刻意不加"重要性打分"：那是绝对值，而"重要"是相对的，模型打分的方差会漂。
+ * @param feeling - 当时的感觉。
+ * @param about - 关于谁。
+ * @returns 0–1 的初始强度。
  */
-export function buildDedupeKey(scope: MemoryEntryInput['scope'], content: string): string {
-  return `${scope}:${normalizeMemoryText(content)}`
+export function initialStrength(feeling: MemoryFeeling | undefined, about: MemoryAbout): number {
+  const arousal = Math.min(1, Math.max(0, (feeling?.intensity ?? 0) / 100))
+  const raw = STRENGTH_BASE + AROUSAL_WEIGHT * arousal + SELF_WEIGHT * selfRelevanceOf(about)
+  return Math.min(1, raw)
 }
 
 /**
- * **归属冲突时的备用键**：同一句话在不同会话/工作区里各是各的记忆，但指纹公式里没有 ownerId
- * （它同时是存储主键，改公式就要迁移全部老数据）。所以走这条路：
+ * 把情绪指纹收成落库的形状：种类去空白、强度取整并夹到 0–100。
  *
- * - 基础键空着、或占着它的正是同一位主人 ⇒ 用基础键（老行为一字不变、老数据零迁移）；
- * - 基础键被**别的归属**占着 ⇒ 用带归属后缀的键，两条各自独立。
- *
- * 为什么必须有它（2026-09-26 审计实测）：会话 A 写「这次讨论用中文」、会话 B 再写同一句，
- * 原来会命中同一个键 ⇒ 那条记忆的 ownerId 被改成 B，A 里检索命中 0 条 ——
- * 与 P-024「会话记忆不跨会话」直接矛盾。
- * @param scope - 作用域。
- * @param content - 正文。
- * @param ownerId - 本次写入的归属 id。
- * @param occupant - 基础键上已存的那条（没有则 undefined）。
- * @param sameOwner - 判定"占位者是不是同一位主人"（长期记忆的 ownerId 恒为空串）。
- * @returns 本次应当使用的指纹。
+ * 为什么要取整：情绪模块给的是浮点（`5.9888371532538835`），落进记忆后就是一条脏数据 ——
+ * 记忆只按整数展示、只按百分制参与权重，多出来的小数位除了让库变丑没有任何用处。
+ * @param input - 写入方给的感觉（可能没有）。
+ * @returns 干净的感觉。
  */
-export function buildOwnedKey(
-  scope: MemoryEntryInput['scope'],
-  content: string,
-  ownerId: string,
-  occupant: MemoryEntry | undefined,
-  sameOwner: boolean,
-): string {
-  const base = buildDedupeKey(scope, content)
-  if (occupant === undefined || sameOwner) return base
-  return `${base}#${ownerId}`
+function feelingOf(input: MemoryFeeling | undefined): MemoryFeeling {
+  return {
+    kind: (input?.kind ?? '').trim(),
+    intensity: Math.round(Math.min(100, Math.max(0, input?.intensity ?? 0))),
+  }
 }
 
 /**
- * 新建一条记忆：补齐默认值、生成 id 与指纹、并把结果交给 schema 校验。
+ * 造一条记忆：补默认值、算初始强度、交给 schema 校验。
  *
- * 校验放在这里而不是留给写入方，是为了让"契约不满足"在**构造点**就炸出来，
- * 而不是等到落库或注入时才以一个奇怪的现象出现。
- *
- * id 用 `globalThis.crypto` 而不是 `node:crypto`：本仓库不依赖 `@types/node`，
- * 而 Node ≥22（`engines` 已要求）与浏览器都自带这个全局对象。
- *
- * 时间戳：显式传入就**照用**（导入/迁移/需要历史时刻的场景），省略才取现在 ——
- * 这一条曾经写错过（总是覆盖成现在），代价是"传了时间却被悄悄改掉"，排查时极难看出。
+ * 校验放在构造点而不是落库点：契约不满足要在**写下它的时候**就炸，而不是等到某一天注入时才
+ * 以一个奇怪的现象冒出来。
  * @param input - 写入方一定知道的信息。
+ * @returns 可落盘的记录。
  */
-export function createMemoryEntry(input: MemoryEntryInput): MemoryEntry {
-  const content = input.content.trim()
-  const at = new Date().toISOString()
-  return MemoryEntrySchema.parse({
-    ...input,
-    id: input.id ?? globalThis.crypto.randomUUID(),
-    content,
-    dedupeKey: buildDedupeKey(input.scope, content),
-    createdAt: input.createdAt ?? at,
-    updatedAt: input.updatedAt ?? input.createdAt ?? at,
-    status: input.status ?? NEW_ENTRY_STATUS,
-    affect: input.affect ?? EMPTY_AFFECT,
+export function createMemoryRecord(input: MemoryInput): MemoryRecord {
+  const now = new Date().toISOString()
+  const what = (input.what ?? '').trim()
+  const felt = feelingOf(input.felt)
+  return MemoryRecordSchema.parse({
+    id: globalThis.crypto.randomUUID(),
+    what,
+    detail: (input.detail ?? '').trim(),
+    // `when` 省略时取现在：绝大多数记忆都是"刚刚发生的"。补记旧事时才显式传。
+    when: input.when ?? now,
+    about: input.about,
+    felt,
+    certain: input.certain,
+    // 强度用**落库那份**感觉算：否则会出现"显示 6 分、按 5.98 加权"的错位。
+    strength: input.strength ?? initialStrength(felt, input.about),
+    cost: input.cost ?? DEFAULT_DISCLOSURE_COST,
+    costWhy: (input.costWhy ?? '').trim(),
+    tier: input.tier ?? 'episode',
+    createdAt: now,
+    covers: input.covers ?? [],
+    version: MEMORY_ENTRY_VERSION,
   })
 }

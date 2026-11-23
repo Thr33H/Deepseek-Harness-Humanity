@@ -289,8 +289,9 @@ export const EMOTION_STING_DIRECTION: Record<EmotionKind, 1 | -1 | 0> = {
  * - {@link SENSITIVITY_STEP}：一次完整刺激把痕迹往满推多少（按剩余空间推，所以越往后越慢）。
  * - {@link SENSITIVITY_MAX_BOOST}：放大倍数的上限，即最重 1.5 倍。**这个上限是刻意的**：
  *   没有它，几十轮之后一句普通的话就能把它点炸。
- * - {@link SENSITIVITY_REFERENCE_DELTA}：多大的增量算"一次完整刺激"。取 20 是因为评估器
- *   提示词里的标尺把 15–22 定义为"明显有感"——两处用的是同一把尺子，不需要新定一套。
+ * - {@link SENSITIVITY_REFERENCE_DELTA}：多大的增量算"一次完整刺激"。取 6 是因为评估器的标尺
+ *   （见 `appraise.ts`）把日常变化定在 1–5、明显有感 6–10 —— 到 6 就是一次"认真的一下"，
+ *   不必等到十几二十分才算数。
  *
  * 下面两个是清理阈值，不是行为参数：
  * - {@link SENSITIVITY_FLOOR}：痕迹低于它就丢掉。一道 0.02 的痕迹只值 1% 的放大，
@@ -301,7 +302,7 @@ export const EMOTION_STING_DIRECTION: Record<EmotionKind, 1 | -1 | 0> = {
 export const SENSITIVITY_HALF_LIFE_MINUTES = 1440
 export const SENSITIVITY_STEP = 0.3
 export const SENSITIVITY_MAX_BOOST = 0.5
-export const SENSITIVITY_REFERENCE_DELTA = 20
+export const SENSITIVITY_REFERENCE_DELTA = 6
 export const SENSITIVITY_FLOOR = 0.02
 export const MAX_SENSITIVITIES = 6
 
@@ -329,6 +330,31 @@ export const MAX_SENSITIVITIES = 6
  */
 export const SOOTHE_QUIET_MINUTES = 30
 export const SOOTHE_HALF_LIFE_FACTOR = 0.5
+
+/**
+ * **适应**（habituation）：同样的好事反复发生，效果递减。
+ *
+ * 要解决的问题：情绪只有"剩余空间"这一道刹车 —— 到 80 分时再加 20 还能加 4 分，
+ * 于是一场闲聊就是单调往上顶。实机现场（2026-11-21）：13:39 还是"接纳"，13:43 变"信任"，
+ * 13:52 已经"爆档"（信任 ≥75）—— 中间聊的只是公园、树和天鹅。**13 分钟、14 轮就满了。**
+ *
+ * 依据与敏感化是同一套双过程理论的反面：重复刺激里"习惯化"那一半是**反应逐次变小**，
+ * 且只对同一种刺激成立（Groves & Thompson 1970，见 `sensitivity.ts` 的引用）。
+ * 所以这里按「哪种情绪 + 冲谁」记"这一段里被推过几次"，**只作用于正面情绪**：
+ * 负面情绪的重复由敏感化负责（越伤越重），正面情绪的重复由适应负责（越给越淡）。
+ *
+ * - {@link HABITUATION_WINDOW_MINUTES}：窗口。超过它没有新的增益，就当"这一段过去了"，计数归零。
+ *   取 90 分钟：一场聊天的量级；隔一顿饭再聊，又是新的。
+ * - {@link HABITUATION_SLOPE}：每多推一次，增益按 `1 / (1 + 斜率 × n)` 缩。
+ *   第 1 次满额，第 2 次 2/3，第 3 次 1/2，第 5 次 2/7……收敛得快但不至于归零。
+ * - {@link NOVELTY_DELTA}：单次增量 ≥ 这个数算"新的事"，**不算重复、并把计数重置**。
+ *   没有它，一段长关系里的大事（一次交底、一次背叛）会被前面几十次寒暄拖成一两分。
+ *   取评估器标尺里"大事"的下界 12（"天大的好消息、被当面羞辱"）—— 只让这种量级的事件破例，
+ *   这样日常的 1–5 分仍然会逐次变淡，不会被一句"其实我也挺喜欢你的"重置。
+ */
+export const HABITUATION_WINDOW_MINUTES = 90
+export const HABITUATION_SLOPE = 0.5
+export const NOVELTY_DELTA = 12
 
 /**
  * 精力（独立一维，不是情绪）。

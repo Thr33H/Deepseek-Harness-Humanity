@@ -1,223 +1,127 @@
 /**
- * 记忆数据模型的**类型**（宿主与工作台共用的唯一真源）。
+ * 记忆数据模型的**类型**（宿主侧的窄契约）。
  *
- * 与 `constants.ts` 的分工：这里只放形状（interface），不放值。
+ * 一条记忆 = 一段经历。要点永不改写、细节会先丢、强度一直在掉 ——
+ * 这三件事构成了"她还记得、但记得没那么清了"。
  * @module humanity/memory/types
  */
-import type { MemoryMode } from '../config.js'
-import type { MemoryConfirmSource, MemoryOrigin, MemoryScope, MemoryStatus } from './constants.js'
+import type { MemoryAbout, MemoryCertainty, MemoryTier } from './constants.js'
+
+/**
+ * 写下这一刻她的感觉（**历史，不可改写**）。
+ *
+ * 为什么是历史：她当时被那句话刺到，是既成事实，不能因为三天后想通了就抹掉。
+ * "现在再想起这件事是什么感觉"是**另一次计算**（由当前情绪与关系决定），不是改这条记录。
+ */
+export interface MemoryFeeling {
+  /** 情绪种类（取值与情绪模块的 `EMOTION_KINDS` 同一套，见 `emotion/constants.ts`）。 */
+  kind: string
+  /** 当时有多强（0–100，与情绪模块同一个刻度）。 */
+  intensity: number
+}
+
+/**
+ * 她的性格里**能参与计算**的那两根轴（0–1）。
+ *
+ * 为什么只拿两根：记忆只需要回答"被冒犯时她有多容易被撼动、她更容易气还是更容易怕"，
+ * 其余两根轴跟这件事没有关系 —— 接口窄一点，接线那边也就不会顺手把别的语义塞进来。
+ *
+ * 为什么不在记忆里 import 人格模块：模块之间不互相 import（见 `index.ts` 的说明），
+ * 人格那边有四根轴，这里只声明自己用得上的两根，由宿主接线时投影过来。
+ */
+export interface MemoryCharacter {
+  /** 情绪稳定性（0–1）：越低，同一件事对她的撼动越大。 */
+  stability: number
+  /** 宜人性（0–1）：越高越容易把冒犯接成"受伤"，越低越可能直接恼。 */
+  agreeableness: number
+}
 
 /**
  * 一条记忆。
  *
- * 字段取舍的依据是 P-027：**只存摘要、事实、引用**。所以这里既有正文（摘要/事实），
- * 也有一组"引用"字段（会话/消息 id）与一整套排序信号（重要度、置信度、使用次数、时间），
- * 但**没有任何**原始会话转写字段 —— 原始内容永远留在 DSH 会话里，需要时回查。
+ * 命名不用 `content` / `importance` 这类旧词：那些词带着"待办清单"的味道，
+ * 而这条记录要能装下"我看到一段讲深海鱼的视频，有点发毛"这种事。
  */
-export interface MemoryEntry {
-  /** 稳定标识（去重后同一个事实只有一条）。 */
+export interface MemoryRecord {
+  /** 主键（`globalThis.crypto.randomUUID()`）。 */
   id: string
-  /** 作用域（长期/工作/会话）。 */
-  scope: MemoryScope
-  /** 记忆正文：摘要或事实本身，不含原文。 */
-  content: string
-  /** 关键词标签，本地检索的主信号。 */
-  tags: string[]
-  /** 重要度 0–5。重要条目不参与衰减（P-026）。 */
-  importance: number
-  /** 置信度 0–1。自动写入 < 1；对方明确说出的为 1。 */
-  confidence: number
-  /** 敏感标记：只有对方明确说"记住"才允许为真（P-033），可在工作台查看与删除。 */
-  sensitive: boolean
-  /** 对方标记（钉住/置顶）：不衰减、不归档，优先级最高。 */
-  pinned: boolean
-  /** 写入来源。自动管线不得改写它（P-033）。 */
-  origin: MemoryOrigin
-  /** 来源会话 id（引用，不是原文）。 */
-  sourceSessionId: string
-  /** 来源消息 id（引用）；空串 = 只知道来自哪个会话。 */
-  sourceMessageId: string
   /**
-   * 作用域归属：`workspace` 存工作区 id、`session` 存会话 id、`long-term` 为空串。
-   *
-   * 为什么不复用 `sourceSessionId`：一条长期事实可以在多个会话里被反复确认，
-   * "从哪来的"和"归谁管"是两件事，混用会让作用域开关失去意义。
+   * 发生了什么，一句话。**永不改写** —— 这是她"还记得这件事"的全部凭据。
    */
-  ownerId: string
-  /** 写入时刻（ISO 8601 UTC）。 */
+  what: string
+  /**
+   * 当时的原话、画面、片段。**会先丢**。
+   *
+   * 丢的是细节，不是事情：这正是人真实的状态（记得那年冬天不好过，说不出某天吃了什么）。
+   */
+  detail: string
+  /** 什么时候发生的（ISO 8601）。`when` 与 `createdAt` 不同：一件事可以是三天前发生的、今天才被想起。 */
+  when: string
+  /** 这件事关于谁。 */
+  about: MemoryAbout
+  /** 当时的感觉。 */
+  felt: MemoryFeeling
+  /** 她多确定。 */
+  certain: MemoryCertainty
+  /** 现在有多牢（0–1）。按幂律随时间掉，被想起时回升。 */
+  strength: number
+  /** 被想起过几次。 */
+  recalled: number
+  /** 上一次被想起的时刻（ISO 8601）。 */
+  recalledAt: string
+  /**
+   * 说出来要付多大代价（0–1）。
+   *
+   * 不是"是不是敏感信息"那个布尔值：那是分类，这是**代价**。代价会变 ——
+   * 关系热了降、时间久了降、气消了降。
+   */
+  cost: number
+  /** 为什么贵（一句她自己的话）。 */
+  costWhy: string
+  /** 哪一档。 */
+  tier: MemoryTier
+  /** 写入时刻。 */
   createdAt: string
-  /** 最近一次内容变更时刻（ISO 8601 UTC）。 */
-  updatedAt: string
-  /** 最近一次被检索命中并使用的时刻（ISO 8601 UTC）；空串 = 从未用过。 */
-  lastUsedAt: string
-  /** 被使用次数。只影响排序，**不因为高频就注入**（P-031）。 */
-  useCount: number
-  /** 生命周期状态。 */
-  status: MemoryStatus
-  /** 归档时刻（ISO 8601 UTC）；空串 = 未归档。 */
-  archivedAt: string
-  /** 去重指纹：同作用域下内容相同即视为同一条（见 `buildDedupeKey`）。 */
-  dedupeKey: string
   /**
-   * 与哪些条目**可能矛盾**（对方的去重指纹）。空数组 = 没有检测到冲突。
+   * 这一条是从哪些条目归拢上来的（`period` / `chapter` 才有）。
    *
-   * 只标记、不解决：判据是本地关键词启发式（见 `conflict.ts`），它没有资格自动决定
-   * "对方到底喜欢还是不喜欢咖啡"。冲突由对方在工作台处理（M3 步骤 8）。
+   * 有它才能回答"这句话是哪几件事攒出来的" —— 没有它，归拢就是一次不可追溯的压缩。
    */
-  conflictWith: string[]
-  /**
-   * 是**哪一端**把这条待确认记录确认成生效的（T2 的"双端同源"审计依据）。
-   * 从未经过待确认的条目为空串（{@link NOT_CONFIRMED}）。
-   */
-  confirmedVia: MemoryConfirmSource | ''
-  /** 条目结构版本（G-004）。 */
-  entryVersion: number
-  /**
-   * 写下这条时的**情绪指纹**（见 {@link MemoryAffect}）。
-   *
-   * 为什么记忆要带情绪：记忆不是冷数据。被骂那天记下的"他今天很生气"，
-   * 和心情好时记下的同一句话，重量不一样。召回时把这份指纹带回一点，
-   * "想起一件事"才会带着当时的温度，而不是一条干巴巴的字符串。
-   */
-  affect: MemoryAffect
+  covers: string[]
+  /** 条目结构版本。 */
+  version: number
+}
+
+/** 写入一条记忆时，调用方一定知道的那部分。 */
+export interface MemoryInput {
+  what: string
+  detail?: string
+  when?: string
+  about: MemoryAbout
+  felt?: MemoryFeeling
+  certain: MemoryCertainty
+  cost?: number
+  costWhy?: string
+  tier?: MemoryTier
+  covers?: string[]
+  /** 显式给强度（导入/迁移用）；省略时按情绪与自我相关算。 */
+  strength?: number
 }
 
 /**
- * 一条记忆上的情绪指纹：**写下它的时候她是什么心情**。
+ * 检索时"她此刻的心情"（心境一致：同向的旧事更容易被想起）。
  *
- * `kind` 为空串表示"当时没有明显情绪"——平静也是信息：至少说明那不是一次有情绪的对话。
+ * 缺席时检索行为与没有这个能力时完全相同 —— 它只是排序上的一个偏向。
  */
-export interface MemoryAffect {
-  /** 当时的情绪种类（`emotion/constants.ts` 的 `EMOTION_KINDS` 之一；空串=平静）。 */
-  kind: string
-  /**
-   * 这股情绪当时**冲谁**（`user` / `self` / `world`）。
-   *
-   * 必须记：回声要把它加回**同一条**情绪上。只记种类的话，想起"她对我说的那句话"
-   * 会加到"对事"的那一条上（实测抓到：trust:user 40 旁边凭空多出 trust:world 5）。
-   * 旧条目没有这个字段，读成 `world`（最中性的默认）。
-   */
-  target: string
-  /** 当时的强度 0–100。 */
-  intensity: number
-  /** 当时的关系温度 0–100；**0 表示没有记录**（旧条目与平静写入都是这个值）。 */
-  warmth: number
+export interface MemoryMood {
+  tone: 1 | 0 | -1
 }
 
-/**
- * 新建一条记忆所需的信息。
- *
- * 只有"写入方一定知道"的字段出现在这里；其余字段由 `MemoryEntrySchema` 的默认值补齐 ——
- * 默认值因此只有一处真源，不会出现"工厂一套、schema 一套"的分叉。
- */
-export interface MemoryEntryInput {
-  /** 作用域。 */
-  scope: MemoryScope
-  /** 正文（摘要或事实）。 */
-  content: string
-  /** 写入来源；必填，见 {@link MemoryEntry.origin}。 */
-  origin: MemoryOrigin
-  /** 来源会话 id。 */
-  sourceSessionId: string
-  /** 显式指定 id（迁移/导入用）；省略时自动生成。 */
-  id?: string
-  /**
-   * 写入时刻（ISO 8601）；省略时取现在。
-   *
-   * 为什么允许显式传入：导入旧数据、迁移、以及需要"历史时刻"的场景（衰减核算的回归测试就是）
-   * 都必须能落一个**真实发生过的时间**。省略时才是"现在"，而不是永远覆盖成现在 ——
-   * 后者会让调用方以为传了时间，实际被悄悄改掉。
-   */
-  createdAt?: string
-  /** 内容变更时刻（ISO 8601）；省略时取 {@link createdAt}。 */
-  updatedAt?: string
-  /** 标签。 */
-  tags?: string[]
-  /** 重要度；省略时取 `DEFAULT_IMPORTANCE`。 */
-  importance?: number
-  /** 置信度；省略时取 `DEFAULT_CONFIDENCE`。 */
-  confidence?: number
-  /** 敏感标记；省略时取 `false`（P-033）。 */
-  sensitive?: boolean
-  /** 对方标记；省略时取 `false`。 */
-  pinned?: boolean
-  /** 来源消息 id。 */
-  sourceMessageId?: string
-  /** 作用域归属 id。 */
-  ownerId?: string
-  /** 状态；省略时取 `NEW_ENTRY_STATUS`（待确认）。 */
-  status?: MemoryStatus
-  /** 写下这条时的情绪指纹；省略时是"平静"（见 {@link MemoryAffect}）。 */
-  affect?: MemoryAffect
-}
-
-/**
- * 生效记忆策略：预设模式 + 高级开关**解析之后**的结果。
- *
- * 为什么要有这一层而不是到处读开关：行为由"模式 × 若干开关"共同决定，
- * 若每个消费方各自拼一遍，同一份配置在不同代码路径里会算出不同行为。
- * 全部消费方只读这个解析结果，工作台展示的也是它（P-030：显示当前生效策略）。
- */
-export interface MemoryPolicy {
-  /** 当前预设模式。 */
-  mode: MemoryMode
-  /** 三层作用域各自是否启用（可独立开关）。 */
-  scopes: Record<MemoryScope, boolean>
-  /** 是否启用自动写入管线。 */
-  autoWrite: boolean
-  /** 是否自动注入（一键关闭的落点，P-028）。 */
-  autoInject: boolean
-  /** 自动注入条数上限，已被夹到 0–`MAX_INJECT_LIMIT`。 */
-  injectLimit: number
-  /** 自动注入 token 上限。 */
-  injectTokenBudget: number
-  /** 相关度阈值：低于它的记忆不返回（P-028）。默认见 `RELEVANCE_THRESHOLD`。 */
-  relevanceThreshold: number
-  /** 衰减归档（P-026）。 */
-  decay: boolean
-  /** "长期未用"的窗口（天）：窗口内完全不衰减。 */
-  decayUnusedDays: number
-  /** 重要度的半衰期（天）：窗口之后每过这么久减半。 */
-  decayHalfLifeDays: number
-  /** 向量检索（默认关，§4.2.5）。 */
-  vector: boolean
-  /**
-   * 高频常驻。MVP **恒为 false**（P-031）：频率只影响排序，不因为高频就注入。
-   * 留在策略里是为了让工作台如实显示"当前策略里它是关的"，而不是看不见。
-   */
-  pinFrequent: boolean
-  /**
-   * 自动写入敏感内容。**恒为 false**：P-033 规定敏感信息只有对方明确说"记住"才写，
-   * 因此它不是一个开关，而是管线的硬约束。
-   */
-  autoWriteSensitive: boolean
-}
-
-/**
- * 高级开关（P-030）。全部可选：只覆盖对方真正动过的那几项，其余跟随预设。
- *
- * 这里刻意**没有** `pinFrequent` / `autoWriteSensitive`：那两项由决策钉死，
- * 开放成开关等于把决策变成"对方自己不小心打开的功能"。
- */
-export interface MemoryPolicyOverrides {
-  /** 三层作用域的独立开关。 */
-  scopes?: Partial<Record<MemoryScope, boolean>>
-  /** 是否启用自动写入。 */
-  autoWrite?: boolean
-  /** 是否自动注入。 */
-  autoInject?: boolean
-  /** 自动注入条数（超出上限会被夹住）。 */
-  injectLimit?: number
-  /** 自动注入 token 上限。 */
-  injectTokenBudget?: number
-  /** 相关度阈值（0–1；超出范围会被夹住）。 */
-  relevanceThreshold?: number
-  /** 衰减归档。 */
-  decay?: boolean
-  /** "长期未用"窗口（天）。 */
-  decayUnusedDays?: number
-  /** 重要度半衰期（天）。 */
-  decayHalfLifeDays?: number
-  /** 向量检索。 */
-  vector?: boolean
+/** 检索命中：带分数，好让上层能解释"为什么是这条"。 */
+export interface MemoryHit {
+  record: MemoryRecord
+  /** 综合得分（0–1）。 */
+  score: number
+  /** 拆开的三个来源，工作台要显示"她为什么会想起这条"。 */
+  parts: { relevance: number; strength: number; mood: number }
 }

@@ -24,23 +24,21 @@ import { createMainAgentJudge, subjectOf } from '../agent-scope.js'
 import { warnSafely, type Log } from '../log.js'
 import { neutralizePromptVars } from '../text.js'
 import { PROPOSALS_SECTION_NAME, PROPOSALS_SECTION_ORDER } from './constants.js'
-import type { EvolutionState } from './state.js'
+import type { EvolutionState, ProposalCounts } from './state.js'
 
-/** 分类计数（文案里报给对方）。 */
-export interface PendingCounts {
-  memory: number
-  persona: number
-  route: number
-  total: number
-}
+/**
+ * 分类计数（文案里报给对方）。
+ *
+ * 2026-11-20 起只有提案的三类：记忆候选不再进"待确认"，而是在写入时就落库
+ * （她说不说由 `cost` 决定，不是排队等审核）。
+ */
+export type PendingCounts = ProposalCounts
 
-/** 提醒需要的待确认事实（宿主跨模块接线：提案在自进化存储，记忆 pending 在记忆存储）。 */
+/** 提醒需要的待确认事实（2026-11-20 起只有提案：记忆侧的待确认区已随重构删除）。 */
 export interface PendingFacts {
   /** 待确认提案 id（pending 状态）。 */
   proposalIds(): string[]
-  /** 待确认记忆指纹（pending 状态）。 */
-  memoryFingerprints(): string[]
-  /** 分类计数（文案里报给对方）。 */
+  /** 分类计数（按**提案类别**分：记忆类 / 人格类 / 路由类）。 */
   counts(): PendingCounts
 }
 
@@ -65,7 +63,6 @@ export function hashBatch(ids: readonly string[]): string {
 /** 渲染提醒正文；不该提醒时返回空串。 */
 function renderNotice(counts: PendingCounts): string {
   const parts: string[] = []
-  if (counts.memory > 0) parts.push(`记忆 ${counts.memory} 条`)
   if (counts.persona > 0) parts.push(`人格 ${counts.persona} 条`)
   if (counts.route > 0) parts.push(`路由 ${counts.route} 条`)
   return (
@@ -133,7 +130,7 @@ function renderSectionText(context: unknown, runtime: NotifyRuntime): string {
     if (pending !== undefined) {
       const counts = pending.counts()
       if (counts.total > 0) {
-        const watermark = hashBatch([...pending.proposalIds(), ...pending.memoryFingerprints()].sort())
+        const watermark = hashBatch([...pending.proposalIds()].sort())
         if (state.readState().notifiedWatermark !== watermark) {
           // 同一批只提醒一次。水位落盘是异步补记（字段级原子合并，不碰别人的字段）：
           // 写失败最多让下一轮重复提醒一次，不值得毁掉这一轮（try/catch 包裹）。

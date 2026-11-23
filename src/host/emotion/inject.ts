@@ -29,6 +29,7 @@ import { HUMANITY_PRESET_ID } from '../presets.js'
 import { appraiseMessage } from './appraise.js'
 import { renderReminder } from './render.js'
 import { settle, type EmotionPulse } from './state.js'
+import type { AppraisalStance } from './stance.js'
 import type { EmotionState } from './types.js'
 
 /**
@@ -57,6 +58,76 @@ function textOfMessage(message: unknown): string {
     .trim()
 }
 
+/**
+ * 取**真正的用户消息**的正文。
+ *
+ * 为什么要看 `source.kind`：这一轮带给我们的不止对方那句话，还有 DSH 的运行环境说明
+ * （"The following information describes your current session…"）、时间注入、以及我们自己的
+ * 情绪注入。它们不是"对方说的"，喂给评估器既浪费预算又会误导 —— 实机现场评估器看到的
+ * 一大半是那段环境说明。
+ * @param message - 消息对象。
+ * @returns 正文；不是用户消息时为空串。
+ */
+function userTextOf(message: unknown): string {
+  const source = (message as { source?: { kind?: string } } | undefined)?.source
+  if (source?.kind !== 'user') return ''
+  return textOfMessage(message)
+}
+
+/** 会话历史里我们认得的那个窄面（结构读；DSH 的 Session 有 `seq` 与 `eventAt`）。 */
+interface SessionLike {
+  seq?: number
+  eventAt?(seq: number): { type?: string; data?: unknown } | undefined
+}
+
+/** 前文里每句话最多留多少字（两句加起来够用，不挤占评估预算）。 */
+const CONTEXT_LINE_CHARS = 120
+
+/**
+ * 取**最近两轮**对话作为前文（对方的原话 + 她的原话）。
+ *
+ * 为什么需要它：只给当前这一句时，"你自己随便找找"这种短话会被判成"被随口打发" ——
+ * 评估器不知道上一句是她把话头递过去的。前情让它知道"这句话在接什么"。
+ *
+ * 三条纪律：
+ * - 只取**事实**（双方原话），不取注入、工具结果，也不取我们自己的 `cause`（那是上一轮评估的输出，会自我强化）；
+ * - 当前这句话本身不重复放进去（它下面会单独给）；
+ * - 会话接口读不到就返回 `undefined` —— 退回"只看当前这句"，绝不能让评估因此失败。
+ * @param agent - 当前 Agent（pre-step 载荷里那个）。
+ * @param currentText - 这一次要判断的正文（用于避免重复）。
+ * @returns 多行前文；没有可用历史时 `undefined`。
+ */
+function recentContext(agent: unknown, currentText: string): string | undefined {
+  const session = (agent as { session?: SessionLike } | undefined)?.session
+  if (session === undefined || typeof session.eventAt !== 'function') return undefined
+  const seq = typeof session.seq === 'number' ? session.seq : 0
+  if (seq <= 0) return undefined
+
+  const lines: string[] = []
+  for (let index = seq - 1; index >= 0 && lines.length < 4; index -= 1) {
+    let event: { type?: string; data?: unknown } | undefined
+    try {
+      event = session.eventAt(index)
+    } catch {
+      break
+    }
+    if (event === undefined) continue
+    if (event.type === 'user/message') {
+      const text = userTextOf(event.data)
+      if (text === '') continue
+      // 最后一条就是这一次要判断的那句：不重复放进去。
+      if (lines.length === 0 && text === currentText) continue
+      lines.push(`对方：${text.slice(0, CONTEXT_LINE_CHARS)}`)
+    } else if (event.type === 'assistant/message') {
+      const text = textOfMessage((event.data as { message?: unknown } | undefined)?.message)
+      if (text === '') continue
+      lines.push(`你：${text.slice(0, CONTEXT_LINE_CHARS)}`)
+    }
+  }
+  if (lines.length === 0) return undefined
+  return lines.reverse().join('\n')
+}
+
 /** 注入需要的外部事实。 */
 export interface EmotionInjectDeps {
   /** 模块开关（总开关 × 情绪开关）。 */
@@ -67,6 +138,13 @@ export interface EmotionInjectDeps {
   pulse(input: EmotionPulse): Promise<void>
   /** 后台模型调用入口。 */
   llm: LlmAccess
+  /**
+   * 现读她的**立场**（人格里会改变"这件事意味着什么"的那几样）。
+   *
+   * 为什么是函数而不是一份快照：人格随时可改，评估每次都要用当时的那份；
+   * 缓存会让人格改完之后，情绪层还按旧立场判（实机表现就是"改了人格，情绪没跟着变"）。
+   */
+  stance(): AppraisalStance | undefined
 }
 
 /**
@@ -115,9 +193,9 @@ export function installEmotionInjection(ctx: Context, log: Log, deps: EmotionInj
   }
 
   /** 补跑一次判断：失败只记日志，绝不影响这一轮对话。 */
-  const evaluate = async (message: string, state: EmotionState): Promise<void> => {
+  const evaluate = async (message: string, state: EmotionState, context?: string): Promise<void> => {
     try {
-      const pulse = await appraiseMessage(deps.llm, { message, state }, {
+      const pulse = await appraiseMessage(deps.llm, { message, state, stance: deps.stance(), context }, {
         onWarn: (warning) => log.warn(warning),
       })
       if (pulse !== undefined) await deps.pulse(pulse)
@@ -168,11 +246,13 @@ export function installEmotionInjection(ctx: Context, log: Log, deps: EmotionInj
 
       // 每轮只在第一步判断一次；读写都在异步尾巴上，用户不必等它。
       if (step === 1) {
+        // 只取**对方说的**：环境说明、时间注入、我们自己的情绪注入都不是"对方刚说"。
         const text = (decision.messages ?? [])
-          .map(textOfMessage)
+          .map(userTextOf)
           .filter((line) => line !== '')
           .join('\n')
-        if (text !== '') void evaluate(text, state)
+        // 前文（最近两轮）只给事实：让评估器知道这句话在接什么，避免"短句被判成敷衍"。
+        if (text !== '') void evaluate(text, state, recentContext(agent, text))
       }
 
       return { ...decision, messages }

@@ -93,11 +93,17 @@ export function installSettings(
         )
         return
       }
-      const off = mountPlaneSwitches(plane, documents, entry, (next) => {
-        source = () => next
+      const off = mountPlaneSwitches(plane, documents, entry, (read) => {
+        // **每次现算，不缓存快照。**
+        //
+        // 缓存踩过（2026-11-22）：初始同步发生在存储就绪之前，那时覆盖层是空的，
+        // 算出来是默认配置（`independentJudgment: true`）。缓存下来之后，等存储就绪、
+        // 用户那条 `false` 真的读得到时，**已经没人重算了** —— 于是"关了独立判断"
+        // 重启后照样注入那一段提示词。
+        source = read
         attached = true
         planeAttached = true
-        onChange(next)
+        onChange(read())
       }, log)
       log.info('0.1.7：模块开关改由自有数据面承载（POST /api/humanity/replace|update）')
 
@@ -159,7 +165,8 @@ function mountPlaneSwitches(
   plane: DataPlane,
   documents: () => DocumentStore | undefined,
   entry: HumanityConfig,
-  onChanged: (next: HumanityConfig) => void,
+  /** 收到的是**读取函数**而不是快照：每次要值的时候现算，别缓存（见调用方的说明）。 */
+  onChanged: (read: () => HumanityConfig) => void,
   log: Log,
 ): () => void {
   const overrides = (): Record<string, unknown> => {
@@ -176,7 +183,7 @@ function mountPlaneSwitches(
       throw new Error(`${SETTINGS_NAMESPACE} 的修订号对不上（读到 ${String(expectedRevision)}，当前 ${String(current)}），请重读后再写`)
     }
     await store.write(SETTINGS_NAMESPACE, next)
-    onChanged(resolved())
+    onChanged(resolved)
   }
 
   const off = plane.register({
@@ -186,7 +193,8 @@ function mountPlaneSwitches(
     update: (patch, expectedRevision) => write(mergeDocument(overrides(), patch), expectedRevision),
   })
   // 初始同步：官方 attach 时也会立刻触发一次（调用方不必自己再同步一遍）。
-  onChanged(resolved())
+  // 传的是函数不是值 —— 调用方会一直用它现算，存储就绪后才拿得到真实覆盖层。
+  onChanged(resolved)
   log.info(`开关命名空间 ${SETTINGS_NAMESPACE} 已挂到自有数据面`)
   return off
 }

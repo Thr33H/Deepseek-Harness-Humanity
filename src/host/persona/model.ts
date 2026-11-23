@@ -17,8 +17,8 @@
  */
 import Schema from '@deepseek-ai/schemastery'
 
-import { CORE_IDENTITY_KEYS, STANDARD_SECTION_TITLES } from './constants.js'
-import type { PersonaDocument } from './types.js'
+import { CHARACTER_AXES, CORE_IDENTITY_KEYS, STANDARD_SECTION_TITLES } from './constants.js'
+import type { CharacterAxisEntry, CharacterLayer, PersonaDocument } from './types.js'
 
 /**
  * 人格文档结构版本。
@@ -67,6 +67,34 @@ const IdentityCardSchema = Schema.object({
 })
 
 /**
+ * 一根性格轴的 schema。
+ *
+ * **这里刻意不写范围约束**（`.min(0).max(1)` 之类）：范围合法性由 `validate-character.ts`
+ * 判定，那里能给出带 `path` 的结构化问题、工作台能定位到那一根轴；
+ * 而 schema 层的数值约束只会让**整份文档**解析失败 —— 一根轴越界害得人格整个读不出来，
+ * 与"坏一条害死整库"是同一种错误。
+ */
+const CharacterAxisSchema = Schema.object({
+  key: Schema.union(CHARACTER_AXES).required(),
+  min: Schema.number().default(0),
+  max: Schema.number().default(1),
+  value: Schema.number().default(0.5),
+  reason: Schema.string().default(''),
+})
+
+/**
+ * 性格层的 schema。
+ *
+ * 默认 `derivedAt: ''` + `axes: []` = **还没有性格**（未初始化）。
+ * 旧文档没有这一层，读出来就是这个空壳——不需要迁移，也不需要升 `PERSONA_SCHEMA_VERSION`
+ * （那管的是"含义变了"，这里只是多了一个带默认值的字段，与情绪模块加 `sensitivities` 同一处理）。
+ */
+const CharacterLayerSchema = Schema.object({
+  derivedAt: Schema.string().default(''),
+  axes: Schema.array(CharacterAxisSchema).default([]),
+})
+
+/**
  * 人格文档 schema。默认值的唯一真源；组合补丁与代码都不得再抄一份。
  *
  * 这里刻意**不写 `: Schema<PersonaDocument>` 标注**：那会把输入类型钉成完整的
@@ -77,9 +105,77 @@ export const PersonaSchema = Schema.object({
   schemaVersion: Schema.number().default(PERSONA_SCHEMA_VERSION),
   identityCard: IdentityCardSchema,
   mutableLayer: MutableLayerSchema,
+  character: CharacterLayerSchema,
 })
 
 /** 造一份"未初始化"的中性默认人格（P-003：未初始化时也要保证 Agent 可用）。 */
 export function createDefaultPersona(): PersonaDocument {
   return PersonaSchema({})
+}
+
+/**
+ * 初始化时模型给出的一根轴：**只有一个范围与理由，没有"此刻的值"**。
+ *
+ * 刻意不让模型给值：值应当从范围中间开始、被经历推动。让模型顺手写一个"她现在就很敏感"，
+ * 等于把一次没有依据的判断烙进她的状态里。
+ */
+export interface CharacterAxisInput {
+  key: string
+  min: number
+  max: number
+  reason?: string
+}
+
+/** 推导性格的结论：失败时给一句能直接进工具结果的原因。 */
+export type CharacterBuild = { ok: true; layer: CharacterLayer } | { ok: false; reason: string }
+
+/** 浮点容差：与 `validate-character.ts` 用同一个口径。 */
+const EPSILON = 1e-9
+
+/** 夹到 [0, 1]。 */
+const clamp01 = (value: number): number => Math.min(1, Math.max(0, value))
+
+/** 保留两位小数（落盘的数字要能被人看懂，`0.30000000000000004` 没有意义）。 */
+const round2 = (value: number): number => Math.round(value * 100) / 100
+
+/**
+ * 把模型给的四根轴整理成性格层 —— **她的笼子就是在这里定下来的**。
+ *
+ * 三条规则：
+ * 1. 四根必须齐；少一根就整次失败（笼子缺一根，那一根就永远管不住了）；
+ * 2. 范围必须在 0–1 且下限不高于上限；
+ * 3. 此刻的值取**范围中点** —— 她刚出生，落在自己笼子的正中间，这是唯一一个不依赖任何经历的取值。
+ * @param inputs - 模型给的轴。
+ * @param now - 推导时刻（ISO 8601）。
+ * @returns 结论：成功时是性格层，失败时是一句原因。
+ */
+export function createCharacter(inputs: readonly CharacterAxisInput[], now: string): CharacterBuild {
+  const given = new Map<string, CharacterAxisInput>()
+  for (const axis of inputs) {
+    if (!(CHARACTER_AXES as readonly string[]).includes(axis?.key ?? '')) {
+      return { ok: false, reason: `未知的轴「${axis?.key ?? ''}」：只认 ${CHARACTER_AXES.join(' / ')}` }
+    }
+    if (given.has(axis.key)) return { ok: false, reason: `轴「${axis.key}」给了两次` }
+    given.set(axis.key, axis)
+  }
+  const missing = CHARACTER_AXES.filter((key) => !given.has(key))
+  if (missing.length > 0) return { ok: false, reason: `缺了这几根轴：${missing.join('、')}` }
+
+  const axes: CharacterAxisEntry[] = []
+  for (const key of CHARACTER_AXES) {
+    const axis = given.get(key) as CharacterAxisInput
+    if (!Number.isFinite(axis.min) || !Number.isFinite(axis.max)) {
+      return { ok: false, reason: `「${key}」的下限或上限不是数字` }
+    }
+    if (axis.min < -EPSILON || axis.max > 1 + EPSILON || axis.min > axis.max + EPSILON) {
+      return {
+        ok: false,
+        reason: `「${key}」的范围不合法：要落在 0–1 之间，且下限不能高于上限（收到 ${axis.min}–${axis.max}）`,
+      }
+    }
+    const min = round2(clamp01(axis.min))
+    const max = round2(clamp01(axis.max))
+    axes.push({ key, min, max, value: round2((min + max) / 2), reason: (axis.reason ?? '').trim() })
+  }
+  return { ok: true, layer: { derivedAt: now, axes } }
 }

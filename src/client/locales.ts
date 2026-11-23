@@ -9,7 +9,88 @@
 import { evolutionEn, evolutionZh } from './evolution-locales.js'
 import { emotionEn, emotionZh } from './emotion-locales.js'
 import { workbenchEn, workbenchZh } from './workbench-locales.js'
-import { memoryEn, memoryZh } from './memory-locales.js'
+
+/**
+ * 记忆工作台的文案（2026-11-21 随页面重写从 `memory-locales.ts` 并回本文件）。
+ *
+ * 为什么并回来：那一版有近百个键（作用域、待确认、高级开关、向量检索…），随旧记忆模型一起
+ * 整片删除；现在这一页只做一件事——把记忆**显示出来**，文案自然只剩十几条。
+ * 为一个一百行的字典再单开一个文件不划算。
+ */
+const memoryZh = {
+  'memory.tab.persona': '人格',
+  'memory.tab.memory': '记忆',
+  'memory.title': '记忆',
+  'memory.reload': '重新加载',
+  'memory.loading': '正在读取…',
+  'memory.unavailable': '读不到记忆：工作台通道还没就绪（或这个版本还没接上）。记忆本身仍在正常写入与检索。',
+  'memory.failed': '读取失败',
+  'memory.total': '共 {count} 条',
+  'memory.empty': '还没有记下什么。等她经历过值得留下的事，这里会出现。',
+  'memory.dormant': '她还没有被设定完（人格未封存）。记忆从封存那一刻才开始 —— 在那之前，她不会记住任何事。',
+  'memory.recalled': '想起过 {count} 次',
+  'memory.recalledTotal': '{count} 条被想起过',
+  'memory.covers': '由 {count} 件合成',
+  'memory.felt': '当时：{label}',
+  'memory.why.title': '上一次她想起的',
+  'memory.why.cue': '因为你说：「{cue}」',
+  'memory.why.withheld': '（有一条她不想说）',
+  'memory.why.match.high': '很相关',
+  'memory.why.match.mid': '有点相关',
+  'memory.why.match.low': '沾了点边',
+  'memory.secret': '不想说',
+  'memory.reveal.ask': '我要看',
+  'memory.reveal.warn': '她知道你看了。确定？',
+  'memory.reveal.confirm': '确认要看',
+  'memory.delete.ask': '删掉',
+  'memory.delete.warn': '删掉就没了，确定？',
+  'memory.delete.confirm': '确认删掉',
+  'memory.about.self': '关于她自己',
+  'memory.about.user': '关于你',
+  'memory.about.us': '关于你们',
+  'memory.about.world': '关于外面',
+  'memory.tier.episode': '记住',
+  'memory.tier.period': '归拢',
+  'memory.tier.chapter': '一段时期',
+} as const
+
+/** 英文（键集合与中文完全一致，`satisfies` 会在编译期盯着）。 */
+const memoryEn = {
+  'memory.tab.persona': 'Persona',
+  'memory.tab.memory': 'Memory',
+  'memory.title': 'Memory',
+  'memory.reload': 'Reload',
+  'memory.loading': 'Reading…',
+  'memory.unavailable': 'Memory is unreadable: the workbench channel is not ready (or this build has not wired it). Memory itself is still being written and recalled.',
+  'memory.failed': 'Read failed',
+  'memory.total': '{count} entries',
+  'memory.empty': 'Nothing recorded yet. When something worth keeping happens to her, it will show up here.',
+  'memory.dormant': 'She is not set up yet (persona unsealed). Memory starts the moment it is sealed — before that, she records nothing.',
+  'memory.recalled': 'recalled {count}×',
+  'memory.recalledTotal': '{count} recalled at least once',
+  'memory.covers': 'from {count} moments',
+  'memory.felt': 'felt {label}',
+  'memory.why.title': 'What she recalled last time',
+  'memory.why.cue': 'Because you said: “{cue}”',
+  'memory.why.withheld': '(one she would not say)',
+  'memory.why.match.high': 'strong match',
+  'memory.why.match.mid': 'some match',
+  'memory.why.match.low': 'faint match',
+  'memory.secret': 'would not say',
+  'memory.reveal.ask': 'Let me see',
+  'memory.reveal.warn': 'She will know you looked. Sure?',
+  'memory.reveal.confirm': 'Yes, show it',
+  'memory.delete.ask': 'Delete',
+  'memory.delete.warn': 'It will be gone for good. Sure?',
+  'memory.delete.confirm': 'Yes, delete',
+  'memory.about.self': 'about her',
+  'memory.about.user': 'about you',
+  'memory.about.us': 'about you two',
+  'memory.about.world': 'about the world',
+  'memory.tier.episode': 'kept',
+  'memory.tier.period': 'gathered',
+  'memory.tier.chapter': 'a stretch of time',
+} satisfies Record<keyof typeof memoryZh, string>
 
 /** 本面板的字典命名空间。 */
 export const NS = 'humanity'
@@ -96,6 +177,20 @@ const personaZh = {
   'persona.issue.mutable.user-defined-key-empty': '「自定义」有一项只填了内容、没填名字（请补上键名）',
   'persona.issue.mutable.item-too-long': '有条目超过 120 字，建议拆成多条',
   'persona.issue.mutable.item-conflict': '同一小节里有两句话互相矛盾（一句让做、一句不让做），只能留一条',
+  'persona.issue.character.axis-missing': '性格缺少了应该有的轴',
+  'persona.issue.character.range-invalid': '性格的数值不合法：每一项都要在 0–1 之间，且下限不能高于上限',
+  'persona.issue.character.value-out-of-range': '她此刻的数值掉出了她的范围（应当落在上下限之内）',
+  'persona.issue.character.reason-missing': '有一个范围没写下理由——不影响使用，但以后就解释不了她为什么是这样',
+  'persona.issue.character.sealed': '性格的范围已对 Agent 封存（你仍然可以在这里修改）',
+  'persona.characterCard': '性格',
+  'persona.characterHint':
+    '四根轴，每根有一对范围。范围是她天生的边界——初始化时她读自己的底色推导出来，之后不再变动；' +
+    '经历只能在这个范围里推动她。轨道上那根竖线就是她此刻站的位置。理由是她自己的解释，可以改。',
+  'persona.characterRange': '范围',
+  'persona.characterReason': '理由',
+  'persona.characterReasonPlaceholder': '她当初为什么只给自己这么多空间',
+  'persona.characterPending': '她还没有性格。首次初始化时，她会读自己刚写下的底色，自己定出这四根的范围。',
+  'persona.characterAxisMissing': '缺了这一根（初始化时没给）',
 } as const
 
 /** 英文。键集合必须与中文完全一致，否则 `satisfies` 会在编译期报错。 */
@@ -176,6 +271,20 @@ const personaEn = {
   'persona.issue.mutable.user-defined-key-empty': 'A user-defined entry has content but no name (add its key)',
   'persona.issue.mutable.item-too-long': 'An entry exceeds 120 characters; consider splitting it',
   'persona.issue.mutable.item-conflict': 'Two entries in the same section contradict each other (one says to do it, the other says not to); keep only one',
+  'persona.issue.character.axis-missing': 'Her character is missing an axis that should be there',
+  'persona.issue.character.range-invalid': 'A character value is invalid: every value must be within 0–1, and the lower bound cannot exceed the upper bound',
+  'persona.issue.character.value-out-of-range': 'Her current value has fallen outside her range (it must sit between the bounds)',
+  'persona.issue.character.reason-missing': 'One range has no reason written down — harmless, but it will be unexplainable later',
+  'persona.issue.character.sealed': 'The character ranges are sealed against the agent (you can still edit them here)',
+  'persona.characterCard': 'Character',
+  'persona.characterHint':
+    'Four axes, each with a range. The range is her innate boundary — derived from the fixed layer at initialization and never changed afterwards; ' +
+    'experience can only move her within it. The vertical line on the track is where she stands right now. The reason is her own explanation and is editable.',
+  'persona.characterRange': 'Range',
+  'persona.characterReason': 'Reason',
+  'persona.characterReasonPlaceholder': 'Why she only allowed herself this much room',
+  'persona.characterPending': 'She has no character yet. On first initialization she reads the fixed layer she just wrote and derives the four ranges herself.',
+  'persona.characterAxisMissing': 'Missing (not provided at initialization)',
 } satisfies Record<keyof typeof personaZh, string>
 
 /** 人格 + 情绪 + 记忆 + 自进化四套文案合成同一个字典（对 DSH 仍只是一个 `humanity` 字典；`en` 同键检查照旧）。 */

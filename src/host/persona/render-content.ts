@@ -9,11 +9,19 @@
  */
 import { CORE_IDENTITY_KEYS } from './constants.js'
 import { neutralizePromptVars } from '../text.js'
+import { characterLine } from './render-character.js'
 import type { PersonaDocument } from './types.js'
 
 /** 渲染前的"可注入内容"：只留非空字段与非空小节（形状残缺的输入在这里被抹平成空）。 */
 export interface RenderableContent {
   fields: Array<{ key: string; value: string }>
+  /**
+   * 性格那一行（已渲染成一句人话）；空串 = 还没有性格（未推导）。
+   *
+   * 在挑内容时就渲染好、而不是把整个 `CharacterLayer` 传下去：下游（`blocksOf`）只关心
+   * "这行字放在哪"，不该再去理解轴、范围、偏向这些概念。
+   */
+  character: string
   sections: Array<{ title: string; items: string[] }>
   userDefined: Array<{ key: string; value: string }>
 }
@@ -198,6 +206,8 @@ export function collectPersonaContent(doc: PersonaDocument): RenderableContent {
     fields: (doc?.identityCard?.fields ?? [])
       .filter((field) => (field?.value ?? '').trim() !== '')
       .map((field) => ({ key: safe(field?.key ?? ''), value: safe(field?.value ?? '') })),
+    // 性格先渲染成一句人话：空串表示她还没有性格，下游据此决定要不要留这一行。
+    character: characterLine(doc?.character),
     sections: (doc?.mutableLayer?.sections ?? [])
       .map((section) => ({
         title: safe(section?.title ?? ''),
@@ -237,6 +247,9 @@ export function blocksOf(content: RenderableContent): ContentBlocks {
     const core = (CORE_IDENTITY_KEYS as readonly string[]).includes(field.key) ? '' : '（自定义）'
     head.push(`- ${field.key}${core}：${field.value}`)
   }
+  // 性格紧接在底色之后、信息之前：先"你是谁"，再"你此刻是什么状态"，最后才是怎么和对方相处。
+  // 它属于 head 而不是 sections —— 它没有小标题，就是她自己的状态。
+  if (content.character !== '') head.push(content.character)
   if (content.sections.length > 0) head.push('', '## 你的信息')
 
   const sections: Array<{ title: string; items: string[] }> = content.sections.map((section) => ({

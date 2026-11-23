@@ -82,7 +82,7 @@ export function PendingCard(props: PendingCardProps) {
       </div>
       {total === 0 || !open || !canExpand ? null : (
         <div style={{ marginTop: 12 }}>
-          <PendingDetails t={t} evolution={evolution} memory={memory} />
+          <PendingDetails t={t} evolution={evolution} />
         </div>
       )}
     </section>

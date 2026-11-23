@@ -131,6 +131,7 @@ export function sensitivityFactor(
  * @param kind - 这一笔的情绪。
  * @param target - 这一笔的对象。
  * @param delta - 这一笔的**原始**增量（不是放大后的那个）。
+ * @param context - 这一笔的出处（原因与时刻）；用户 2026-11-22 要"能看出为什么敏感"，所以落进痕迹里。
  * @returns 记账后的痕迹（同一个键只有一条）。
  */
 export function recordSting(
@@ -138,13 +139,23 @@ export function recordSting(
   kind: EmotionKind,
   target: EmotionTarget,
   delta: number,
+  context: { cause?: string; at?: string } = {},
 ): EmotionSensitivity[] {
   const weight = Math.min(1, Math.abs(delta) / SENSITIVITY_REFERENCE_DELTA)
   if (!(weight > 0)) return [...entries]
 
   const existing = entries.find((entry) => entry.kind === kind && entry.target === target)
   const current = existing?.level ?? 0
-  const entry: EmotionSensitivity = { kind, target, level: current + (1 - current) * SENSITIVITY_STEP * weight }
+  const entry: EmotionSensitivity = {
+    kind,
+    target,
+    level: current + (1 - current) * SENSITIVITY_STEP * weight,
+    // 只留最近一次：这一层要回答"最近被什么磨的"，不是给每一道痕迹写日记。
+    lastCause: context.cause !== undefined && context.cause !== '' ? context.cause : (existing?.lastCause ?? ''),
+    lastDelta: delta,
+    lastLevelBefore: current,
+    lastAt: context.at !== undefined && context.at !== '' ? context.at : (existing?.lastAt ?? ''),
+  }
   const next = existing === undefined
     ? [...entries, entry]
     : entries.map((item) => (item === existing ? entry : item))

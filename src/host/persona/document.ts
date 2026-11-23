@@ -36,6 +36,15 @@ export interface SectionState {
   settings?: SettingsProvider
   /** 命名空间是否已接上（决定 `attached` 与"能不能读到真文档"）。 */
   attached: boolean
+  /**
+   * **数据是否真的可读了**（存储面就绪）。
+   *
+   * 与 `attached` 是两件事，2026-11-22 才分清：`attached` 只说明"命名空间注册上了"，
+   * 而 `get(ns)` 在存储没就绪时返回的是 `base`（默认文档）—— 那时读到的"未封存"
+   * **是默认值，不是事实**。据此注册工具就会把已封存的实例注册成未封存那套
+   * （真机：封存了却还给她 `humanity_persona_init`）。
+   */
+  storeReady: boolean
   /** 默认（未初始化）人格：base 层，也是设置服务缺席时的回退值。 */
   fallback: PersonaDocument
   /** 「写入成功」监听者；工具注册集依赖初始化状态翻转，见 `writePersona` 末尾。 */

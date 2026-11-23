@@ -38,6 +38,9 @@ export const EmotionChargeSchema = z.object({
   // 旧条目没有这个字段：读成空串 = "不知道最近一次被碰到是什么时候"，
   // 自调节于是不生效（按原来的半衰期算）—— 宁可少算，也不要拿一个猜的时刻去加速衰减。
   lastAt: z.string().default(''),
+  // 适应用的两个计数：旧数据读成 0/空 = "这一段还没被推过"，行为与加它之前一致。
+  recentGains: z.number().int().nonnegative().default(0),
+  recentGainsAt: z.string().default(''),
 })
 
 /**
@@ -50,6 +53,27 @@ export const EmotionSensitivitySchema = z.object({
   kind: z.enum(EMOTION_KINDS),
   target: z.enum(EMOTION_TARGETS).default('world'),
   level: z.number().min(0).max(1),
+  // 最后一次被磨的出处（用户 2026-11-22 要"能看出为什么敏感"）。
+  // 旧条目没有这三项：读成空/0 = "没记过原因"，界面会如实说不知道。
+  lastCause: z.string().default(''),
+  lastDelta: z.number().default(0),
+  lastLevelBefore: z.number().min(0).max(1).default(0),
+  lastAt: z.string().default(''),
+})
+
+/**
+ * 上一次评估给某一处带来的增减（工作台画箭头用）。
+ *
+ * 之前漏在 schema 外面，结果**写进去又被解析剥掉**：状态里明明有增减，投影出来全是 0，
+ * 箭头一个都不显示（2026-11-22 真机现场）。凡是落盘的字段都必须在这里出现 ——
+ * `z.object` 默认会把没声明的键剥掉。
+ */
+export const EmotionDeltaSchema = z.object({
+  kind: z.enum(EMOTION_KINDS),
+  target: z.enum(EMOTION_TARGETS).default('world'),
+  delta: z.number(),
+  // 上一次评估之前的值（画"从上次到现在净变化"用）。老状态没有它：null = 不知道起点，不画段。
+  before: z.number().min(0).max(EMOTION_MAX).nullable().default(null),
 })
 
 /**
@@ -65,6 +89,8 @@ export const EmotionStateSchema = z.object({
   // 旧条目没有这个字段：读成空数组 = "没有哪一处被磨过"，与加这个字段之前的行为一致。
   // 所以它**不需要**升 `EMOTION_STATE_VERSION`（那不是"换模型"，只是多了一个带默认值的字段）。
   sensitivities: z.array(EmotionSensitivitySchema).max(MAX_SENSITIVITIES * 4).default([]),
+  // 旧状态没有它：读成空数组 = "上一轮没动过任何一处"，箭头不画，行为与加它之前一致。
+  lastDeltas: z.array(EmotionDeltaSchema).max(64).default([]),
   warmth: z.number().min(0).max(EMOTION_MAX).default(WARMTH_BASELINE),
   warmthCause: z.string().default(''),
   energy: z.number().min(0).max(ENERGY_MAX).default(ENERGY_INITIAL),

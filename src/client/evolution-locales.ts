@@ -106,7 +106,7 @@ export const evolutionZh = {
   'pending.hide': '收起',
   'evolution.pending.empty': '没有待确认的内容。',
   'evolution.pending.memory': '记忆',
-  'evolution.pending.hint': '有等你点头的东西时，这张卡片与侧栏图标会亮红点。' + '记忆条目在「记忆」页确认；人格提案在这里批准或拒绝。',
+  'evolution.pending.hint': '有等你点头的东西时，这张卡片与侧栏图标会亮红点。人格提案在这里批准或拒绝。',
   'evolution.badge': '{count} 条待确认',
 } as const
 
@@ -210,6 +210,6 @@ export const evolutionEn = {
   'pending.hide': 'Hide',
   'evolution.pending.empty': 'Nothing is waiting for review.',
   'evolution.pending.memory': 'Memories',
-  'evolution.pending.hint': 'When something waits for your approval this card and the sidebar icon show a red dot. ' + 'Confirm memories on the Memory page; approve or reject persona proposals here.',
+  'evolution.pending.hint': 'When something waits for your approval this card and the sidebar icon show a red dot. ' + 'Approve or reject persona proposals here.',
   'evolution.badge': '{count} pending',
 } satisfies Record<keyof typeof evolutionZh, string>
