@@ -214,7 +214,7 @@ function settleEnergy(
  * @param timeZone - 生效时区（决定"清晨"落在几点；省略则用进程时区）。
  * @returns 结算后的新状态（`settledAt` 前移；`updatedAt` 不动 —— 衰减不是变化）。
  */
-export function settle(state: EmotionState, now: string, timeZone?: string): EmotionState {
+function settleOwn(state: EmotionState, now: string, timeZone?: string): EmotionState {
   const from = Date.parse(state.settledAt)
   const to = Date.parse(now)
   /**
@@ -302,6 +302,25 @@ function withinHabituationWindow(charge: EmotionCharge | undefined, now: string)
 }
 
 /**
+ * 结算到 `now`。
+ *
+ * @param state - 当前状态。
+ * @param now - 结算到哪一刻。
+ * @param timeZone - 生效时区。
+ * @param energy - **外面给的精力**（0–100）。
+ *
+ *   为什么要这个参数：精力现在由自进化模块管（按 token 消耗、按睡眠曲线恢复），
+ *   那是唯一真源。情绪这边如果还按自己的"每跨一次清晨 +60"算，就会出现
+ *   "她嘴上喊累、身体还在熬"的两套账。传了就用这一份；没传（自进化关掉/没就绪）
+ *   才退回本模块自己的旧算法 —— 模块独立原则。
+ */
+export function settle(state: EmotionState, now: string, timeZone?: string, energy?: number): EmotionState {
+  const settled = settleOwn(state, now, timeZone)
+  if (typeof energy !== 'number' || !Number.isFinite(energy)) return settled
+  return { ...settled, energy: Math.max(0, Math.min(ENERGY_MAX, energy)) }
+}
+
+/**
  * 施加一次评估结果。**先结算再叠加**，所以"两个小时后补一次事件"和"当时就补"结果一致
  * （差在半衰期的中间段，这正是不该被忽略的部分）。
  * @param state - 当前状态（最好是已结算到 `now` 的）。
@@ -310,14 +329,14 @@ function withinHabituationWindow(charge: EmotionCharge | undefined, now: string)
  * @param timeZone - 生效时区（透传给结算；省略则用进程时区）。
  * @returns 新状态；没有任何变化时**原样返回入参**（调用方据此跳过一次落盘）。
  */
-export function apply(state: EmotionState, pulse: EmotionPulse, now: string, timeZone?: string): EmotionState {
+export function apply(state: EmotionState, pulse: EmotionPulse, now: string, timeZone?: string, energy?: number): EmotionState {
   const hasShift = pulse.shifts.length > 0
   const hasWarmth = pulse.warmth !== undefined && pulse.warmth !== 0
   const hasPerceived = pulse.perceived !== undefined && pulse.perceived !== ''
   // 三样都没动 ⇒ 这不是一次变化。返回**同一个对象**，让调用方能用引用相等判断。
   if (!hasShift && !hasWarmth && !hasPerceived) return state
 
-  const settled = settle(state, now, timeZone)
+  const settled = settle(state, now, timeZone, energy)
   /**
    * 按 **种类 + 对象** 合并：同一轮里"对TA生气"和"对自己生气"是两条，
    * 而重复的"对TA生气"才叠加。少了对象这一维，两种完全不同的生气会被并成一条。

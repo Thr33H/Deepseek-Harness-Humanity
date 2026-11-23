@@ -52,6 +52,12 @@ export interface EmotionDeps {
    */
   timeZone?(): string | undefined
   /**
+   * 精力（0–100）：由自进化模块按 token 与睡眠算出来的那一份。
+   *
+   * 传了就用它（唯一真源）；没传 = 自进化关着或还没就绪，退回本模块自己的旧算法。
+   */
+  energy?(): number | undefined
+  /**
    * 一轮情绪真的落地之后的通知（宿主拿它推动性格轴，见 `persona/drift.ts`）。
    *
    * 为什么挂在这里而不是让性格模块自己读情绪表：一次脉冲"结算 → 叠加 → 落盘 → 投影"只有这一条路，
@@ -143,7 +149,7 @@ export function installEmotion(
     const current = state
     if (current === undefined || !enabled) return undefined
     // 工作台读到的是"现在"的值：不结算就展示，会永远停在上次结算的那一刻。
-    return viewOf(settle(current, nowIso(), deps.timeZone?.()))
+    return viewOf(settle(current, nowIso(), deps.timeZone?.(), deps.energy?.()))
   })
 
   /**
@@ -158,7 +164,7 @@ export function installEmotion(
       if (!enabled) return
       const current = ensureLoaded()
       if (current === undefined) return
-      const next = apply(current, input, at, deps.timeZone?.())
+      const next = apply(current, input, at, deps.timeZone?.(), deps.energy?.())
       // 同一个对象说明没有任何变化（空脉冲）：不写盘、不投影。
       if (next === current) return
       state = next
@@ -186,7 +192,7 @@ export function installEmotion(
       if (!enabled) return undefined
       const current = ensureLoaded()
       if (current === undefined) return undefined
-      return settle(current, now ?? nowIso(), deps.timeZone?.())
+      return settle(current, now ?? nowIso(), deps.timeZone?.(), deps.energy?.())
     },
     pulse: (input, now) => runPulse(input, now),
     echoRecalled: (entries) => {
@@ -236,6 +242,7 @@ export function installEmotion(
     pulse: (input) => api.pulse(input),
     llm: createLlmAccess(ctx, log),
     stance,
+    energy: () => deps.energy?.(),
   })
   ctx.effect(() => disposeInjection, 'humanity: 情绪注入')
 

@@ -23,7 +23,15 @@ import type { Context } from '@deepseek-ai/cordis'
 
 import type { DocumentStore } from '../documents.js'
 import type { Log } from '../log.js'
-import { afterWake, nextGapSeconds, readState, saveState, type WakeRhythm } from './state.js'
+import {
+  afterWake,
+  dayKeyOf,
+  nextGapSeconds,
+  readState,
+  saveState,
+  type EvolutionStateDoc,
+  type WakeRhythm,
+} from './state.js'
 import {
   ensureRoom,
   ensureTask,
@@ -35,7 +43,16 @@ import {
   type RoomDeps,
   type ScheduleServiceLike,
 } from './room.js'
-import { RETRY_ARM_AFTER_MS, WAKE_MARKER } from './constants.js'
+import { MIN_GAP_SECONDS, RETRY_ARM_AFTER_MS, WAKE_MARKER } from './constants.js'
+import {
+  drainPoints,
+  minutesToWake,
+  settleEnergy,
+  shouldSleep,
+  tokensTodayOf,
+  weightedTokens,
+  type TokenUsageLike,
+} from './energy.js'
 import { buildWakePrompt } from './wake.js'
 
 /** 宿主交给自进化模块的外部事实（全部现读，不缓存句柄）。 */
@@ -62,6 +79,13 @@ export interface EvolutionModule {
   refresh(): Promise<void>
   /** 存储就绪：第一次排程。 */
   notifyStoreReady(): void
+  /**
+   * 现读结算后的精力（0–100）；存储未就绪时为 `undefined`。
+   *
+   * 为什么要有它：情绪模块本来自己算一份"精力"（按钟点清晨恢复）。现在**这一份才是唯一真源** ——
+   * 否则会出现"她嘴上喊累、身体还在熬"的两套账。情绪那边拿不到时退回它自己的旧算法。
+   */
+  energyNow(): number | undefined
   /** 卸载。 */
   dispose(): void
 }
@@ -134,11 +158,68 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       .map((name) => `${name}=${ctx.get(name) === undefined ? 'no' : 'yes'}`)
       .join(' ')
 
+  /** 还没落盘的 token 消耗（攒成一次写入）。 */
+  let pendingTokens = 0
+  let flushTimer: ReturnType<typeof setTimeout> | undefined
+
+  /**
+   * 把攒着的消耗落成一次精力变化。
+   * @param at - 结算到哪一刻。
+   */
+  const flushTokens = async (at: string): Promise<void> => {
+    if (pendingTokens <= 0) return
+    const documents = deps.documents()
+    if (documents === undefined) return
+    const weighted = pendingTokens
+    pendingTokens = 0
+    const settled = settleAt(readState(documents), at)
+    const today = dayKeyOf(at, deps.timeZone())
+    const tokensToday = tokensTodayOf(settled.tokensDayKey, today, settled.tokensToday) + weighted
+    const energy = Math.max(0, settled.energy - drainPoints(weighted, tokensToday))
+    const next = { ...settled, energy, energyAt: at, tokensToday, tokensDayKey: today }
+    await saveState(documents, shouldSleep(next) ? { ...next, sleepingSince: at } : next)
+  }
+
+  /**
+   * 结算精力，并在该睡的时候记下睡点。
+   *
+   * 只算不写：让"读一个数"不变成一次磁盘写入（调用方决定什么时候落盘）。
+   * @param state - 读出来的状态。
+   * @param at - 结算到哪一刻。
+   * @returns 结算后的状态。
+   */
+  const settleAt = (state: EvolutionStateDoc, at: string): EvolutionStateDoc => {
+    const settled = settleEnergy(
+      {
+        energy: state.energy,
+        energyAt: state.energyAt === '' ? at : state.energyAt,
+        sleepingSince: state.sleepingSince,
+      },
+      at,
+      deps.timeZone(),
+    )
+    const next = { ...state, ...settled }
+    return shouldSleep(next) ? { ...next, sleepingSince: at } : next
+  }
+
+  /**
+   * 下一次醒来该隔多久。
+   *
+   * 睡着 ⇒ 按"睡够要多久"排（与结算同一条曲线，不会打架）；
+   * 醒着 ⇒ 按随机间隔排（受当日上限管，到顶就等明天早上）。
+   */
+  const gapSeconds = (state: EvolutionStateDoc, at: string): number | undefined => {
+    if (state.sleepingSince !== '') {
+      return Math.max(MIN_GAP_SECONDS, minutesToWake(state.energy, at, deps.timeZone()) * 60)
+    }
+    return nextGapSeconds(state, deps.wake(), at, deps.timeZone())
+  }
+
   /**
    * 把下一次醒来排好。
    *
    * 三种情况：
-   * 1. 没有任务 ⇒ 建一个（第一次投递时顺带开出她的房间）；
+   * 1. 没有任务 ⇒ 建一个（房间在这之前已经开好）；
    * 2. 有任务、但下一次已经过期/没排 ⇒ 重新排；
    * 3. 有任务、下一次还在未来 ⇒ **不动它**（重启不该把已定的时刻推翻）。
    * @param reason - 日志里说明是谁触发的。
@@ -150,9 +231,13 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     if (documents === undefined) return
     arming = true
     try {
-      const state = readState(documents)
       const now = new Date().toISOString()
+      const raw = readState(documents)
+      const state = settleAt(raw, now)
       const timeZone = deps.timeZone()
+      if (state.energy !== raw.energy || state.sleepingSince !== raw.sleepingSince || state.energyAt !== raw.energyAt) {
+        await saveState(documents, state)
+      }
       const hasFuture =
         state.taskId !== ''
         && state.nextAt !== ''
@@ -162,7 +247,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         await setActive(roomDeps, state.taskId, true)
         return
       }
-      const gap = nextGapSeconds(state, deps.wake(), now, timeZone)
+      const gap = gapSeconds(state, now)
       if (gap === undefined) {
         await setActive(roomDeps, state.taskId, false)
         return
@@ -219,11 +304,13 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   const settleWake = async (at: string): Promise<void> => {
     const documents = deps.documents()
     if (documents === undefined) return
+    await flushTokens(at)
     const timeZone = deps.timeZone()
-    const before = readState(documents)
-    const patch = afterWake(before, at, timeZone)
-    const after = { ...before, ...patch }
-    const gap = nextGapSeconds(after, deps.wake(), at, timeZone)
+    const raw = readState(documents)
+    // 睡着时被叫醒、或者自然睡醒：这一步会把 `sleepingSince` 清掉。
+    const settled = settleAt(raw, at)
+    const after = { ...settled, ...afterWake(settled, at, timeZone) }
+    const gap = gapSeconds(after, at)
     if (gap === undefined) {
       await saveState(documents, { ...after, nextAt: '', lastError: '', lastAttemptAt: at })
       await setActive(roomDeps, after.taskId, false)
@@ -238,13 +325,49 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       lastError: outcome.ok ? '' : outcome.reason,
       lastAttemptAt: at,
     })
-    log.info(`她醒了一次（今天第 ${after.dayCount} 次）；下一次 ${outcome.ok ? outcome.room.nextAt : '没排上'}`)
+    const sleeping = after.sleepingSince === '' ? '' : `（睡到 ${outcome.ok ? outcome.room.nextAt : '待定'}）`
+    log.info(`她醒了一次（今天第 ${after.dayCount} 次，精力 ${Math.round(after.energy)}）；下一次 ${outcome.ok ? outcome.room.nextAt : '没排上'}${sleeping}`)
   }
 
   const on = ctx.on as unknown as (
     name: string,
     listener: (payload: unknown, next: () => Promise<unknown>) => Promise<unknown>,
   ) => () => void
+
+  /**
+   * 记一笔用量。
+   *
+   * 为什么攒着写：存储是一整个 JSON 文件，每来一条助手消息就重写一次并不划算。
+   * 三十秒内的多条合成一次；真正需要精确的时刻（醒来）会先主动 flush 一次。
+   * @param weighted - 加权 token 数。
+   * @param at - 这一刻。
+   */
+  const bumpTokens = (weighted: number, at: string): void => {
+    if (!Number.isFinite(weighted) || weighted <= 0) return
+    pendingTokens += weighted
+    if (flushTimer !== undefined) return
+    flushTimer = setTimeout(() => {
+      flushTimer = undefined
+      void flushTokens(at).catch((error: unknown) => log.warn('精力记账失败（这一次没记上）', error))
+    }, 30_000)
+  }
+
+  /** 每一条助手消息都带用量：订阅它，就不必去翻会话文件。 */
+  const onEvent = ctx.on as unknown as (
+    name: string,
+    listener: (session: unknown, event: unknown) => void,
+  ) => () => void
+  const disposeUsage = onEvent('session/event', (_session, event) => {
+    try {
+      if (!moduleEnabled()) return
+      const typed = event as { type?: string; data?: { usage?: unknown } } | undefined
+      if (typed?.type !== 'assistant/message') return
+      bumpTokens(weightedTokens(typed.data?.usage as TokenUsageLike | undefined), new Date().toISOString())
+    } catch (error) {
+      // 记账失败绝不能影响这一轮对话。
+      log.warn('读到一条用量但没能记账（不影响这一轮）', error)
+    }
+  })
 
   const disposeStep = on('agent/pre-step', async (payload, next) => {
     const decision = (await next()) as { kind?: string; messages?: unknown[] } | null
@@ -276,6 +399,8 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   ctx.effect(
     () => () => {
       disposeStep()
+      disposeUsage()
+      if (flushTimer !== undefined) clearTimeout(flushTimer)
       // 房间的句柄**故意不释放**：持有它的所有权，`dispose` 有可能把会话一起撤掉
       // （`core.zh.md` 的创建回滚约定）。插件卸载时只丢引用，让会话留在存储里。
       roomHandle = undefined
@@ -305,6 +430,11 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     refresh: () => arm('时间基准变化'),
     notifyStoreReady() {
       void arm('存储就绪').catch((error: unknown) => log.warn('存储就绪后没能排程', error))
+    },
+    energyNow() {
+      const documents = deps.documents()
+      if (documents === undefined) return undefined
+      return settleAt(readState(documents), new Date().toISOString()).energy
     },
     dispose() {
       enabled = false

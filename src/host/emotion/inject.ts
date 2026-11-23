@@ -145,6 +145,8 @@ export interface EmotionInjectDeps {
    * 缓存会让人格改完之后，情绪层还按旧立场判（实机表现就是"改了人格，情绪没跟着变"）。
    */
   stance(): AppraisalStance | undefined
+  /** 精力（自进化模块给的唯一真源）；没给就用情绪模块自己的旧算法。 */
+  energy?(): number | undefined
 }
 
 /**
@@ -226,7 +228,7 @@ export function installEmotionInjection(ctx: Context, log: Log, deps: EmotionInj
       if (state === undefined) return decision
 
       const now = new Date()
-      const rendered = renderReminder(settle(state, now.toISOString()), now)
+      const rendered = renderReminder(settle(state, now.toISOString(), undefined, deps.energy?.()), now)
       const messages = Array.isArray(decision.messages) ? [...decision.messages] : []
 
       const crossed = rendered.signature !== lastSignature

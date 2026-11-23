@@ -26,7 +26,10 @@ import { ROOM_TASK_TITLE } from './constants.js'
 interface ScheduleTaskLike {
   id?: string
   active?: string
+  /** 循环任务的下一次。 */
   nextScheduledAt?: string
+  /** 单次任务（fter/t）的下一次 —— 房间用的就是这种。 */
+  scheduledAt?: string
   target?: { kind?: string; sessionId?: string }
   code?: string
 }
@@ -135,7 +138,12 @@ function roomOf(task: ScheduleTaskLike | undefined): RoomState | undefined {
   return {
     taskId: id,
     sessionId: typeof task.target?.sessionId === 'string' ? task.target.sessionId : '',
-    nextAt: typeof task.nextScheduledAt === 'string' ? task.nextScheduledAt : '',
+    nextAt:
+      typeof task.nextScheduledAt === 'string' && task.nextScheduledAt !== ''
+        ? task.nextScheduledAt
+        : typeof task.scheduledAt === 'string'
+          ? task.scheduledAt
+          : '',
     active: task.active !== 'paused' && task.active !== 'ended',
   }
 }

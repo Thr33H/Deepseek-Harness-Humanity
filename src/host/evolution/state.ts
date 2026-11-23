@@ -22,6 +22,16 @@ export interface EvolutionStateDoc {
   dayKey: string
   /** 那天已经醒了几次。 */
   dayCount: number
+  /** 精力（0–100）。 */
+  energy: number
+  /** 精力上一次结算的时刻（ISO 8601）。 */
+  energyAt: string
+  /** 什么时候睡下的（ISO 8601；空串 = 醒着）。 */
+  sleepingSince: string
+  /** `tokensDayKey` 那天花掉多少加权 token。 */
+  tokensToday: number
+  /** `tokensToday` 属于哪一天。 */
+  tokensDayKey: string
   /**
    * 上一次排程失败的原因（空串 = 最近一次是成功的）。
    *
@@ -42,6 +52,11 @@ export const EMPTY_STATE: EvolutionStateDoc = {
   nextAt: '',
   dayKey: '',
   dayCount: 0,
+  energy: 80,
+  energyAt: '',
+  sleepingSince: '',
+  tokensToday: 0,
+  tokensDayKey: '',
   lastError: '',
   lastAttemptAt: '',
 }
@@ -77,6 +92,11 @@ export function readState(documents: DocumentStore | undefined): EvolutionStateD
     nextAt: text('nextAt'),
     dayKey: text('dayKey'),
     dayCount: Math.max(0, Math.trunc(count)),
+    energy: typeof raw.energy === 'number' && Number.isFinite(raw.energy) ? Math.max(0, Math.min(100, raw.energy)) : 80,
+    energyAt: text('energyAt'),
+    sleepingSince: text('sleepingSince'),
+    tokensToday: typeof raw.tokensToday === 'number' && Number.isFinite(raw.tokensToday) && raw.tokensToday > 0 ? raw.tokensToday : 0,
+    tokensDayKey: text('tokensDayKey'),
     lastError: text('lastError'),
     lastAttemptAt: text('lastAttemptAt'),
   }

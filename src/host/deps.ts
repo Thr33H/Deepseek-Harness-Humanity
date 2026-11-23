@@ -87,6 +87,9 @@ export function emotionDeps(
     },
     // 时间换算显式带时区（见 `emotion/index.ts` 的说明：进程的 Date 可能不跟 TZ 变）。
     timeZone: () => clock?.report().effective,
+    // 精力：自进化模块是唯一真源（按 token 消耗、按睡眠曲线恢复）。
+    // 它没装/没就绪时返回 undefined，情绪那边退回自己的旧算法（清晨 +60 那套）。
+    energy: () => state.evolution?.energyNow(),
     // 每轮情绪落地后通知宿主：性格轴靠它被动漂移（见 `persona/drift.ts`）。
     onApplied,
   }
