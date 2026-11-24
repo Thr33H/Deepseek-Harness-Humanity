@@ -44,3 +44,14 @@ export const RETRY_ARM_AFTER_MS = 2 * 60 * 1000
  * 而失败的样子和没感觉一模一样。
  */
 export const SEEN_LIMIT = 6000
+
+/**
+ * 她在别处说话时，房间的闹钟要一直压着，直到安静这么久（分钟）。
+ *
+ * 为什么需要：她只有一个身体 —— 正在跟你聊天时不该同时在自己房间里做事。
+ * 这也不只是"体验"问题：两个会话同时跑，两边都会往同一份记忆与情绪上写，账会乱。
+ */
+export const BUSY_QUIET_MINUTES = 10
+
+/** 检查"聊完了没有"的间隔（毫秒）。 */
+export const BUSY_CHECK_MS = 60 * 1000

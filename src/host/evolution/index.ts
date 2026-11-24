@@ -44,7 +44,14 @@ import {
   type RoomDeps,
   type ScheduleServiceLike,
 } from './room.js'
-import { MIN_GAP_SECONDS, RETRY_ARM_AFTER_MS, SEEN_LIMIT, WAKE_MARKER } from './constants.js'
+import {
+  BUSY_CHECK_MS,
+  BUSY_QUIET_MINUTES,
+  MIN_GAP_SECONDS,
+  RETRY_ARM_AFTER_MS,
+  SEEN_LIMIT,
+  WAKE_MARKER,
+} from './constants.js'
 import {
   drainPoints,
   minutesToWake,
@@ -126,6 +133,18 @@ export function isWakeMessage(message: unknown): boolean {
 export function isScheduleMessage(message: unknown): boolean {
   const source = (message as { source?: { kind?: unknown } } | undefined)?.source
   return source?.kind === 'schedule'
+}
+
+/**
+ * 这条会话事件是不是"她在别处忙着"。
+ *
+ * 她只有一个身体：正在跟你聊天时，房间的闹钟必须压着 —— 不能一边说话一边在房间里做事。
+ * @param sessionId - 事件来自哪个会话。
+ * @param roomSessionId - 她房间的会话 id。
+ * @returns 会话不是房间且 id 非空时为 `true`。
+ */
+export function isBusySession(sessionId: string, roomSessionId: string): boolean {
+  return sessionId !== '' && sessionId !== roomSessionId
 }
 
 /**
@@ -234,6 +253,10 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
 
   /** 每个会话里她最后说过的几句（醒来时接上"上次做到哪"）。 */
   const lastSaid = new Map<string, string>()
+  /** 她在别处说话的最后时刻（毫秒）：房间的闹钟在它之后要安静一阵才恢复。 */
+  let lastBusyAt = 0
+  /** 房间闹钟是不是因为"她在别处"而被压着了。 */
+  let pausedForBusy = false
   /** 她在自己房间里看到的东西（醒来后交给情绪评估）。 */
   let seenBuffer = ''
   /** 还没落盘的 token 消耗（攒成一次写入）。 */
@@ -465,11 +488,23 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       if (!moduleEnabled()) return
       const typed = event as { type?: string; data?: { usage?: unknown; message?: unknown } } | undefined
       const sessionId = (session as { id?: string } | undefined)?.id ?? ''
+      const documents = deps.documents()
+      const roomSessionId = documents === undefined ? '' : readState(documents).roomSessionId
+      // 单线程：她在别处说话的这一刻，房间的闹钟压下去（安静一阵之后再恢复）。
+      if (isBusySession(sessionId, roomSessionId)) {
+        lastBusyAt = Date.now()
+        if (!pausedForBusy && documents !== undefined) {
+          const state = readState(documents)
+          if (state.taskId !== '') {
+            pausedForBusy = true
+            void setActive(roomDeps, state.taskId, false)
+          }
+        }
+      }
       // 她在自己房间里看到的东西：只收 `tool/result`（她读到、查到的内容），
       // **绝不收她自己说的话** —— 否则就是"自己喂自己"，情绪会越滚越大。
       if (typed?.type === 'tool/result') {
-        const documents = deps.documents()
-        if (documents !== undefined && sessionId !== '' && sessionId === readState(documents).roomSessionId) {
+        if (documents !== undefined && sessionId !== '' && sessionId === roomSessionId) {
           const text = toolTextOf(event)
           if (text.trim() !== '') seenBuffer = `${seenBuffer}\n${text}`.slice(-SEEN_LIMIT)
         }
@@ -488,8 +523,22 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     }
   })
 
-  const disposeStep = on('agent/pre-step', async (payload, next) => {
-    const decision = (await next()) as { kind?: string; messages?: unknown[] } | null
+  /**
+   * 她聊完了就把房间的闹钟放回去。
+   *
+   * 为什么用轮询而不是"最后一条消息之后延时"：会话可能被压缩、重放或中途断开，
+   * 事件不一定有收尾；每分钟看一眼"安静了多久"最稳，也不会因为漏掉一条事件就永远压着。
+   */
+  const busyTimer = setInterval(() => {
+    if (!pausedForBusy || !moduleEnabled()) return
+    if (Date.now() - lastBusyAt < BUSY_QUIET_MINUTES * 60_000) return
+    pausedForBusy = false
+    void arm('她聊完了').catch((error: unknown) => log.warn('聊天结束后没能恢复排程', error))
+  }, BUSY_CHECK_MS)
+  // 轮询是后台行为：Node 不该因为它而退出（也避免测试进程被挂住）。
+  ;(busyTimer as unknown as { unref?: () => void }).unref?.()
+
+  const disposeStep = on('agent/pre-step', async (payload, next) => {    const decision = (await next()) as { kind?: string; messages?: unknown[] } | null
     if (decision === null || decision.kind !== 'enter') return decision
     const { agent, step } = (payload ?? {}) as { agent?: unknown; step?: number }
     // 只看每一步的第一步：一次醒来是一轮对话，不是每一步都要记一次。
@@ -524,6 +573,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     () => () => {
       disposeStep()
       disposeUsage()
+      clearInterval(busyTimer)
       if (flushTimer !== undefined) clearTimeout(flushTimer)
       // 房间的句柄**故意不释放**：持有它的所有权，`dispose` 有可能把会话一起撤掉
       // （`core.zh.md` 的创建回滚约定）。插件卸载时只丢引用，让会话留在存储里。

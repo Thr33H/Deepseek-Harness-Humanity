@@ -23,7 +23,13 @@ import {
   saveState,
 } from '../lib/evolution/state.js'
 import { buildWakePrompt } from '../lib/evolution/wake.js'
-import { continuityOf, isScheduleMessage, isWakeMessage, withoutScheduleNoise } from '../lib/evolution/index.js'
+import {
+  continuityOf,
+  isBusySession,
+  isScheduleMessage,
+  isWakeMessage,
+  withoutScheduleNoise,
+} from '../lib/evolution/index.js'
 import { WAKE_MARKER } from '../lib/evolution/constants.js'
 
 /** 不打印的日志门面。 */
@@ -221,6 +227,13 @@ test('她房间里要滤掉调度器的变更通知，你那边一条都不能�
   assert.equal(withoutScheduleNoise(outside, false), outside, '别处原样返回（你自己的提醒不能被滤）')
   assert.equal(isScheduleMessage(noise), true)
   assert.equal(isScheduleMessage(user), false)
+})
+
+test('单线程：她在别处说话时，房间的闹钟要压着', () => {
+  assert.equal(isBusySession('session-chat', 'session-room'), true, '在别的会话里说话 ⇒ 她正忙')
+  assert.equal(isBusySession('session-room', 'session-room'), false, '房间自己的事件不算"她在别处"')
+  assert.equal(isBusySession('', 'session-room'), false, '取不到会话 id 时不做判断（宁可不动）')
+  assert.equal(isBusySession('session-chat', ''), true, '房间还没开出来时，别的会话同样算她忙')
 })
 
 test('房间：从 Agent 注册表开出，再把任务投进这个已有会话', async () => {
