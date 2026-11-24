@@ -46,6 +46,7 @@ import {
   readThreads,
   reschedule,
   setActive,
+  writeOwnFile,
   type AgentHandleLike,
   type AgentRegistryLike,
   type RoomDeps,
@@ -788,6 +789,8 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       return
     }
     await appendDiary(documents, { date, text: parsed.diary, createdAt: at, openedAt: '', noticedAt: '' })
+    // 她自己的一份副本：设计里"回头重读那一天"要有可读的东西，而她只能读自己的目录。
+    await writeOwnFile(roomDeps, `diary-${date}.md`, `# ${date}\n\n${parsed.diary}\n`)
     dayNotes.length = 0
     notesDayKey = ''
     await noteSettleError(documents, '')

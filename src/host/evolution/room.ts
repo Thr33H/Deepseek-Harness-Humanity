@@ -109,6 +109,7 @@ export function roomDirOf(deps: RoomDeps): string | undefined {
 /** 我们用到的那几个 `node:fs/promises` 函数（宿主编译没有 `@types/node`）。 */
 interface FsPromisesModule {
   mkdir(path: string, options: { recursive: boolean }): Promise<string | undefined>
+  writeFile(path: string, data: string, encoding: 'utf8'): Promise<void>
   readFile(path: string, encoding: 'utf8'): Promise<string>
   readdir(path: string, options: { withFileTypes: true }): Promise<Array<{ name: string; isFile(): boolean }>>
   stat(path: string): Promise<{ size: number; mtimeMs: number }>
@@ -199,6 +200,35 @@ export async function readWork(
     }
   } catch {
     return undefined
+  }
+}
+
+/**
+ * 往她自己的目录里写一个文件（她自己的副本）。
+ *
+ * 只在**收账**时用：日记的正本在文档表里（工作台按天开合），这里是给她自己看的副本 ——
+ * 设计里"她回头重读那一天才发现被翻过"要有可读的东西，而她只能读自己的目录。
+ * @param deps - 外部事实。
+ * @param name - 顶层文件名（不许带路径）。
+ * @param text - 内容。
+ * @returns 是否写成（目录拿不到、名字不合法时为 `false`）。
+ */
+export async function writeOwnFile(deps: RoomDeps, name: string, text: string): Promise<boolean> {
+  if (name === '' || name.includes('/') || name.includes('\\') || name.includes('..')) return false
+  const dir = roomDirOf(deps)
+  if (dir === undefined) return false
+  try {
+    const specifier: string = 'node:fs/promises'
+    const fs = (await import(specifier)) as FsPromisesModule
+    await fs.mkdir(dir, { recursive: true })
+    await (fs as unknown as { writeFile: (path: string, data: string, encoding: 'utf8') => Promise<void> }).writeFile(
+      `${dir}/${name}`,
+      text,
+      'utf8',
+    )
+    return true
+  } catch {
+    return false
   }
 }
 
