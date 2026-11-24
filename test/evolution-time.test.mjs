@@ -19,6 +19,7 @@ import {
   listWorks,
   readThreads,
   readWork,
+  writeOwnFile,
   reschedule,
   roomDirOf,
 } from '../lib/evolution/room.js'
@@ -392,4 +393,21 @@ test('房间：拿不到调度服务 / Agent 注册表时安静失败，并给�
   const noAgents = await ensureRoom(nothing, '')
   assert.equal(noAgents.ok, false)
   assert.match(noAgents.reason, /Agent 注册表/)
+})
+
+test('她自己的副本：只许写顶层文件名，内容要读得回来', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'humanity-own-'))
+  try {
+    const deps = { schedule: () => undefined, agents: () => undefined, homeDir: () => dir, log: quietLog }
+    assert.equal(await writeOwnFile(deps, 'diary-2026-11-24.md', '# 2026-11-24\n\n今天我去查了潮汐。\n'), true)
+    const works = await listWorks(deps)
+    const written = works.find((item) => item.name === 'diary-2026-11-24.md')
+    assert.ok(written !== undefined, '要出现在她自己的目录里')
+    assert.match(written.preview, /今天我去查了潮汐/, '正文要读得回来')
+
+    assert.equal(await writeOwnFile(deps, '../evil.md', 'x'), false, '路径花招要拒')
+    assert.equal(await writeOwnFile(deps, '', 'x'), false, '空名字要拒')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
