@@ -433,7 +433,12 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     arming = true
     try {
       const now = new Date().toISOString()
-      const raw = readState(documents)
+      let raw = readState(documents)
+      // 重启后没人记得那次"被压住"：清掉遗留的起点，否则页面会一直显示一个假的起始时刻。
+      if (raw.busySince !== '' && !pausedForBusy) {
+        await saveState(documents, { ...raw, busySince: '' }).catch(() => {})
+        raw = { ...raw, busySince: '' }
+      }
       const state = settleAt(raw, now)
       const timeZone = deps.timeZone()
       if (state.energy !== raw.energy || state.sleepingSince !== raw.sleepingSince || state.energyAt !== raw.energyAt) {
@@ -683,16 +688,19 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         }
         return
       }
+      /**
+       * 她这一轮动了几次手：**数 `tool/call` 事件**。
+       *
+       * 真机（2026-11-24 15:17 那次）她确实查了网页，但助手消息的 `content` 里**只有 text**，
+       * 没有 `tool_use` 片段 —— 按 content 数永远是 0。工具调用以 `tool/call` 事件出现。
+       */
+      if (typed?.type === 'tool/call') {
+        if (sessionId !== '' && sessionId === roomSessionId) roomToolUses += 1
+        return
+      }
       // 顺手记下她最后一句话：下一次醒来要接上"上次做到哪"（连续性不靠她的记性）。
       if (typed?.type === 'assistant/message') {
         const said = continuityOf(textOf(typed.data?.message))
-        if (sessionId === roomSessionId) {
-          // 她这一轮动了几次手：工具调用在消息的 content 里以 `tool_use` 出现。
-          const parts = (typed.data?.message as { content?: unknown } | undefined)?.content
-          if (Array.isArray(parts)) {
-            roomToolUses += parts.filter((part) => (part as { type?: string }).type === 'tool_use').length
-          }
-        }
         if (sessionId !== '' && said !== '') {
           lastSaid.set(sessionId, said)
           // 她这一天说过的话也要进收账的材料（只收她房间里的）。
