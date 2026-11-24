@@ -431,6 +431,8 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       // `create` 不一定会回报下一次时间：补读一次，否则状态里会一直是空，
       // 下一次排程就会误判成"没排过"而把已经定好的时刻推翻。
       const inspected = outcome.room.nextAt === '' ? await inspectRoom(roomDeps, outcome.room.taskId) : undefined
+      // 认领回来的任务可能还停在"暂停"上：一定要把它唤醒，否则她等到天荒地老也不会醒。
+      await setActive(roomDeps, outcome.room.taskId, true)
       await saveState(documents, {
         ...state,
         taskId: outcome.room.taskId,
