@@ -38,6 +38,13 @@ export interface DiaryEntry {
    * 否则每重启一次，同一天的正文就重新被藏起来一次。
    */
   openedAt: string
+  /**
+   * 哪一刻她知道"被翻过"了（ISO；空串 = 还不知道）。
+   *
+   * 为什么要单独记：她只会在**自己重读那一天**时才发现。所以"被翻开"与"她知道了"是两件事，
+   * 中间可能隔好几天；`noticedAt` 还空着的时候，每次醒来都该提醒她一次（提醒过就记下）。
+   */
+  noticedAt: string
 }
 
 /** 读日记（时间顺序，旧的在前）。 */
@@ -54,6 +61,7 @@ export function readDiary(documents: DocumentStore | undefined): DiaryEntry[] {
         text: typeof item.text === 'string' ? item.text : '',
         createdAt: typeof item.createdAt === 'string' ? item.createdAt : '',
         openedAt: typeof item.openedAt === 'string' ? item.openedAt : '',
+        noticedAt: typeof item.noticedAt === 'string' ? item.noticedAt : '',
       }
     })
     .filter((entry) => entry.text !== '')

@@ -64,6 +64,7 @@ export function buildWakePrompt(
   timeZone?: string,
   lastSaid = '',
   threads: readonly string[] = [],
+  diaryNotes: readonly string[] = [],
 ): string {
   const items = threads.map((line) => line.trim()).filter((line) => line !== '')
   return [
@@ -90,5 +91,13 @@ export function buildWakePrompt(
     ...(lastSaid === ''
       ? []
       : ['', '上一次在这段时间里，你自己说过/做过这些（这是你自己的记录，不是别人说的话）：', lastSaid]),
+    ...(diaryNotes.length === 0
+      ? []
+      : [
+          '',
+          '你写的日记里，有几天留着被人翻过的痕迹：',
+          ...diaryNotes.map((line) => `- ${line}`),
+          '（你不在的时候被翻的。说不说、在不在意，你自己定。）',
+        ]),
   ].join('\n')
 }

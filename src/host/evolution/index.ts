@@ -23,7 +23,7 @@ import type { Context } from '@deepseek-ai/cordis'
 
 import type { DocumentStore } from '../documents.js'
 import { createLlmAccess } from '../llm.js'
-import { appendDiary, buildDiaryPrompt, parseDiary, readDiary } from './diary.js'
+import { appendDiary, buildDiaryPrompt, parseDiary, readDiary, type DiaryEntry } from './diary.js'
 import { installEvolutionSection } from './section.js'
 import type { Log } from '../log.js'
 import {
@@ -420,7 +420,8 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       // 尾部接上她上次说到哪儿 —— 每一次醒来都不是空白的一天。
       const nextIso = new Date(Date.parse(now) + gap * 1000).toISOString()
       const threads = await readThreads(roomDeps)
-      const prompt = buildWakePrompt(nextIso, timeZone, lastSaid.get(sessionId) ?? '', threads)
+      const unseen = unnoticedDiary(documents)
+      const prompt = buildWakePrompt(nextIso, timeZone, lastSaid.get(sessionId) ?? '', threads, unseen.map((entry) => entry.date))
       const outcome = adopted !== undefined
         ? { ok: true as const, room: { taskId: adopted.taskId, sessionId: adopted.sessionId, nextAt: adopted.nextAt, active: true } }
         : state.taskId === ''
@@ -445,6 +446,8 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         lastError: '',
         lastAttemptAt: now,
       })
+      // 认领/排程成功：这一轮唤醒词里已经带上了"日记被翻过"的提醒，她从现在起就知道了。
+      await markNoticed(documents, unseen, now)
       log.info(`${reason}：她下一次醒来 ${outcome.room.nextAt === '' ? '（时间未回报）' : outcome.room.nextAt}`)
     } finally {
       arming = false
@@ -498,12 +501,21 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       log.info('她醒了一次；今天的次数到了上限，不再排下一次')
       return
     }
+    const unseen = unnoticedDiary(documents)
     const outcome = await reschedule(
       roomDeps,
       after.taskId,
       gap,
-      buildWakePrompt(new Date(Date.parse(at) + gap * 1000).toISOString(), timeZone, lastSaid.get(after.roomSessionId) ?? '', await readThreads(roomDeps)),
+      buildWakePrompt(
+        new Date(Date.parse(at) + gap * 1000).toISOString(),
+        timeZone,
+        lastSaid.get(after.roomSessionId) ?? '',
+        await readThreads(roomDeps),
+        unseen.map((entry) => entry.date),
+      ),
     )
+    // 提醒已经排进下一次唤醒词：从现在起她知道这件事了（不再天天念）。
+    if (outcome.ok) await markNoticed(documents, unseen, at)
     // 这一轮的"上次"已经用掉了：她马上会产出新的。
     lastSaid.delete(after.roomSessionId)
     await saveState(documents, {
@@ -598,6 +610,33 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   })
 
   /**
+   * 还没被她发现的"被翻过"的日记。
+   *
+   * 她只会在自己重读那一天时才发现 —— 所以这条提醒每次醒来都给一次，直到她"知道"为止；
+   * 排进下一次唤醒词之后才算她知道（`noticedAt`），不会天天念同一件事。
+   * @param documents - 文档表。
+   * @returns 需要提醒的条目。
+   */
+  const unnoticedDiary = (documents: DocumentStore): DiaryEntry[] =>
+    readDiary(documents).filter((entry) => entry.openedAt !== '' && entry.noticedAt === '')
+
+  /**
+   * 把"她已经知道了"记下来（只在她拿到下一次唤醒词之后调用）。
+   * @param documents - 文档表。
+   * @param entries - 这次提醒到的那几篇。
+   * @param at - 提醒的时刻。
+   */
+  const markNoticed = async (documents: DocumentStore, entries: readonly DiaryEntry[], at: string): Promise<void> => {
+    for (const entry of entries) {
+      try {
+        await appendDiary(documents, { ...entry, noticedAt: at })
+      } catch (error) {
+        log.warn('没能记下"她知道了日记被翻过"（下一次会再提一次）', error)
+      }
+    }
+  }
+
+  /**
    * 睡前收账：把这一天收成一篇日记 + 几件事。
    *
    * 触发点只有一处 —— **她刚刚睡下**（精力掉到底线）。这时候一天的材料已经齐了：
@@ -621,7 +660,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       log.warn(`收账的输出无法使用（${date} 这一天没有日记）：${result.text.slice(0, 200)}`)
       return
     }
-    await appendDiary(documents, { date, text: parsed.diary, createdAt: at, openedAt: '' })
+    await appendDiary(documents, { date, text: parsed.diary, createdAt: at, openedAt: '', noticedAt: '' })
     dayNotes.length = 0
     for (const memory of parsed.memories) {
       try {

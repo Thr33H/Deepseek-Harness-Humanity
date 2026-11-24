@@ -75,6 +75,33 @@ test('收账解析：坏 JSON / 空日记 / 没有日记字段都不算成功', 
   assert.equal(parseDiary(''), undefined)
 })
 
+test('她自己会发现"被翻过"：唤醒词里给出日期，但不替她决定反应', async () => {
+  const { buildWakePrompt } = await import('../lib/evolution/wake.js')
+  const prompt = buildWakePrompt('2026-11-24T04:00:00.000Z', 'Asia/Shanghai', '', [], ['2026-11-23'])
+  assert.match(prompt, /留着被人翻过的痕迹/)
+  assert.match(prompt, /2026-11-23/)
+  assert.match(prompt, /说不说、在不在意，你自己定/, '反应由她自己定，提示词不许替她决定')
+  const clean = buildWakePrompt('2026-11-24T04:00:00.000Z', 'Asia/Shanghai')
+  assert.ok(!clean.includes('被翻过'), '没有这种事时不该凭空出现')
+})
+
+test('日记条目要能记住"她什么时候知道的"', async () => {
+  const documents = fakeDocuments()
+  await appendDiary(documents, {
+    date: '2026-11-23',
+    text: '正文',
+    createdAt: '2026-11-23T15:00:00.000Z',
+    openedAt: '2026-11-24T02:00:00.000Z',
+    noticedAt: '',
+  })
+  assert.equal(readDiary(documents)[0].noticedAt, '', '还没知道')
+  await appendDiary(documents, {
+    ...readDiary(documents)[0],
+    noticedAt: '2026-11-24T04:00:00.000Z',
+  })
+  assert.equal(readDiary(documents)[0].noticedAt, '2026-11-24T04:00:00.000Z', '知道之后要读得回来')
+})
+
 test('收账解析：memories 最多 3 条，about 只认四个取值', () => {
   const parsed = parseDiary(
     JSON.stringify({
