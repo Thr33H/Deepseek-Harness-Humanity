@@ -59,6 +59,31 @@ export class EvolutionWorkbenchController {
    * @param date - 哪一天（YYYY-MM-DD）。
    * @returns 命令是否写出去。
    */
+  /**
+   * 改「一天最多醒几次」。
+   *
+   * 写的是套件配置（`humanity` 命名空间的 `modules.evolution`）；宿主若拒绝，会以通知形式说明原因。
+   * @param value - 0–24 的整数。
+   * @returns 命令是否写出去。
+   */
+  async setWakeCap(value: number): Promise<boolean> {
+    const channel = this.channel
+    if (channel === undefined) return false
+    try {
+      await this.load({ quiet: true })
+      const outcome = await channel.replace(
+        EVOLUTION_NAMESPACE,
+        { ...this.state.doc, request: { op: 'cap', date: String(value) }, notice: '' },
+        this.revision,
+      )
+      if (outcome.ok) this.revision = (outcome.value as { revision?: number } | undefined)?.revision ?? this.revision
+      await this.load({ quiet: true })
+      return outcome.ok === true
+    } catch {
+      return false
+    }
+  }
+
   async open(date: string): Promise<boolean> {
     const channel = this.channel
     if (channel === undefined || date === '') return false

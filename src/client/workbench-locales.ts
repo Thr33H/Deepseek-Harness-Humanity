@@ -40,6 +40,7 @@ export const workbenchZh = {
   'workbench.evolution.energy.tired': '有点累（{value}/100）',
   'workbench.evolution.energy.spent': '快没力气了（{value}/100）',
   'workbench.evolution.wakesValue': '{count} 次（上限 {max} 次）',
+  'workbench.evolution.cap.aria': '一天最多醒几次（回车生效）',
   'workbench.evolution.error': '上一次没排上：{reason}',
   'workbench.evolution.diary.title': '她的日记',
   'workbench.evolution.diary.hint':
@@ -90,6 +91,7 @@ export const workbenchEn = {
   'workbench.evolution.energy.tired': 'A little tired ({value}/100)',
   'workbench.evolution.energy.spent': 'Nearly spent ({value}/100)',
   'workbench.evolution.wakesValue': '{count} times (cap {max})',
+  'workbench.evolution.cap.aria': 'Wakes per day cap (press Enter to apply)',
   'workbench.evolution.error': 'Last scheduling attempt failed: {reason}',
   'workbench.evolution.diary.title': 'Her diary',
   'workbench.evolution.diary.hint':

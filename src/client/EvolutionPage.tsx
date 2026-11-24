@@ -126,10 +126,25 @@ export function EvolutionPage({ t, controller }: EvolutionPageProps) {
             <dt style={{ color: 'var(--dsw-alias-label-secondary)' }}>{t('workbench.evolution.field.energy')}</dt>
             <dd style={{ margin: 0 }}>{energyText(t, status.energy)}</dd>
             <dt style={{ color: 'var(--dsw-alias-label-secondary)' }}>{t('workbench.evolution.field.wakes')}</dt>
-            <dd style={{ margin: 0 }}>
-              {t('workbench.evolution.wakesValue')
-                .replace('{count}', String(status.dayCount))
-                .replace('{max}', String(status.maxPerDay))}
+            <dd style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span>
+                {t('workbench.evolution.wakesValue')
+                  .replace('{count}', String(status.dayCount))
+                  .replace('{max}', String(status.maxPerDay))}
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={24}
+                defaultValue={status.maxPerDay}
+                aria-label={t('workbench.evolution.cap.aria')}
+                style={{ width: 64 }}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter') return
+                  const value = Number((event.target as HTMLInputElement).value)
+                  if (Number.isInteger(value) && value >= 0 && value <= 24) void controller.setWakeCap(value)
+                }}
+              />
             </dd>
             <dt style={{ color: 'var(--dsw-alias-label-secondary)' }}>{t('workbench.evolution.field.lastWake')}</dt>
             <dd style={{ margin: 0, fontVariantNumeric: 'tabular-nums' }}>{stamp(status.lastWakeAt)}</dd>

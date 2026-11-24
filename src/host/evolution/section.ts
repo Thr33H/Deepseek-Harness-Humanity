@@ -252,7 +252,29 @@ export function installEvolutionSection(ctx: Context, log: Log, deps: EvolutionS
    */
   const consume = async (): Promise<void> => {
     const request = readDoc(state.settings)?.request
-    if (request === undefined || request.op !== 'open' || request.date === '') {
+    if (request === undefined || request.op === '' ) {
+      await refresh()
+      return
+    }
+    // 改"一天最多醒几次"：写的是套件配置（`humanity` 命名空间的 modules.evolution）。
+    if (request.op === 'cap') {
+      const value = Number(request.date)
+      if (!Number.isInteger(value) || value < 0 || value > 24) {
+        await refresh('次数上限要是 0–24 之间的整数。')
+        return
+      }
+      const provider = state.settings
+      try {
+        await (provider as unknown as {
+          update(ns: string, patch: Record<string, unknown>): Promise<void>
+        }).update('humanity', { modules: { evolution: { maxWakesPerDay: value } } })
+        await refresh(value === 0 ? '已改成 0：她不会自己醒了（只能手动叫）。' : `已改成一天最多 ${value} 次。`)
+      } catch (error) {
+        await refresh(`没改成（${error instanceof Error ? error.message : String(error)}）；去 DSH 设置里改也一样。`)
+      }
+      return
+    }
+    if (request.op !== 'open' || request.date === '') {
       await refresh()
       return
     }
