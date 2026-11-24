@@ -54,6 +54,10 @@ function DiaryRow({
         {item.opened ? (
           <span style={{ color: 'var(--dsw-alias-label-secondary)', fontSize: 12 }}>
             {t('workbench.evolution.diary.openedAt').replace('{time}', stamp(item.openedAt))}
+            {' · '}
+            {item.noticedAt === ''
+              ? t('workbench.evolution.diary.unnoticed')
+              : t('workbench.evolution.diary.noticed').replace('{time}', stamp(item.noticedAt))}
           </span>
         ) : confirming ? (
           <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

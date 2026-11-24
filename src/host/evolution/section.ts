@@ -38,6 +38,8 @@ export interface DiaryView {
   opened: boolean
   /** 什么时候被打开的（ISO；空串 = 没打开过）。 */
   openedAt: string
+  /** 她什么时候知道的（ISO；空串 = 还不知道）。 */
+  noticedAt: string
   /** 正文；没打开时是空串（宿主动手挡住，不靠客户端自觉）。 */
   text: string
 }
@@ -128,6 +130,7 @@ export const EvolutionDocSchema = Schema.object({
       date: Schema.string().default(''),
       opened: Schema.boolean().default(false),
       openedAt: Schema.string().default(''),
+      noticedAt: Schema.string().default(''),
       text: Schema.string().default(''),
     }),
   ).default([]),
@@ -224,6 +227,7 @@ function project(
       date: entry.date,
       opened: entry.openedAt !== '',
       openedAt: entry.openedAt,
+      noticedAt: entry.noticedAt,
       // 没打开过就**不给正文**：门在宿主这边，不靠客户端自觉。
       text: entry.openedAt === '' ? '' : entry.text,
     }))

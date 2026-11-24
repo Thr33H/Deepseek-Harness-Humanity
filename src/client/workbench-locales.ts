@@ -51,6 +51,8 @@ export const workbenchZh = {
   'workbench.evolution.diary.confirmYes': '确认翻开',
   'workbench.evolution.diary.confirmNo': '算了',
   'workbench.evolution.diary.openedAt': '在 {time} 被翻开',
+  'workbench.evolution.diary.unnoticed': '她还没发现',
+  'workbench.evolution.diary.noticed': '她在 {time} 知道了',
   // 她留下的东西。
   'workbench.evolution.works.title': '她留下的东西',
   'workbench.evolution.works.hint':
@@ -103,6 +105,8 @@ export const workbenchEn = {
   'workbench.evolution.diary.confirmYes': 'Open it',
   'workbench.evolution.diary.confirmNo': 'Never mind',
   'workbench.evolution.diary.openedAt': 'opened at {time}',
+  'workbench.evolution.diary.unnoticed': 'she has not noticed',
+  'workbench.evolution.diary.noticed': 'she found out at {time}',
   'workbench.evolution.works.title': 'Things she left behind',
   'workbench.evolution.works.hint':
     'Files in her own directory (what she wrote, and later what she draws). Text can be read here; images only show name and size — the browser cannot reach files on the host.',

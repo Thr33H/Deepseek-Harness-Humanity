@@ -19,6 +19,8 @@ export interface DiaryItemView {
   date: string
   opened: boolean
   openedAt: string
+  /** 她什么时候知道的（空串 = 还不知道）。 */
+  noticedAt: string
   text: string
 }
 
@@ -99,6 +101,7 @@ export function asEvolutionDocument(value: unknown): EvolutionDocument {
           date: typeof entry.date === 'string' ? entry.date : '',
           opened: entry.opened === true,
           openedAt: typeof entry.openedAt === 'string' ? entry.openedAt : '',
+          noticedAt: typeof entry.noticedAt === 'string' ? entry.noticedAt : '',
           text: typeof entry.text === 'string' ? entry.text : '',
         }
       })
