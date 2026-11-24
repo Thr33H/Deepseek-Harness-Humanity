@@ -104,8 +104,16 @@ export interface EvolutionPageProps {
 export function EvolutionPage({ t, controller }: EvolutionPageProps) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
   const status = state.doc.status
-  // 还没读到（idle）也当作"暂时读不到"：那时候说"人格还没封存"是错的。
-  const unavailable = state.status !== 'ready'
+  /**
+   * 三件事都算"暂时读不到"，绝不能说成"人格还没封存"：
+   * 1. 还没读到（idle）；
+   * 2. 通道不可用；
+   * 3. **读到了但是空的** —— 撞上重启窗口时会拿到一份空投影，
+   *    旧逻辑据此显示"她还没有开始过日子"，而她其实已经在过了（2026-11-24 真机）。
+   */
+  const lookedEmpty =
+    status.maxPerDay === 0 && status.dayCount === 0 && status.lastWakeAt === '' && status.nextAt === ''
+  const unavailable = state.status !== 'ready' || lookedEmpty
 
   return (
     <div>
