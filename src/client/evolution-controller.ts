@@ -167,16 +167,21 @@ function saveTransfer(transfer: { name: string; mime: string; base64: string }):
     }
     try {
       const result = await channel.describe()
-      const envelope = (result as { ok?: boolean; value?: unknown } | undefined)?.value as
-        | { value?: unknown; revision?: number }
-        | undefined
-      if ((result as { ok?: boolean } | undefined)?.ok === false || envelope === undefined) {
+      /**
+       * `describe()` 返回的是**所有命名空间的列表**，不是我们这一个。
+       *
+       * 真机 2026-11-24：这里被当成"单个命名空间的值"来解，于是永远读到空 ——
+       * 页面一直显示"暂时读不到"，而宿主那边什么都有。
+       */
+      const envelope = (result as { ok?: boolean; value?: { namespaces?: readonly { ns?: string; value?: unknown; revision?: number }[] } } | undefined)
+      const namespaces = envelope?.value?.namespaces ?? []
+      const view = namespaces.find((candidate) => candidate.ns === EVOLUTION_NAMESPACE)
+      if (envelope?.ok === false || view === undefined) {
         this.setState({ status: 'unavailable', doc: this.state.doc })
         return
       }
-      // 数据面回的信封是 `{ value, revision }`：`value` 才是投影本身。
-      this.revision = envelope.revision
-      this.setState({ status: 'ready', doc: asEvolutionDocument(envelope.value) })
+      this.revision = view.revision
+      this.setState({ status: 'ready', doc: asEvolutionDocument(view.value) })
     } catch {
       if (options.quiet === true) return
       this.setState({ status: 'unavailable', doc: this.state.doc })

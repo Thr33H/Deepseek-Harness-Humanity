@@ -19,7 +19,8 @@ const render = (element) => nodeRequire('react-dom/server').renderToStaticMarkup
 function fakeChannel(doc) {
   return {
     async describe() {
-      return { ok: true, value: { value: doc, revision: 1 } }
+      // 与真机一致：describe 返回的是**列表**，不是单个命名空间。
+      return { ok: true, value: { writable: true, namespaces: [{ ns: 'humanity-evolution', value: doc, revision: 1 }] } }
     },
     async replace() {
       return { ok: true, value: { revision: 2 } }
