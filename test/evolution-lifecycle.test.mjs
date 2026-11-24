@@ -132,3 +132,15 @@ test('睡着的间隔只有一份规矩：到顶等明早，累了按曲线（�
   const capped = sleepGapSeconds({ ...sleepingState, dayCount: 8 }, '2026-11-24T06:00:00.000Z', TZ, rhythm)
   assert.ok(capped >= 17 * 3600, `到顶要等明早，实际 ${capped}`)
 })
+test('跨天重启：昨天的"到顶"不许拖住今天（否则又多睡一整天）', () => {
+  // 昨晚 22:00 到顶睡下；第二天早上 08:30 重启，状态里的 dayCount 还是 8、dayKey 还是昨天。
+  const stale = awake({
+    energy: 90,
+    dayCount: 8,
+    dayKey: '2026-11-24',
+    sleepingSince: '2026-11-24T14:00:00.000Z',
+    energyAt: '2026-11-24T14:00:00.000Z',
+  })
+  const gap = sleepGapSeconds(stale, '2026-11-25T00:30:00.000Z', TZ, rhythm)
+  assert.ok(gap < 12 * 3600, `今天没到顶，不该再排一整天，实际 ${gap}`)
+})

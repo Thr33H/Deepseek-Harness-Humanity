@@ -13,7 +13,14 @@ import {
   WAKE_COST,
   type EnergyState,
 } from './energy.js'
-import { afterWake, nextGapSeconds, secondsToMorning, type EvolutionStateDoc, type WakeRhythm } from './state.js'
+import {
+  afterWake,
+  dayKeyOf,
+  nextGapSeconds,
+  secondsToMorning,
+  type EvolutionStateDoc,
+  type WakeRhythm,
+} from './state.js'
 import { MIN_GAP_SECONDS } from './constants.js'
 
 /** 结算所需的外部事实。 */
@@ -61,7 +68,15 @@ export function sleepGapSeconds(
   timeZone: string | undefined,
   rhythm: WakeRhythm,
 ): number {
-  const hitCap = rhythm.maxPerDay > 0 && state.dayCount >= rhythm.maxPerDay
+  /**
+   * "到顶"必须按**今天**的次数算，不能看状态里的原始计数。
+   *
+   * 真机风险：她昨晚到顶睡下，`dayCount` 停在 8 且 `dayKey` 还是昨天；如果在第二天早上
+   * 重启，直接比 `dayCount >= 上限` 会判"今天也到顶"⇒ 再睡 24 小时。人已经该醒了。
+   */
+  const today = dayKeyOf(at, timeZone)
+  const used = today !== '' && state.dayKey === today ? state.dayCount : 0
+  const hitCap = rhythm.maxPerDay > 0 && used >= rhythm.maxPerDay
   const raw = hitCap ? secondsToMorning(at, timeZone) : minutesToWake(state.energy, at, timeZone) * 60
   return Math.max(MIN_GAP_SECONDS, raw)
 }
