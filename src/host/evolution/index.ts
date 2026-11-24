@@ -521,7 +521,10 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     ) {
       after.sleepingSince = at
     }    if (raw.sleepingSince === '' && after.sleepingSince !== '') {
-      void settleDay(at).catch((error: unknown) => log.warn('睡前收账失败（这一天没有日记）', error))
+      void settleDay(at).catch((error: unknown) => {
+        log.warn('睡前收账失败（这一天没有日记）', error)
+        void noteSettleError(documents, error instanceof Error ? error.message : String(error))
+      })
     }
     const gap = gapSeconds(after, at)
     if (gap === undefined) {
@@ -664,6 +667,23 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   }
 
   /**
+   * 记下（或清掉）收账失败的原因。
+   *
+   * 为什么不能只写日志：插件日志进不了 `docker logs`，一篇没写成的日记会完全没有痕迹；
+   * 写进状态文档，工作台与我都读得到。
+   * @param documents - 文档表。
+   * @param message - 原因；空串表示清掉。
+   */
+  const noteSettleError = async (documents: DocumentStore, message: string): Promise<void> => {
+    try {
+      if (readState(documents).lastSettleError === message) return
+      await saveState(documents, { ...readState(documents), lastSettleError: message })
+    } catch (error) {
+      log.warn('没能记下收账失败的原因', error)
+    }
+  }
+
+  /**
    * 睡前收账：把这一天收成一篇日记 + 几件事。
    *
    * 触发点只有一处 —— **她刚刚睡下**（精力掉到底线）。这时候一天的材料已经齐了：
@@ -680,17 +700,23 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     // 一天只有一篇：已经写过了就不再写（重启也不该补第二篇）。
     if (readDiary(documents).some((entry) => entry.date === date)) return
     const route = llm.route()
-    if (route === undefined) return
+    if (route === undefined) {
+      await noteSettleError(documents, '没有可用的模型，这一天没有写成日记')
+      return
+    }
     const { system, text } = buildDiaryPrompt(dayNotes.slice(-40), date)
     const result = await llm.streamText({ route, system, text, maxTokens: 1200, timeoutMs: 60_000 })
     const parsed = parseDiary(result.text)
     if (parsed === undefined) {
-      // 失败不重试、不补写：宁可这一天没有日记，也不留一篇编的。
+      // 失败不重试、不补写：宁可这一天没有日记，也不留一篇编的。原因写进状态里（日志看不见）。
       log.warn(`收账的输出无法使用（${date} 这一天没有日记）：${result.text.slice(0, 200)}`)
+      await noteSettleError(documents, '收账的输出没法用（模型没按格式回），这一天没有日记')
       return
     }
     await appendDiary(documents, { date, text: parsed.diary, createdAt: at, openedAt: '', noticedAt: '' })
     dayNotes.length = 0
+    notesDayKey = ''
+    await noteSettleError(documents, '')
     for (const memory of parsed.memories) {
       try {
         await deps.remember?.(memory.what, memory.about)

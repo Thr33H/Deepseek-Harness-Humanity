@@ -65,7 +65,10 @@ const PLEASANT = new Set(['joy', 'trust', 'anticipation'])
  * @returns 每根轴要加多少（没有就不出现；每根轴已夹到 ±一步）。
  */
 export function nudgesOf(input: DriftInput): Partial<Record<CharacterAxisKey, number>> {
-  let stung = false
+  /** 被"人"刺痛（冲着她来的）：影响她怎么待人。 */
+  let stungByPerson = false
+  /** 被"事"刺痛（外面的世界、她自己的挫折）：不该影响她怎么待人。 */
+  let stungByWorld = false
   let intimate = false
   let novel = false
   for (const shift of input.shifts) {
@@ -73,8 +76,18 @@ export function nudgesOf(input: DriftInput): Partial<Record<CharacterAxisKey, nu
     if (shift.vicarious === true || shift.echo === true) continue
     const delta = Number(shift.delta)
     if (!Number.isFinite(delta) || delta === 0) continue
-    if (AVERSIVE.has(shift.kind) && delta > 0) stung = true
-    if (PLEASANT.has(shift.kind) && delta < 0) stung = true
+    const stinging = (AVERSIVE.has(shift.kind) && delta > 0) || (PLEASANT.has(shift.kind) && delta < 0)
+    if (stinging) {
+      /**
+       * 为什么按对象分开记：**宜人性说的是"怎么待人"**。
+       * 你气她一句会让她对人更紧一点；看到一条她看不惯的帖子、或对自己失望，
+       * 只该让她的稳定性和开放性动 —— 世界的破事不该让她对你更坏
+       * （设计方案 §6.3 记着这条缺陷，2026-11-24 拆开）。
+       * 取不到对象时按"人"算：那是唯一会让她调整待人的情形。
+       */
+      if (shift.target === 'world' || shift.target === 'self') stungByWorld = true
+      else stungByPerson = true
+    }
     if ((shift.kind === 'joy' || shift.kind === 'trust') && delta >= DRIFT_STRONG_SHIFT && shift.target === 'user') {
       intimate = true
     }
@@ -88,9 +101,13 @@ export function nudgesOf(input: DriftInput): Partial<Record<CharacterAxisKey, nu
   const add = (key: CharacterAxisKey, amount: number): void => {
     raw[key] = (raw[key] ?? 0) + amount
   }
-  if (stung) {
+  if (stungByPerson) {
     add('stability', -DRIFT_STEP)
     add('agreeableness', -DRIFT_STEP)
+    add('openness', -DRIFT_STEP)
+  }
+  if (stungByWorld) {
+    add('stability', -DRIFT_STEP)
     add('openness', -DRIFT_STEP)
   }
   if (soothed) {

@@ -46,6 +46,7 @@ export const workbenchZh = {
   'workbench.evolution.diary.title': '她的日记',
   'workbench.evolution.diary.hint':
     '一天一篇，用她自己的口气写。默认是合着的 —— 只显示日期；翻开之后那一天的正文才给你看，而且翻了就是翻了。',
+  'workbench.evolution.diary.settleFailed': '上一次收账没写成：{reason}',
   'workbench.evolution.diary.empty': '还没有写过日记。她睡下的时候才收一天。',
   'workbench.evolution.diary.open': '翻开',
   'workbench.evolution.diary.confirm': '翻开就收不回去了，确定？',
@@ -104,6 +105,7 @@ export const workbenchEn = {
   'workbench.evolution.diary.title': 'Her diary',
   'workbench.evolution.diary.hint':
     'One entry a day, in her own voice. Closed by default — only the date shows; opening one reveals that day, and opening cannot be undone.',
+  'workbench.evolution.diary.settleFailed': 'Last settlement failed: {reason}',
   'workbench.evolution.diary.empty': 'No diary yet. She writes one when she goes to sleep.',
   'workbench.evolution.diary.open': 'Open',
   'workbench.evolution.diary.confirm': 'Opening cannot be undone. Sure?',

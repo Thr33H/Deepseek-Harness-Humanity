@@ -40,6 +40,13 @@ export interface EvolutionStateDoc {
    * 能被外部读到的证据，也是以后工作台那一行状态的数据源。
    */
   lastError: string
+  /**
+   * 睡前收账最后失败的原因（空串 = 没失败过）。
+   *
+   * 为什么要单独记：收账是后台异步跑的，失败只进日志 —— 而日志不落到 docker logs，
+   * 于是一篇没写成的日记会**完全没有痕迹**。
+   */
+  lastSettleError: string
   /** 上一次尝试排程的时刻（ISO 8601）。 */
   lastAttemptAt: string
 }
@@ -58,6 +65,7 @@ export const EMPTY_STATE: EvolutionStateDoc = {
   tokensToday: 0,
   tokensDayKey: '',
   lastError: '',
+  lastSettleError: '',
   lastAttemptAt: '',
 }
 
@@ -98,6 +106,7 @@ export function readState(documents: DocumentStore | undefined): EvolutionStateD
     tokensToday: typeof raw.tokensToday === 'number' && Number.isFinite(raw.tokensToday) && raw.tokensToday > 0 ? raw.tokensToday : 0,
     tokensDayKey: text('tokensDayKey'),
     lastError: text('lastError'),
+    lastSettleError: text('lastSettleError'),
     lastAttemptAt: text('lastAttemptAt'),
   }
 }

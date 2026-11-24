@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 性格漂移（`persona/drift.ts`）：四根轴怎么被经历推动。
  *
  * 用户 2026-11-23 定的规则是**双向**的：好事让她更稳更开放，坏事让她更不稳更封闭。
@@ -22,6 +22,20 @@ test('推动规则：被刺痛 → 稳定性、宜人性、开放性都往下', 
   assert.equal(step.extraversion, undefined, '被刺痛不直接改外向性')
 })
 
+test('推动规则：世界的破事不许推低她的宜人性（设计方案 §6.3）', () => {
+  const world = nudgesOf({ shifts: [{ kind: 'disgust', target: 'world', delta: 9 }] })
+  assert.equal(world.stability, -DRIFT_STEP, '看多了皮了 ⇒ 稳定性往下')
+  assert.equal(world.openness, -DRIFT_STEP, '见多了 ⇒ 开放性往下')
+  assert.equal(world.agreeableness, undefined, '一条帖子不该让她对人更坏')
+
+  const self = nudgesOf({ shifts: [{ kind: 'sadness', target: 'self', delta: 7 }] })
+  assert.equal(self.agreeableness, undefined, '对自己失望也不改"怎么待人"')
+  assert.equal(self.stability, -DRIFT_STEP)
+
+  // 取不到对象时按"人"算：那是唯一会改变她待人的情形。
+  const vague = nudgesOf({ shifts: [{ kind: 'anger', delta: 6 }] })
+  assert.equal(vague.agreeableness, -DRIFT_STEP)
+})
 test('推动规则：被安抚（温度明显上升）→ 稳定性和宜人性往上', () => {
   const step = nudgesOf({ shifts: [], warmth: 4 })
   assert.equal(step.stability, DRIFT_STEP)

@@ -38,6 +38,8 @@ export interface DayStatusView {
   /** 闹钟是不是因为她正在别处说话而压着。 */
   busy: boolean
   lastError: string
+  /** 睡前收账最后失败的原因。 */
+  lastSettleError: string
 }
 
 /** 她留下的一样东西（只读）。 */
@@ -77,6 +79,7 @@ export function emptyEvolutionDocument(): EvolutionDocument {
       taskReady: false,
       busy: false,
       lastError: '',
+      lastSettleError: '',
     },
     diary: [],
     works: [],
@@ -138,6 +141,7 @@ export function asEvolutionDocument(value: unknown): EvolutionDocument {
       taskReady: status.taskReady === true,
       busy: status.busy === true,
       lastError: typeof status.lastError === 'string' ? status.lastError : '',
+      lastSettleError: typeof status.lastSettleError === 'string' ? status.lastSettleError : '',
     },
     diary,
     works,

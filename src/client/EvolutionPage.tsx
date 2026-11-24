@@ -179,6 +179,11 @@ export function EvolutionPage({ t, controller }: EvolutionPageProps) {
         {state.doc.notice !== '' ? (
           <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>{state.doc.notice}</p>
         ) : null}
+        {status.lastSettleError !== '' ? (
+          <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
+            {t('workbench.evolution.diary.settleFailed').replace('{reason}', status.lastSettleError)}
+          </p>
+        ) : null}
         {state.doc.diary.length === 0 ? (
           <p style={{ margin: 0, color: 'var(--dsw-alias-label-secondary)' }}>{t('workbench.evolution.diary.empty')}</p>
         ) : (
