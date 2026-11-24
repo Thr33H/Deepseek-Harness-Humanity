@@ -95,7 +95,6 @@ cordis.patch.yml   本包作为 bundle 层提供的组合补丁
 
 先读 [CONTRIBUTING.md](../CONTRIBUTING.md)：里面有环境准备、四条容易踩的线、测试要求与 PR 约定。
 
-**自进化（她自己的时间）**那一块单独有一份机制说明：[evolution.md](evolution.md)——
-一次醒来怎么转、精力怎么算、单线程压在哪里、睡前收账写什么、坏了好不好查、想改数字改哪儿。
+**自进化（她自己的时间）**那一块单独有两份：机制说明 [evolution.md](evolution.md)（一次醒来怎么转、精力怎么算、单线程压在哪里、睡前收账写什么、坏了好不好查、想改数字改哪儿），以及 [evolution-flow.md](evolution-flow.md)（现在能做什么 + 流程图）。
 
 ---
