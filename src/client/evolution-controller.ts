@@ -76,7 +76,7 @@ export class EvolutionWorkbenchController {
         { ...this.state.doc, request: { op: 'cap', date: String(value) }, notice: '' },
         this.revision,
       )
-      if (outcome.ok) this.revision = (outcome.value as { revision?: number } | undefined)?.revision ?? this.revision
+      if (outcome.ok) this.revision = (outcome.value as { value?: { revision?: number } } | undefined)?.value?.revision ?? this.revision
       await this.load({ quiet: true })
       return outcome.ok === true
     } catch {
@@ -91,7 +91,7 @@ export class EvolutionWorkbenchController {
       // 与记忆同一条命令路：先重读（版本号可能旧了），再写命令槽。
       await this.load({ quiet: true })
       const outcome = await channel.replace(EVOLUTION_NAMESPACE, { ...this.state.doc, request: { op: 'open', date }, notice: '' }, this.revision)
-      if (outcome.ok) this.revision = (outcome.value as { revision?: number } | undefined)?.revision ?? this.revision
+      if (outcome.ok) this.revision = (outcome.value as { value?: { revision?: number } } | undefined)?.value?.revision ?? this.revision
       if (outcome.ok !== true) return false
       await this.load({ quiet: true })
       return true
@@ -112,13 +112,16 @@ export class EvolutionWorkbenchController {
     }
     try {
       const result = await channel.describe()
-      const value = (result as { ok?: boolean; value?: unknown; error?: unknown } | undefined)?.value
-      if ((result as { ok?: boolean } | undefined)?.ok === false || value === undefined) {
+      const envelope = (result as { ok?: boolean; value?: unknown } | undefined)?.value as
+        | { value?: unknown; revision?: number }
+        | undefined
+      if ((result as { ok?: boolean } | undefined)?.ok === false || envelope === undefined) {
         this.setState({ status: 'unavailable', doc: this.state.doc })
         return
       }
-      this.revision = (value as { revision?: number }).revision
-      this.setState({ status: 'ready', doc: asEvolutionDocument(value) })
+      // 数据面回的信封是 `{ value, revision }`：`value` 才是投影本身。
+      this.revision = envelope.revision
+      this.setState({ status: 'ready', doc: asEvolutionDocument(envelope.value) })
     } catch {
       if (options.quiet === true) return
       this.setState({ status: 'unavailable', doc: this.state.doc })

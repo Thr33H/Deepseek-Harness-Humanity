@@ -100,7 +100,8 @@ export interface EvolutionPageProps {
 export function EvolutionPage({ t, controller }: EvolutionPageProps) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
   const status = state.doc.status
-  const unavailable = state.status === 'unavailable'
+  // 还没读到（idle）也当作"暂时读不到"：那时候说"人格还没封存"是错的。
+  const unavailable = state.status !== 'ready'
 
   return (
     <div>
