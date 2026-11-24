@@ -41,6 +41,32 @@ export interface WakeSettlement {
 }
 
 /**
+ * 睡着的她要隔多久才该再被叫醒。
+ *
+ * 两条路必须分开：
+ * - **今天到顶** ⇒ 等明天早上（这一天过完了）；
+ * - **只是累了** ⇒ 按睡眠曲线，睡够就醒。
+ *
+ * 为什么单独成函数：结算（`settleWakeState`）与"重启后从状态重排"（`arm`）都要用同一条规矩，
+ * 各写一份迟早会分叉 —— 分叉的后果是"重启一次，她就从睡到早上变成 90 分钟一醒"。
+ * @param state - 当前状态（`dayCount` 与 `energy` 都要用）。
+ * @param at - 现在（ISO 8601）。
+ * @param timeZone - 她的时区。
+ * @param rhythm - 节奏参数（用到上限）。
+ * @returns 间隔秒数（已夹到最小投递间隔以上）。
+ */
+export function sleepGapSeconds(
+  state: EvolutionStateDoc,
+  at: string,
+  timeZone: string | undefined,
+  rhythm: WakeRhythm,
+): number {
+  const hitCap = rhythm.maxPerDay > 0 && state.dayCount >= rhythm.maxPerDay
+  const raw = hitCap ? secondsToMorning(at, timeZone) : minutesToWake(state.energy, at, timeZone) * 60
+  return Math.max(MIN_GAP_SECONDS, raw)
+}
+
+/**
  * 结算一次醒来。
  *
  * 顺序有意为之：
@@ -83,12 +109,8 @@ export function settleWakeState(input: WakeSettleInput): WakeSettlement {
    * 但次数已经到顶 ⇒ 又立刻判到顶、又睡 ⇒ 整个下午到午夜陷在"醒—睡"循环里，
    * 一天的上限变成每 90 分钟醒一次。到顶就是这一天过完了，只能等明天。
    */
-  const hitCap = rhythm.maxPerDay > 0 && after.dayCount >= rhythm.maxPerDay
   const gapSeconds = after.sleepingSince !== ''
-    ? Math.max(
-        MIN_GAP_SECONDS,
-        hitCap ? secondsToMorning(at, timeZone) : minutesToWake(after.energy, at, timeZone) * 60,
-      )
+    ? sleepGapSeconds(after, at, timeZone, rhythm)
     : nextGapSeconds(after, rhythm, at, timeZone, input.random)
 
   return { state: after, fellAsleep: fellAsleep && !wasSleeping, gapSeconds }

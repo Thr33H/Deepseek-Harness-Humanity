@@ -24,7 +24,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { DocumentStore } from '../documents.js'
 import { createLlmAccess } from '../llm.js'
 import { appendDiary, buildDiaryPrompt, parseDiary, readDiary, type DiaryEntry } from './diary.js'
-import { settleWakeState } from './lifecycle.js'
+import { settleWakeState, sleepGapSeconds } from './lifecycle.js'
 import { installEvolutionSection } from './section.js'
 import type { Log } from '../log.js'
 import {
@@ -385,9 +385,8 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
    * 醒着 ⇒ 按随机间隔排（受当日上限管，到顶就等明天早上）。
    */
   const gapSeconds = (state: EvolutionStateDoc, at: string): number | undefined => {
-    if (state.sleepingSince !== '') {
-      return Math.max(MIN_GAP_SECONDS, minutesToWake(state.energy, at, deps.timeZone()) * 60)
-    }
+    // 睡着时的规矩只有一份（见 `lifecycle.ts` 的 `sleepGapSeconds`）：到顶等明早，累了按曲线。
+    if (state.sleepingSince !== '') return sleepGapSeconds(state, at, deps.timeZone(), deps.wake())
     return nextGapSeconds(state, deps.wake(), at, deps.timeZone())
   }
 

@@ -13,7 +13,7 @@ import { test } from 'node:test'
 
 import { MIN_GAP_SECONDS } from '../lib/evolution/constants.js'
 import { SLEEP_INERTIA, WAKE_COST } from '../lib/evolution/energy.js'
-import { settleWakeState } from '../lib/evolution/lifecycle.js'
+import { settleWakeState, sleepGapSeconds } from '../lib/evolution/lifecycle.js'
 
 const TZ = 'Asia/Shanghai'
 
@@ -121,4 +121,14 @@ test('同一天次数累加，跨天从 1 重新数', () => {
   })
   assert.equal(nextDay.state.dayCount, 1, '新的一天从 1 开始')
   assert.equal(nextDay.state.dayKey, '2026-11-25')
+})
+
+test('睡着的间隔只有一份规矩：到顶等明早，累了按曲线（重启重排也用它）', () => {
+  const sleepingState = awake({ energy: 40, sleepingSince: '2026-11-24T06:00:00.000Z', dayCount: 3 })
+  // 14:00 东八区、次数没到顶 ⇒ 按睡眠曲线（几十分钟到几小时，但远不到明早）。
+  const tired = sleepGapSeconds(sleepingState, '2026-11-24T06:00:00.000Z', TZ, rhythm)
+  assert.ok(tired >= MIN_GAP_SECONDS && tired < 12 * 3600, `累了不该等明早，实际 ${tired}`)
+  // 次数到顶 ⇒ 一律到明早（≈18 小时）。
+  const capped = sleepGapSeconds({ ...sleepingState, dayCount: 8 }, '2026-11-24T06:00:00.000Z', TZ, rhythm)
+  assert.ok(capped >= 17 * 3600, `到顶要等明早，实际 ${capped}`)
 })
