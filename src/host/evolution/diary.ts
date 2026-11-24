@@ -20,8 +20,11 @@ import type { DocumentStore } from '../documents.js'
 /** 日记存在哪（文档表的键）。 */
 export const DIARY_DOC_KEY = 'humanity-diary'
 
-/** 保留多少篇（一天一篇，三个月够翻）。 */
-export const DIARY_KEEP = 90
+/** 归档放哪（超出保留上线的旧日记搬到这里，不删）。 */
+export const DIARY_ARCHIVE_KEY = 'humanity-diary-archive'
+
+/** 保留多少篇（一天一篇，一年多一点；超出部分进归档，不删）。 */
+export const DIARY_KEEP = 400
 
 /** 一篇日记。 */
 export interface DiaryEntry {
@@ -68,6 +71,22 @@ export function readDiary(documents: DocumentStore | undefined): DiaryEntry[] {
 }
 
 /**
+ * 把已经翻到"保留上线"之外的日记挪进归档文档（**不删**）。
+ *
+ * 为什么要有这一步：日记是她的本子，删掉就再也拿不回来；而命名空间与文档都不该无限长。
+ * 归档只是搬地方，读法一样（同一种条目形状），以后想翻旧账仍然翻得到。
+ * @param documents - 文档表。
+ * @param entries - 要搬走的那几篇。
+ */
+async function archiveDiary(documents: DocumentStore, entries: readonly DiaryEntry[]): Promise<void> {
+  const existing = documents.read(DIARY_ARCHIVE_KEY)?.value
+  const kept = typeof existing === 'object' && existing !== null && Array.isArray((existing as { entries?: unknown }).entries)
+    ? ((existing as { entries: unknown[] }).entries as DiaryEntry[])
+    : []
+  await documents.write(DIARY_ARCHIVE_KEY, { entries: [...kept, ...entries] })
+}
+
+/**
  * 追加一篇（同一天再写会覆盖那一天 —— 一天只有一篇）。
  * @param documents - 文档表。
  * @param entry - 这一篇。
@@ -75,7 +94,11 @@ export function readDiary(documents: DocumentStore | undefined): DiaryEntry[] {
 export async function appendDiary(documents: DocumentStore | undefined, entry: DiaryEntry): Promise<void> {
   if (documents === undefined) return
   const kept = readDiary(documents).filter((item) => item.date !== entry.date)
-  await documents.write(DIARY_DOC_KEY, { entries: [...kept, entry].slice(-DIARY_KEEP) })
+  const all = [...kept, entry]
+  // 超出的不删，挪进归档：本子可以翻很久，但也不能无限长。
+  const overflow = all.length > DIARY_KEEP ? all.slice(0, all.length - DIARY_KEEP) : []
+  if (overflow.length > 0) await archiveDiary(documents, overflow)
+  await documents.write(DIARY_DOC_KEY, { entries: all.slice(-DIARY_KEEP) })
 }
 
 /** 收账的输出契约。 */

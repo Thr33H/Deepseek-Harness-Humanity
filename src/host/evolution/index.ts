@@ -535,7 +535,8 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       })
     ) {
       after.sleepingSince = at
-    }    if (raw.sleepingSince === '' && after.sleepingSince !== '') {
+    }
+    if (raw.sleepingSince === '' && after.sleepingSince !== '') {
       void settleDay(at).catch((error: unknown) => {
         log.warn('睡前收账失败（这一天没有日记）', error)
         void noteSettleError(documents, error instanceof Error ? error.message : String(error))
@@ -545,7 +546,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     if (gap === undefined) {
       await saveState(documents, { ...after, nextAt: '', lastError: '', lastAttemptAt: at })
       await setActive(roomDeps, after.taskId, false)
-      log.info('她醒了一次；今天的次数到了上限，不再排下一次')
+      log.info('她醒了一次；次数上限是 0（不许自己醒），不再排下一次')
       return
     }
     const unseen = unnoticedDiary(documents)

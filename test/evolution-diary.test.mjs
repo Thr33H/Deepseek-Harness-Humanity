@@ -14,18 +14,20 @@ import { appendDiary, buildDiaryPrompt, DIARY_DOC_KEY, parseDiary, readDiary } f
 
 /** 只支持读写一份文档的假文档表。 */
 function fakeDocuments() {
-  let value
+  const store = new Map()
   return {
-    read: () => (value === undefined ? undefined : { value, revision: 1, updatedAt: '' }),
-    write: async (_ns, next) => {
-      value = next
-      return { value, revision: 2, updatedAt: '' }
+    read: (ns) => (store.has(ns) ? { value: store.get(ns), revision: 1, updatedAt: '' } : undefined),
+    write: async (ns, next) => {
+      store.set(ns, next)
+      return { value: next, revision: 2, updatedAt: '' }
     },
     merge: async () => {
       throw new Error('日记只用 write')
     },
     list: () => [],
-    current: () => value,
+    // 测试里按文档键取（`current()` 只给主文档，别的键用 `peek`）。
+    current: () => store.get('humanity-diary'),
+    peek: (ns) => store.get(ns),
   }
 }
 
@@ -41,6 +43,26 @@ test('日记：同一天只留一篇（后写的覆盖前一篇）', async () =>
   assert.equal(documents.current()[DIARY_DOC_KEY], undefined, '值直接是 { entries }，不该再多套一层')
 })
 
+test('日记：超出保留上线的旧篇挪进归档，不删', async () => {
+  const documents = fakeDocuments()
+  const { DIARY_KEEP, DIARY_ARCHIVE_KEY } = await import('../lib/evolution/diary.js')
+  // 灌满到刚好超过上限。
+  for (let index = 0; index <= DIARY_KEEP; index += 1) {
+    const date = `2020-01-01T00:00:00.000Z`
+    await appendDiary(documents, {
+      date: `d${String(index).padStart(4, '0')}`,
+      text: `第 ${index} 篇`,
+      createdAt: date,
+      openedAt: '',
+      noticedAt: '',
+    })
+  }
+  const kept = readDiary(documents)
+  assert.equal(kept.length, DIARY_KEEP, '主文档只留上限那么多')
+  const archived = documents.peek(DIARY_ARCHIVE_KEY)
+  assert.ok(archived !== undefined && archived.entries.length >= 1, '超出的那几篇要进归档')
+  assert.match(archived.entries[0].text, /第 0 篇/, '挪走的是最老的那几篇')
+})
 test('日记：读不到 / 形状坏掉时当作没有（不抛）', () => {
   assert.deepEqual(readDiary(undefined), [])
   assert.deepEqual(readDiary({ read: () => ({ value: null, revision: 1, updatedAt: '' }) }), [])
