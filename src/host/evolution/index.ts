@@ -434,6 +434,18 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       if (state.energy !== raw.energy || state.sleepingSince !== raw.sleepingSince || state.energyAt !== raw.energyAt) {
         await saveState(documents, state)
       }
+      /**
+       * 启动/重排时才发现"她其实已经该睡了"，同样要收账。
+       *
+       * 这是收账的最后一条漏路：之前只有"醒来时判定"与"聊天耗尽"两条，若她在容器停机期间
+       * 就已经低于底线（状态是上一轮存下的），重启时只会标记睡下、不写日记。
+       */
+      if (raw.sleepingSince === '' && state.sleepingSince !== '') {
+        void settleDay(now).catch((error: unknown) => {
+          log.warn('睡前收账失败（这一天没有日记）', error)
+          void noteSettleError(documents, error instanceof Error ? error.message : String(error))
+        })
+      }
       const hasFuture =
         state.taskId !== ''
         && state.nextAt !== ''
