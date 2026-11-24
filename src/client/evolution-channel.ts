@@ -44,6 +44,8 @@ export interface DayStatusView {
   lastTurnTools: number
   /** 闹钟从什么时候起被压住（空串 = 没被压）。 */
   busySince: string
+  /** 上一次自评的结果（kind:count:targets）。 */
+  lastAppraise: string
 }
 
 /** 她留下的一样东西（只读）。 */
@@ -86,6 +88,7 @@ export function emptyEvolutionDocument(): EvolutionDocument {
       lastSettleError: '',
       lastTurnTools: 0,
       busySince: '',
+      lastAppraise: '',
     },
     diary: [],
     works: [],
@@ -150,6 +153,7 @@ export function asEvolutionDocument(value: unknown): EvolutionDocument {
       lastSettleError: typeof status.lastSettleError === 'string' ? status.lastSettleError : '',
       lastTurnTools: typeof status.lastTurnTools === 'number' ? status.lastTurnTools : 0,
       busySince: typeof status.busySince === 'string' ? status.busySince : '',
+      lastAppraise: typeof status.lastAppraise === 'string' ? status.lastAppraise : '',
     },
     diary,
     works,

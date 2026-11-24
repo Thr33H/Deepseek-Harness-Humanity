@@ -61,6 +61,13 @@ export interface EvolutionStateDoc {
    * 把起点记下来，工作台才说得清"已经被压了多久"。
    */
   busySince: string
+  /**
+   * 上一次自评的结果（`kind:count:targets`；空串 = 没跑过）。
+   *
+   * 为什么要记：她独处时的自评原来只写日志，而日志看不见 ——
+   * "她看了却没感觉"与"这条路坏了"在外面分不出来（2026-11-24 真机）。
+   */
+  lastAppraise: string
   /** 上一次尝试排程的时刻（ISO 8601）。 */
   lastAttemptAt: string
 }
@@ -82,6 +89,7 @@ export const EMPTY_STATE: EvolutionStateDoc = {
   lastSettleError: '',
   lastTurnTools: 0,
   busySince: '',
+  lastAppraise: '',
   lastAttemptAt: '',
 }
 
@@ -124,6 +132,7 @@ export function readState(documents: DocumentStore | undefined): EvolutionStateD
     lastError: text('lastError'),
     lastSettleError: text('lastSettleError'),
     busySince: text('busySince'),
+    lastAppraise: text('lastAppraise'),
     lastTurnTools: typeof raw.lastTurnTools === 'number' && Number.isFinite(raw.lastTurnTools) ? Math.max(0, Math.trunc(raw.lastTurnTools)) : 0,
     lastAttemptAt: text('lastAttemptAt'),
   }

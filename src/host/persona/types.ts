@@ -82,6 +82,13 @@ export interface CharacterLayer {
   /** 笼子的推导时刻（ISO 8601）。 */
   derivedAt: string
   axes: CharacterAxisEntry[]
+  /**
+   * 还没落地的性格累积（由情绪推动，满一天且够阈值才写进四根轴）。
+   *
+   * 存进文档而不是内存：门槛是"攒够 0.01 且隔 24 小时"，而真机一天重启十几次 ——
+   * 放内存里等于永远攒不满，四根轴从早到晚一模一样（2026-11-24 查出来的）。
+   */
+  driftPending?: { axes: Record<string, number>; lastFlushAt: string }
 }
 
 /** 完整人格文档。 */

@@ -92,6 +92,17 @@ const CharacterAxisSchema = Schema.object({
 const CharacterLayerSchema = Schema.object({
   derivedAt: Schema.string().default(''),
   axes: Schema.array(CharacterAxisSchema).default([]),
+  /**
+   * 还没落地的性格累积（情绪推动的）。
+   *
+   * 为什么要存进文档：它原来只是 `index.ts` 里的一个内存变量，**重启就清零**；
+   * 而门槛是"攒够 0.01 且隔 24 小时"。真机一天重启十几次，于是性格**从来没有动过**
+   * （2026-11-24 查出来：四根轴与早上完全一致）。
+   */
+  driftPending: Schema.object({
+    axes: Schema.dict(Schema.number()).default({}),
+    lastFlushAt: Schema.string().default(''),
+  }).default({ axes: {}, lastFlushAt: '' }),
 })
 
 /**

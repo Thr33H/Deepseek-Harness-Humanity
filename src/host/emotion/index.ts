@@ -69,6 +69,20 @@ export interface EmotionDeps {
 }
 
 /** 情绪模块句柄。 */
+/**
+ * 她独处时的自评结果。
+ *
+ * 为什么要回报而不是只写日志：日志进不了 `docker logs`，"没有感觉"与"这条路坏了"
+ * 在外部完全分不出来（2026-11-24 真机：她搜完网页，情绪条数 0）。
+ */
+export interface OwnAppraisalResult {
+  kind: 'skipped' | 'no-feeling' | 'applied'
+  /** 产生了多少条情绪变化。 */
+  count: number
+  /** 涉及哪些对象（world / self）。 */
+  targets: string[]
+}
+
 export interface EmotionModule {
   /**
    * 当前状态（**已结算到此刻**，但不落盘、不改变内存里的原始值）。
@@ -91,7 +105,7 @@ export interface EmotionModule {
    * 对方不在场，没有人对她做了什么。
    * @param text - 她看到的内容（调用方已压短）。
    */
-  appraiseOwn(text: string): Promise<void>
+  appraiseOwn(text: string): Promise<OwnAppraisalResult>
   pulse(input: EmotionPulse, now?: string): Promise<void>
   /** 存储刚就绪：装载状态并投影一次。 */
   notifyStoreReady(): void
@@ -198,9 +212,9 @@ export function installEmotion(
 
   const api: EmotionModule = {
     appraiseOwn: async (text) => {
-      if (!enabled) return
+      if (!enabled) return { kind: 'skipped', count: 0, targets: [] }
       const current = ensureLoaded()
-      if (current === undefined) return
+      if (current === undefined) return { kind: 'skipped', count: 0, targets: [] }
       const at = nowIso()
       const pulse = await appraiseOwnExperience(
         llm,
@@ -208,8 +222,12 @@ export function installEmotion(
         { onWarn: (warning) => log.warn(warning) },
       )
       // 没有可用的情绪就当没发生：她看了一段东西而"没什么感觉"是完全正常的结果。
-      if (pulse === undefined) return
+      if (pulse === undefined) return { kind: 'no-feeling', count: 0, targets: [] }
       await runPulse(pulse, at)
+      // 把"产生了什么"回报给调用方：她独处时的自评原来只进日志，而日志看不见 ——
+      // 于是"没有感觉"与"这条路坏了"在外部完全分不出来（2026-11-24 真机）。
+      const targets = [...new Set(pulse.shifts.map((shift) => String(shift.target ?? '')))]
+      return { kind: 'applied', count: pulse.shifts.length, targets }
     },
     snapshot: (now) => {
       if (!enabled) return undefined

@@ -79,6 +79,8 @@ export interface DayView {
   lastTurnTools: number
   /** 闹钟从什么时候起被压住（空串 = 没被压）。 */
   busySince: string
+  /** 上一次自评的结果（kind:count:targets；空串 = 没跑过）。 */
+  lastAppraise: string
 }
 
 /** 整份投影。 */
@@ -126,6 +128,7 @@ export function emptyEvolutionDocument(): EvolutionDocument {
       lastSettleError: '',
       lastTurnTools: 0,
       busySince: '',
+      lastAppraise: '',
     },
     diary: [],
     works: [],
@@ -153,6 +156,7 @@ export const EvolutionDocSchema = Schema.object({
     lastSettleError: Schema.string().default(''),
     lastTurnTools: Schema.number().default(0),
     busySince: Schema.string().default(''),
+    lastAppraise: Schema.string().default(''),
   }),
   diary: Schema.array(
     Schema.object({
@@ -282,6 +286,7 @@ function project(
       lastSettleError: state?.lastSettleError ?? '',
       lastTurnTools: state?.lastTurnTools ?? 0,
       busySince: state?.busySince ?? '',
+      lastAppraise: state?.lastAppraise ?? '',
     },
     diary,
     works: [...works],

@@ -94,7 +94,7 @@ export interface EvolutionDeps {
    * 为什么由宿主转一手：自进化不 import 情绪模块（模块互相隔离）；谁在场谁负责。
    * 情绪模块关着时它返回 `undefined`，这一步就什么也不做。
    */
-  appraiseOwn?(text: string): Promise<void>
+  appraiseOwn?(text: string): Promise<{ kind: string; count: number; targets: string[] } | void>
   /**
    * 往记忆里记一件事（睡前收账用）。
    *
@@ -311,6 +311,8 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   let settlingDay = false
   /** 这一轮醒来她调了几次工具（醒来结算时写进状态并清零）。 */
   let roomToolUses = 0
+  /** 上一次自评的结果（写进状态，用来分辨"没感觉"与"这条路坏了"）。 */
+  let lastAppraise = ''
   /** `dayNotes` 属于哪一天（跨午夜要清空，否则两天的话会被写进同一篇日记）。 */
   let notesDayKey = ''
 
@@ -561,7 +563,12 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     seenBuffer = ''
     if (seen.trim() !== '' && deps.appraiseOwn !== undefined) {
       try {
-        await deps.appraiseOwn(seen)
+        const result = await deps.appraiseOwn(seen)
+        // 把这次自评的结果记下来：`no-feeling` 与"这条路坏了"必须分得开（日志看不见）。
+        lastAppraise =
+          result === undefined
+            ? 'skipped'
+            : `${result.kind}:${result.count}:${result.targets.join(',')}`
       } catch (error) {
         // 评估失败只影响这一次的感受，不影响她的日子。
         log.warn('自评失败（这一段没有产生情绪）', error)

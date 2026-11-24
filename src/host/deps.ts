@@ -193,9 +193,7 @@ export function evolutionDeps(
     homeDir: () => homeDir?.(),
     started: () => humanityStarted(state),
     // 她自己的见闻交给情绪模块评估（只产出"对事/对自己"的情绪）。
-    appraiseOwn: async (text) => {
-      await state.emotion?.appraiseOwn(text)
-    },
+    appraiseOwn: async (text) => state.emotion?.appraiseOwn(text),
     // 睡前收账记下的事，走记忆模块自己的写入路径（去重、视角归一化）。
     remember: async (what, about) => {
       await state.memory?.remember({ what, about: about as MemoryAbout })

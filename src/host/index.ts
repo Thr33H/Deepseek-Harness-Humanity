@@ -260,25 +260,32 @@ export function apply(ctx: Context, config: HumanityConfig): void {
   // 所以装配完再看一眼：存储已经就绪就立刻补一次（幂等）。
   if (state.store !== undefined) state.persona.notifyStoreReady()
   // 情绪模块：状态 + 存储 + 工作台窗口。**只看存储**，不依赖人格或记忆（模块互相隔离）。
-  // 性格漂移：攒在内存里，满一天且够一个阈值才写一次人格文档（每轮都写会把历史刷成流水账）。
-  // 规则见 `persona/drift.ts`；它只由情绪落地的事件推动，不给她任何主动调节的入口。
-  let driftAccumulator: Partial<Record<CharacterAxisKey, number>> = {}
-  let driftLastAt = ''
+  // 性格漂移：**累积存在人格文档里**（`character.driftPending`），不是内存变量。
+  // 真机 2026-11-24：累积器在内存、门槛是"攒够 0.01 且隔 24 小时"，而一天重启十几次
+  // ⇒ 四根轴从早到晚一模一样，性格一次都没动过。
+  // 规则见 `persona/drift.ts`；只由情绪落地的事件推动，不给她任何主动调节的入口。
   const onEmotionApplied = (pulse: EmotionPulse, at: string): void => {
-    driftAccumulator = accumulate(driftAccumulator, nudgesOf({ shifts: pulse.shifts, warmth: pulse.warmth }))
-    const previous = driftLastAt === '' ? Number.NaN : Date.parse(driftLastAt)
-    // 第一次触达也允许落地（否则要等满一天才有第一笔）；之后至少隔一天。
-    const intervalOk = !Number.isFinite(previous) || Date.parse(at) - previous >= DRIFT_FLUSH_MS
-    if (!dueToFlush(driftAccumulator, intervalOk)) return
-    const pending = driftAccumulator
-    driftAccumulator = {}
-    driftLastAt = at
     const persona = state.persona
     if (persona === undefined) return
-    const outcome = applyDrift(persona.section.read(), pending)
-    if (!outcome.changed) return
+    const nudge = nudgesOf({ shifts: pulse.shifts, warmth: pulse.warmth })
+    if (Object.keys(nudge).length === 0) return
+    const document = persona.section.read()
+    const layers = document.character
+    if (layers === undefined) return
+    const stored = layers.driftPending ?? { axes: {}, lastFlushAt: '' }
+    const accumulated = accumulate(
+      (stored.axes ?? {}) as Partial<Record<CharacterAxisKey, number>>,
+      nudge,
+    )
+    const previous = stored.lastFlushAt === '' ? Number.NaN : Date.parse(stored.lastFlushAt)
+    // 第一次触达也允许落地（否则要等满一天才有第一笔）；之后至少隔一天。
+    const intervalOk = !Number.isFinite(previous) || Date.parse(at) - previous >= DRIFT_FLUSH_MS
+    const due = dueToFlush(accumulated, intervalOk)
+    const drifted = due ? applyDrift(document, accumulated) : { document, changed: false }
+    const driftPending = due ? { axes: {}, lastFlushAt: at } : { axes: accumulated, lastFlushAt: stored.lastFlushAt }
+    const next = { ...drifted.document, character: { ...layers, driftPending } }
     // 写入失败只是这一步没留下：不重试、不影响对话（与情绪落盘同一条纪律）。
-    void persona.section.write(outcome.document, 'agent').catch((error: unknown) => {
+    void persona.section.write(next, 'agent').catch((error: unknown) => {
       log.warn('性格漂移写入失败（这一步没留下，不影响对话）', error)
     })
   }

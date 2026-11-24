@@ -36,6 +36,26 @@ function stamp(iso: string): string {
   return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
+/**
+ * 自评结果 → 人话。
+ *
+ * 形如 `applied:2:world,self` / `no-feeling:0:` / `skipped:0:`。
+ * 区分"没感觉"与"没跑"很重要：前者是正常结果，后者说明这条路没接上。
+ * @param t - 字典。
+ * @param raw - 状态里那串。
+ * @returns 一句人话。
+ */
+function appraiseText(t: Translate, raw: string): string {
+  const [kind, count, targets] = raw.split(':')
+  if (kind === 'applied') {
+    return t('workbench.evolution.appraise.applied')
+      .replace('{count}', count ?? '0')
+      .replace('{targets}', targets ?? '')
+  }
+  if (kind === 'no-feeling') return t('workbench.evolution.appraise.none')
+  return t('workbench.evolution.appraise.skipped')
+}
+
 /** 一条日记。 */
 function DiaryRow({
   t,
@@ -166,6 +186,7 @@ export function EvolutionPage({ t, controller }: EvolutionPageProps) {
               {status.lastTurnTools > 0
                 ? t('workbench.evolution.lastTurn.tools').replace('{count}', String(status.lastTurnTools))
                 : t('workbench.evolution.lastTurn.talk')}
+              {status.lastAppraise !== '' ? ` · ${appraiseText(t, status.lastAppraise)}` : ''}
             </dd>
             <dt style={{ color: 'var(--dsw-alias-label-secondary)' }}>{t('workbench.evolution.field.nextWake')}</dt>
             <dd style={{ margin: 0, fontVariantNumeric: 'tabular-nums' }}>
