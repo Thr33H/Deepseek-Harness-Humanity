@@ -230,10 +230,15 @@ test('她房间里要滤掉调度器的变更通知，你那边一条都不能�
 })
 
 test('单线程：她在别处说话时，房间的闹钟要压着', () => {
-  assert.equal(isBusySession('session-chat', 'session-room'), true, '在别的会话里说话 ⇒ 她正忙')
-  assert.equal(isBusySession('session-room', 'session-room'), false, '房间自己的事件不算"她在别处"')
-  assert.equal(isBusySession('', 'session-room'), false, '取不到会话 id 时不做判断（宁可不动）')
-  assert.equal(isBusySession('session-chat', ''), true, '房间还没开出来时，别的会话同样算她忙')
+  assert.equal(isBusySession('user/message', 'session-chat', 'session-room'), true, '在别的会话里说话 ⇒ 她正忙')
+  assert.equal(isBusySession('assistant/message', 'session-chat', 'session-room'), true, '她刚回完一句也算还在聊')
+  assert.equal(
+    isBusySession('session/end-seed', 'session-chat', 'session-room'),
+    false,
+    '重启时重放的生命周期事件不算她在忙（真机踩过：闹钟一启动就被压住）',
+  )
+  assert.equal(isBusySession('user/message', 'session-room', 'session-room'), false, '房间自己的事件不算"她在别处"')
+  assert.equal(isBusySession('user/message', '', 'session-room'), false, '取不到会话 id 时不做判断（宁可不动）')
 })
 
 test('房间：从 Agent 注册表开出，再把任务投进这个已有会话', async () => {

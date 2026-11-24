@@ -139,11 +139,17 @@ export function isScheduleMessage(message: unknown): boolean {
  * 这条会话事件是不是"她在别处忙着"。
  *
  * 她只有一个身体：正在跟你聊天时，房间的闹钟必须压着 —— 不能一边说话一边在房间里做事。
+ *
+ * ⚠️ **只看真实的对话事件**（`user/message` / `assistant/message`）。
+ * 真机踩到：重启时 DSH 会重放一堆会话生命周期事件（`session`、`end-seed`、`inbox/spliced`…），
+ * 把它们也算成"她在忙"，闹钟一启动就被压住 —— 她当天第一次醒来直接没了。
+ * @param type - 事件类型。
  * @param sessionId - 事件来自哪个会话。
  * @param roomSessionId - 她房间的会话 id。
- * @returns 会话不是房间且 id 非空时为 `true`。
+ * @returns 会话不是房间、id 非空、且是真实对话事件时为 `true`。
  */
-export function isBusySession(sessionId: string, roomSessionId: string): boolean {
+export function isBusySession(type: string, sessionId: string, roomSessionId: string): boolean {
+  if (type !== 'user/message' && type !== 'assistant/message') return false
   return sessionId !== '' && sessionId !== roomSessionId
 }
 
@@ -491,7 +497,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       const documents = deps.documents()
       const roomSessionId = documents === undefined ? '' : readState(documents).roomSessionId
       // 单线程：她在别处说话的这一刻，房间的闹钟压下去（安静一阵之后再恢复）。
-      if (isBusySession(sessionId, roomSessionId)) {
+      if (isBusySession(typed?.type ?? '', sessionId, roomSessionId)) {
         lastBusyAt = Date.now()
         if (!pausedForBusy && documents !== undefined) {
           const state = readState(documents)
