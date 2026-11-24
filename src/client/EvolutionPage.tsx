@@ -154,7 +154,14 @@ export function EvolutionPage({ t, controller }: EvolutionPageProps) {
             <dt style={{ color: 'var(--dsw-alias-label-secondary)' }}>{t('workbench.evolution.field.lastWake')}</dt>
             <dd style={{ margin: 0, fontVariantNumeric: 'tabular-nums' }}>{stamp(status.lastWakeAt)}</dd>
             <dt style={{ color: 'var(--dsw-alias-label-secondary)' }}>{t('workbench.evolution.field.nextWake')}</dt>
-            <dd style={{ margin: 0, fontVariantNumeric: 'tabular-nums' }}>{stamp(status.nextAt)}</dd>
+            <dd style={{ margin: 0, fontVariantNumeric: 'tabular-nums' }}>
+              {stamp(status.nextAt)}
+              {status.busy ? (
+                <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
+                  {t('workbench.evolution.busy')}
+                </span>
+              ) : null}
+            </dd>
           </dl>
         )}
         {status.lastError !== '' ? (

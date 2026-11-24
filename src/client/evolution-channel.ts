@@ -35,6 +35,8 @@ export interface DayStatusView {
   lastWakeAt: string
   nextAt: string
   taskReady: boolean
+  /** 闹钟是不是因为她正在别处说话而压着。 */
+  busy: boolean
   lastError: string
 }
 
@@ -71,6 +73,7 @@ export function emptyEvolutionDocument(): EvolutionDocument {
       lastWakeAt: '',
       nextAt: '',
       taskReady: false,
+      busy: false,
       lastError: '',
     },
     diary: [],
@@ -130,6 +133,7 @@ export function asEvolutionDocument(value: unknown): EvolutionDocument {
       lastWakeAt: typeof status.lastWakeAt === 'string' ? status.lastWakeAt : '',
       nextAt: typeof status.nextAt === 'string' ? status.nextAt : '',
       taskReady: status.taskReady === true,
+      busy: status.busy === true,
       lastError: typeof status.lastError === 'string' ? status.lastError : '',
     },
     diary,

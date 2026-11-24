@@ -64,6 +64,13 @@ export interface DayView {
   nextAt: string
   /** 房间任务是否就绪。 */
   taskReady: boolean
+  /**
+   * 闹钟是不是因为她正在别处说话而压着（单线程）。
+   *
+   * 为什么要在页面上说清："下一次醒"停着不动、人又没睡，看起来就像坏了；
+   * 其实是她正跟你说话，按设计不该同时出现在房间里。
+   */
+  busy: boolean
   /** 最近一次排程失败的原因（空串 = 正常）。 */
   lastError: string
 }
@@ -101,6 +108,7 @@ export function emptyEvolutionDocument(): EvolutionDocument {
       lastWakeAt: '',
       nextAt: '',
       taskReady: false,
+      busy: false,
       lastError: '',
     },
     diary: [],
@@ -123,6 +131,7 @@ export const EvolutionDocSchema = Schema.object({
     lastWakeAt: Schema.string().default(''),
     nextAt: Schema.string().default(''),
     taskReady: Schema.boolean().default(false),
+    busy: Schema.boolean().default(false),
     lastError: Schema.string().default(''),
   }),
   diary: Schema.array(
@@ -164,6 +173,8 @@ export interface EvolutionSectionDeps {
   started(): boolean
   /** 她留在自己目录里的东西（读不到时给空数组）。 */
   works(): Promise<WorkItem[]>
+  /** 闹钟是不是因为她正在别处说话而压着（单线程）。 */
+  busy?(): boolean
   /** 读一个文件（下载用；不合法时给 undefined）。 */
   readWork(name: string): Promise<{ base64: string; mime: string } | undefined>
 }
@@ -242,6 +253,7 @@ function project(
       lastWakeAt: state?.lastWakeAt ?? '',
       nextAt: state?.nextAt ?? '',
       taskReady: (state?.taskId ?? '') !== '',
+      busy: deps.busy?.() === true,
       lastError: state?.lastError ?? '',
     },
     diary,
