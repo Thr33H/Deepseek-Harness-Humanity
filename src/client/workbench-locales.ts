@@ -72,6 +72,7 @@ export const workbenchZh = {
   'workbench.evolution.works.empty': '她还没留下什么。',
   'workbench.evolution.works.noPreview': '这一样只能看到名字与大小。',
   'workbench.evolution.works.download': '下载',
+  'workbench.evolution.works.previewToggle': '看内容',
   'workbench.overviewHint':
     '这几项读的是当前真实状态；读不到时如实说明，不填推测的数字。'
     + '高风险改动（例如整节删除人格信息里仍有内容的小标题）在对话里确认。',
@@ -137,6 +138,7 @@ export const workbenchEn = {
   'workbench.evolution.works.empty': 'She has not left anything yet.',
   'workbench.evolution.works.noPreview': 'Only the name and size are available.',
   'workbench.evolution.works.download': 'Download',
+  'workbench.evolution.works.previewToggle': 'Show text',
   'workbench.overviewHint':
     'These read the current real state; when something is not readable they say so instead of showing a guess. '
     + 'High-risk changes are confirmed in the conversation.',
