@@ -307,13 +307,15 @@ function project(
 export function installEvolutionSection(ctx: Context, log: Log, deps: EvolutionSectionDeps): EvolutionSection {
   const state: SectionState = { attached: false }
   /** 一次性文件传输（下发一次就清掉，见 EvolutionDocument.transfer）。 */
-  let pendingTransfer: { name: string; mime: string; base64: string } | undefined
+  let pendingTransfer: { name: string; mime: string; base64: string; at: number } | undefined
 
   const refresh = async (notice = ''): Promise<void> => {
     if (!state.attached) return
     const works = await deps.works().catch(() => [] as WorkItem[])
     const threads = await deps.threads().catch(() => [] as string[])
-    const doc = project(deps, works, threads, pendingTransfer)
+    // 传输有寿命：20 秒内没被取走就作废（否则那份 base64 会一直挂在文档里，每次推送都搬一遍）。
+    const fresh = pendingTransfer !== undefined && Date.now() - pendingTransfer.at < 20_000 ? pendingTransfer : undefined
+    const doc = project(deps, works, threads, fresh)
     if (notice !== '') doc.notice = notice
     writeDoc(state, log, doc)
     // 传输只给一次：写进去就清掉，下次投影里不会再出现同一份字节。
@@ -361,7 +363,7 @@ export function installEvolutionSection(ctx: Context, log: Log, deps: EvolutionS
         return
       }
       // 放进下一次投影；下发之后由 refresh 自己清掉，不会长期挂在文档里。
-      pendingTransfer = { name, mime: item.mime, base64: item.base64 }
+      pendingTransfer = { name, mime: item.mime, base64: item.base64, at: Date.now() }
       await refresh()
       return
     }
