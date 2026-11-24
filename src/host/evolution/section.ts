@@ -312,10 +312,14 @@ export function installEvolutionSection(ctx: Context, log: Log, deps: EvolutionS
    */
   const consume = async (): Promise<void> => {
     const request = readDoc(state.settings)?.request
-    if (request === undefined || request.op === '' ) {
-      await refresh()
-      return
-    }
+    /**
+     * 没有命令就**什么都不做**（尤其不要重投影）。
+     *
+     * ⚠️ 每次写投影都会触发 `onChange`，而 `onChange` 就是 `consume` —— 如果这里在
+     * "没有命令"时也重投影，就形成"写 → 变更 → 再写"的自我触发循环。生产里靠"同值写入去重"
+     * 才没有炸（2026-11-24 写测试时才发现：假替身不去重，测试直接挂死）。
+     */
+    if (request === undefined || request.op === '') return
     // 改"一天最多醒几次"：写的是套件配置（`humanity` 命名空间的 modules.evolution）。
     if (request.op === 'cap') {
       const value = Number(request.date)
