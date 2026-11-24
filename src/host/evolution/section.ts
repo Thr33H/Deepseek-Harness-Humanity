@@ -75,6 +75,8 @@ export interface DayView {
   lastError: string
   /** 睡前收账最后失败的原因（空串 = 没失败过）。 */
   lastSettleError: string
+  /** 上一轮醒来她调了几次工具（0 = 只说了话）。 */
+  lastTurnTools: number
 }
 
 /** 整份投影。 */
@@ -120,6 +122,7 @@ export function emptyEvolutionDocument(): EvolutionDocument {
       busy: false,
       lastError: '',
       lastSettleError: '',
+      lastTurnTools: 0,
     },
     diary: [],
     works: [],
@@ -145,6 +148,7 @@ export const EvolutionDocSchema = Schema.object({
     busy: Schema.boolean().default(false),
     lastError: Schema.string().default(''),
     lastSettleError: Schema.string().default(''),
+    lastTurnTools: Schema.number().default(0),
   }),
   diary: Schema.array(
     Schema.object({
@@ -272,6 +276,7 @@ function project(
       busy: deps.busy?.() === true,
       lastError: state?.lastError ?? '',
       lastSettleError: state?.lastSettleError ?? '',
+      lastTurnTools: state?.lastTurnTools ?? 0,
     },
     diary,
     works: [...works],

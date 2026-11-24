@@ -153,6 +153,12 @@ export function EvolutionPage({ t, controller }: EvolutionPageProps) {
             </dd>
             <dt style={{ color: 'var(--dsw-alias-label-secondary)' }}>{t('workbench.evolution.field.lastWake')}</dt>
             <dd style={{ margin: 0, fontVariantNumeric: 'tabular-nums' }}>{stamp(status.lastWakeAt)}</dd>
+            <dt style={{ color: 'var(--dsw-alias-label-secondary)' }}>{t('workbench.evolution.field.lastTurn')}</dt>
+            <dd style={{ margin: 0 }}>
+              {status.lastTurnTools > 0
+                ? t('workbench.evolution.lastTurn.tools').replace('{count}', String(status.lastTurnTools))
+                : t('workbench.evolution.lastTurn.talk')}
+            </dd>
             <dt style={{ color: 'var(--dsw-alias-label-secondary)' }}>{t('workbench.evolution.field.nextWake')}</dt>
             <dd style={{ margin: 0, fontVariantNumeric: 'tabular-nums' }}>
               {stamp(status.nextAt)}

@@ -40,6 +40,8 @@ export interface DayStatusView {
   lastError: string
   /** 睡前收账最后失败的原因。 */
   lastSettleError: string
+  /** 上一轮她调了几次工具。 */
+  lastTurnTools: number
 }
 
 /** 她留下的一样东西（只读）。 */
@@ -80,6 +82,7 @@ export function emptyEvolutionDocument(): EvolutionDocument {
       busy: false,
       lastError: '',
       lastSettleError: '',
+      lastTurnTools: 0,
     },
     diary: [],
     works: [],
@@ -142,6 +145,7 @@ export function asEvolutionDocument(value: unknown): EvolutionDocument {
       busy: status.busy === true,
       lastError: typeof status.lastError === 'string' ? status.lastError : '',
       lastSettleError: typeof status.lastSettleError === 'string' ? status.lastSettleError : '',
+      lastTurnTools: typeof status.lastTurnTools === 'number' ? status.lastTurnTools : 0,
     },
     diary,
     works,

@@ -309,6 +309,8 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   const dayNotes: string[] = []
   /** 收账正在进行（防同一分钟里两个入口撞车，见 settleDay）。 */
   let settlingDay = false
+  /** 这一轮醒来她调了几次工具（醒来结算时写进状态并清零）。 */
+  let roomToolUses = 0
   /** `dayNotes` 属于哪一天（跨午夜要清空，否则两天的话会被写进同一篇日记）。 */
   let notesDayKey = ''
 
@@ -568,6 +570,9 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         void noteSettleError(documents, error instanceof Error ? error.message : String(error))
       })
     }
+    // 这一轮她动了几次手：写进状态（工作台据此如实显示），然后清零。
+    after.lastTurnTools = roomToolUses
+    roomToolUses = 0
     const gap = settlement.gapSeconds
     if (gap === undefined) {
       await saveState(documents, { ...after, nextAt: '', lastError: '', lastAttemptAt: at })
@@ -665,6 +670,13 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       // 顺手记下她最后一句话：下一次醒来要接上"上次做到哪"（连续性不靠她的记性）。
       if (typed?.type === 'assistant/message') {
         const said = continuityOf(textOf(typed.data?.message))
+        if (sessionId === roomSessionId) {
+          // 她这一轮动了几次手：工具调用在消息的 content 里以 `tool_use` 出现。
+          const parts = (typed.data?.message as { content?: unknown } | undefined)?.content
+          if (Array.isArray(parts)) {
+            roomToolUses += parts.filter((part) => (part as { type?: string }).type === 'tool_use').length
+          }
+        }
         if (sessionId !== '' && said !== '') {
           lastSaid.set(sessionId, said)
           // 她这一天说过的话也要进收账的材料（只收她房间里的）。

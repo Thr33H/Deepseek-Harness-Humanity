@@ -47,6 +47,13 @@ export interface EvolutionStateDoc {
    * 于是一篇没写成的日记会**完全没有痕迹**。
    */
   lastSettleError: string
+  /**
+   * 上一轮醒来她调了几次工具（0 = 只说了话）。
+   *
+   * 为什么要记：她"说了要做却没动手"是这一块最大的未解问题。把它记进状态，
+   * 工作台就能如实显示"她上一轮到底做了什么"，不必去翻会话文件。
+   */
+  lastTurnTools: number
   /** 上一次尝试排程的时刻（ISO 8601）。 */
   lastAttemptAt: string
 }
@@ -66,6 +73,7 @@ export const EMPTY_STATE: EvolutionStateDoc = {
   tokensDayKey: '',
   lastError: '',
   lastSettleError: '',
+  lastTurnTools: 0,
   lastAttemptAt: '',
 }
 
@@ -107,6 +115,7 @@ export function readState(documents: DocumentStore | undefined): EvolutionStateD
     tokensDayKey: text('tokensDayKey'),
     lastError: text('lastError'),
     lastSettleError: text('lastSettleError'),
+    lastTurnTools: typeof raw.lastTurnTools === 'number' && Number.isFinite(raw.lastTurnTools) ? Math.max(0, Math.trunc(raw.lastTurnTools)) : 0,
     lastAttemptAt: text('lastAttemptAt'),
   }
 }
