@@ -205,6 +205,28 @@ export function shouldSleep(state: EnergyState): boolean {
 }
 
 /**
+ * 这次醒来之后，她是不是**今天到头了**（该睡）。
+ *
+ * 两条路进睡眠：
+ * 1. 精力掉到底线（{@link SLEEP_AT}）；
+ * 2. **今天的次数已经到顶** —— 上限不是配额，但到了就说明这一天过完了。
+ *
+ * 为什么单独成函数：它是"一天结束"的唯一判据，散在流程里就没法单独钉住。
+ * @param input - 醒来前后的状态与当日上限。
+ * @returns 该进入睡眠时为 `true`（已经睡着时为 `false`）。
+ */
+export function startsSleeping(input: {
+  wasSleeping: boolean
+  energy: number
+  dayCount: number
+  maxPerDay: number
+}): boolean {
+  if (input.wasSleeping) return false
+  if (input.energy <= SLEEP_AT) return true
+  return input.maxPerDay > 0 && input.dayCount >= input.maxPerDay
+}
+
+/**
  * 让"今天已经花了多少 token"跨天归零。
  * @param dayKey - 状态里记的日期。
  * @param today - 现在的日期（她的时区）。

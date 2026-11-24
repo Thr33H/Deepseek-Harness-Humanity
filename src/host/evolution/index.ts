@@ -64,6 +64,7 @@ import {
   settleEnergy,
   SLEEP_AT,
   shouldSleep,
+  startsSleeping,
   tokensTodayOf,
   WAKE_COST,
   weightedTokens,
@@ -491,12 +492,16 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     after.energy = Math.max(0, after.energy - WAKE_COST)
     // 刚刚睡下 ⇒ 睡前收账（一天一次，已经写过的日子会跳过）。
     // 两条进入睡眠的路：精力掉到底线，或者今天的次数已经到顶（"她今天到头了"）。
-    const hitCap = after.dayCount >= deps.wake().maxPerDay && deps.wake().maxPerDay > 0
-    if (raw.sleepingSince === '' && settled.sleepingSince === '') {
-      if (settled.energy <= SLEEP_AT) after.sleepingSince = at
-      else if (hitCap) after.sleepingSince = at
-    }
-    if (raw.sleepingSince === '' && after.sleepingSince !== '') {
+    if (
+      startsSleeping({
+        wasSleeping: raw.sleepingSince !== '' || settled.sleepingSince !== '',
+        energy: settled.energy,
+        dayCount: after.dayCount,
+        maxPerDay: deps.wake().maxPerDay,
+      })
+    ) {
+      after.sleepingSince = at
+    }    if (raw.sleepingSince === '' && after.sleepingSince !== '') {
       void settleDay(at).catch((error: unknown) => log.warn('睡前收账失败（这一天没有日记）', error))
     }
     const gap = gapSeconds(after, at)

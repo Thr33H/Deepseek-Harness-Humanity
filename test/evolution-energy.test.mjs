@@ -19,6 +19,7 @@ import {
   settleEnergy,
   shouldSleep,
   SLEEP_AT,
+  startsSleeping,
   SLEEP_CAP_MINUTES,
   SLEEP_INERTIA,
   SLEEP_MIN_MINUTES,
@@ -117,4 +118,15 @@ test('"今天花了多少"跨天归零', () => {
 test('时间口径：睡眠分格是 15 分钟，最短睡 90 分钟', () => {
   assert.equal(BLOCK_MINUTES, 15)
   assert.equal(SLEEP_MIN_MINUTES, 90)
+})
+
+test('什么时候算"一天到头"：精力见底，或者今天的次数到顶', () => {
+  const base = { wasSleeping: false, energy: 80, dayCount: 1, maxPerDay: 8 }
+  assert.equal(startsSleeping(base), false, '还有力气、次数没到顶 ⇒ 不睡')
+  assert.equal(startsSleeping({ ...base, energy: SLEEP_AT }), true, '掉到底线就睡')
+  assert.equal(startsSleeping({ ...base, energy: SLEEP_AT - 0.1 }), true, '低于底线也睡')
+  assert.equal(startsSleeping({ ...base, dayCount: 8 }), true, '次数到顶也算一天结束')
+  assert.equal(startsSleeping({ ...base, dayCount: 9 }), true, '超过上限同样算（不该出现，但不能因此不睡）')
+  assert.equal(startsSleeping({ ...base, dayCount: 8, maxPerDay: 0 }), false, '上限关掉（0）时不因次数睡')
+  assert.equal(startsSleeping({ ...base, energy: 10, wasSleeping: true }), false, '已经在睡时不重复记睡点')
 })
