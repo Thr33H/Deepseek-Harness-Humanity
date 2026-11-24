@@ -388,6 +388,13 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   const arm = async (reason: string): Promise<void> => {
     if (arming) return
     if (!moduleEnabled()) return
+    /**
+     * 单线程压着的时候不许排程。
+     *
+     * 否则"存储就绪"这类旁路触发会把已经暂停的任务重新激活（`hasFuture` 那条会重排并启用），
+     * 等于绕过互斥：她在跟你说话，房间的闹钟却自己走起来了。恢复只走 `她聊完了` 那一条路。
+     */
+    if (pausedForBusy && reason !== '她聊完了') return
     const documents = deps.documents()
     if (documents === undefined) return
     arming = true
