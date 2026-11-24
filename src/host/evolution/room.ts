@@ -106,10 +106,84 @@ export function roomDirOf(deps: RoomDeps): string | undefined {
   return `${home.replace(/[\\/]+$/, '')}/humanity/room`
 }
 
-/** 我们用到的那两个 `node:fs/promises` 函数（宿主编译没有 `@types/node`）。 */
+/** 我们用到的那几个 `node:fs/promises` 函数（宿主编译没有 `@types/node`）。 */
 interface FsPromisesModule {
   mkdir(path: string, options: { recursive: boolean }): Promise<string | undefined>
   readFile(path: string, encoding: 'utf8'): Promise<string>
+  readdir(path: string, options: { withFileTypes: true }): Promise<Array<{ name: string; isFile(): boolean }>>
+  stat(path: string): Promise<{ size: number; mtimeMs: number }>
+}
+
+/** 她留在自己目录里的一样东西。 */
+export interface WorkItem {
+  /** 文件名。 */
+  name: string
+  /** 字节数。 */
+  size: number
+  /** 最后改动（ISO 8601）。 */
+  updatedAt: string
+  /** `text` 能直接看；`image` / `other` 只能看大小（浏览器拿不到宿主的文件）。 */
+  kind: 'text' | 'image' | 'other'
+  /** 文本预览（最多 4000 字；非文本为空串）。 */
+  preview: string
+}
+
+/** 哪些扩展名算"能直接看"的文本。 */
+const TEXT_EXTENSIONS = new Set(['md', 'txt', 'json', 'csv', 'html', 'css', 'js', 'ts', 'yml', 'yaml', 'log'])
+/** 哪些算图片（只报存在与大小）。 */
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'])
+
+/**
+ * 列她留在自己目录里的东西（只读、只顶层、有条数上限）。
+ *
+ * 为什么只给文本预览而不给下载：浏览器拿不到宿主上的文件，要真下载得由宿主开一个下载路由 ——
+ * 那是一条新的面，还没验。先把"她写了什么"摆出来；图片只能看到名字与大小。
+ * @param deps - 外部事实。
+ * @param limit - 最多几样（按改动时间倒序）。
+ * @returns 列表；目录还没建或读不到时是空数组。
+ */
+export async function listWorks(deps: RoomDeps, limit = 20): Promise<WorkItem[]> {
+  const dir = roomDirOf(deps)
+  if (dir === undefined) return []
+  try {
+    const specifier: string = 'node:fs/promises'
+    const fs = (await import(specifier)) as FsPromisesModule
+    const entries = await fs.readdir(dir, { withFileTypes: true })
+    const files = entries.filter((entry) => entry.isFile() && !entry.name.startsWith('.')).slice(0, 80)
+    const items: WorkItem[] = []
+    for (const file of files) {
+      const full = `${dir}/${file.name}`
+      let info: { size: number; mtimeMs: number }
+      try {
+        info = await fs.stat(full)
+      } catch {
+        continue
+      }
+      const extension = file.name.includes('.') ? file.name.slice(file.name.lastIndexOf('.') + 1).toLowerCase() : ''
+      const isImage = IMAGE_EXTENSIONS.has(extension)
+      const isText = TEXT_EXTENSIONS.has(extension)
+      let preview = ''
+      if (isText && info.size <= 64_000) {
+        try {
+          preview = (await fs.readFile(full, 'utf8')).slice(0, 4000)
+        } catch {
+          preview = ''
+        }
+      }
+      items.push({
+        name: file.name,
+        size: info.size,
+        updatedAt: new Date(info.mtimeMs).toISOString(),
+        kind: isText ? 'text' : isImage ? 'image' : 'other',
+        preview,
+      })
+    }
+    return items
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .slice(0, limit)
+  } catch {
+    return []
+  }
 }
 
 /**

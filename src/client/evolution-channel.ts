@@ -36,10 +36,20 @@ export interface DayStatusView {
   lastError: string
 }
 
+/** 她留下的一样东西（只读）。 */
+export interface WorkItemView {
+  name: string
+  size: number
+  updatedAt: string
+  kind: string
+  preview: string
+}
+
 /** 整份投影。 */
 export interface EvolutionDocument {
   status: DayStatusView
   diary: DiaryItemView[]
+  works: WorkItemView[]
   request: { op: string; date: string }
   notice: string
 }
@@ -60,6 +70,7 @@ export function emptyEvolutionDocument(): EvolutionDocument {
       lastError: '',
     },
     diary: [],
+    works: [],
     request: { op: '', date: '' },
     notice: '',
   }
@@ -89,6 +100,18 @@ export function asEvolutionDocument(value: unknown): EvolutionDocument {
         }
       })
     : []
+  const works = Array.isArray(raw.works)
+    ? raw.works.map((item) => {
+        const entry = (typeof item === 'object' && item !== null ? item : {}) as Record<string, unknown>
+        return {
+          name: typeof entry.name === 'string' ? entry.name : '',
+          size: typeof entry.size === 'number' ? entry.size : 0,
+          updatedAt: typeof entry.updatedAt === 'string' ? entry.updatedAt : '',
+          kind: typeof entry.kind === 'string' ? entry.kind : 'other',
+          preview: typeof entry.preview === 'string' ? entry.preview : '',
+        }
+      })
+    : []
   const request = (typeof raw.request === 'object' && raw.request !== null ? raw.request : {}) as Record<string, unknown>
   return {
     status: {
@@ -104,6 +127,7 @@ export function asEvolutionDocument(value: unknown): EvolutionDocument {
       lastError: typeof status.lastError === 'string' ? status.lastError : '',
     },
     diary,
+    works,
     request: {
       op: typeof request.op === 'string' ? request.op : '',
       date: typeof request.date === 'string' ? request.date : '',

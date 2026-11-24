@@ -160,6 +160,36 @@ export function EvolutionPage({ t, controller }: EvolutionPageProps) {
           ))
         )}
       </section>
+
+      <section style={{ ...panel, marginTop: 16 }}>
+        <h2 style={{ ...panelTitle, ...headingWithHint }}>
+          {t('workbench.evolution.works.title')}
+          <InfoHint label={t('workbench.evolution.works.hint')} />
+        </h2>
+        {state.doc.works.length === 0 ? (
+          <p style={{ margin: 0, color: 'var(--dsw-alias-label-secondary)' }}>{t('workbench.evolution.works.empty')}</p>
+        ) : (
+          state.doc.works.map((item) => (
+            <details key={item.name} style={{ padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l2)' }}>
+              <summary style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                <span>{item.name}</span>
+                <span style={{ color: 'var(--dsw-alias-label-secondary)', fontSize: 12 }}>
+                  {Math.max(1, Math.round(item.size / 1024))} KB · {stamp(item.updatedAt)}
+                </span>
+              </summary>
+              {item.kind === 'text' && item.preview !== '' ? (
+                <pre style={{ margin: '8px 0 0', whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.7 }}>
+                  {item.preview}
+                </pre>
+              ) : (
+                <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
+                  {t('workbench.evolution.works.noPreview')}
+                </p>
+              )}
+            </details>
+          ))
+        )}
+      </section>
     </div>
   )
 }

@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 
-import { ensureRoom, ensureTask, readThreads, reschedule, roomDirOf } from '../lib/evolution/room.js'
+import { ensureRoom, ensureTask, listWorks, readThreads, reschedule, roomDirOf } from '../lib/evolution/room.js'
 import {
   afterWake,
   dayKeyOf,
@@ -317,6 +317,33 @@ test('房间：已经活着就复用；恢复失败就重开一间', async () =>
     assert.equal(reopened.ok, true)
     assert.notEqual(reopened.sessionId, 'session-gone', '恢复失败要重开，而不是从此没有房间')
     assert.equal(created.length, 1)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('她留下的东西：文本给预览、图片只给大小、点开头的文件不列', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'humanity-works-'))
+  try {
+    const room = path.join(dir, 'humanity', 'room')
+    await mkdir(room, { recursive: true })
+    await writeFile(path.join(room, 'note.md'), '# 今天\n\n查了潮汐的事。', 'utf8')
+    await writeFile(path.join(room, 'draft.txt'), '草稿', 'utf8')
+    await writeFile(path.join(room, 'pic.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+    await writeFile(path.join(room, 'todo.md'), '- 追的连载看到第 37 章', 'utf8')
+    await writeFile(path.join(room, '.hidden'), 'x', 'utf8')
+    const deps = { schedule: () => undefined, agents: () => undefined, homeDir: () => dir, log: quietLog }
+
+    const works = await listWorks(deps)
+    const names = works.map((item) => item.name).sort()
+    assert.deepEqual(names, ['draft.txt', 'note.md', 'pic.png', 'todo.md'], '点开头的隐藏文件不列')
+    const note = works.find((item) => item.name === 'note.md')
+    assert.equal(note.kind, 'text')
+    assert.match(note.preview, /查了潮汐的事/)
+    const pic = works.find((item) => item.name === 'pic.png')
+    assert.equal(pic.kind, 'image')
+    assert.equal(pic.preview, '', '图片不给预览（浏览器拿不到文件）')
+    assert.ok(pic.size > 0)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

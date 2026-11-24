@@ -23,6 +23,7 @@ import { fallbackSettings } from '../plane-settings.js'
 import { supportsDynamicSections } from '../settings.js'
 import { appendDiary, readDiary } from './diary.js'
 import type { EvolutionStateDoc } from './state.js'
+import type { WorkItem } from './room.js'
 
 /** 命名空间名（客户端按它读；改名等于两边失联）。 */
 export const EVOLUTION_NAMESPACE = 'humanity-evolution'
@@ -69,6 +70,8 @@ export interface DayView {
 export interface EvolutionDocument {
   status: DayView
   diary: DiaryView[]
+  /** 她留在自己目录里的东西（只读一扇窗）。 */
+  works: WorkItem[]
   /** 命令槽：客户端写"想做什么"，宿主消费。 */
   request: { op: string; date: string }
   /** 宿主给的一句话（例如"这一天已经打开了"）。 */
@@ -91,6 +94,7 @@ export function emptyEvolutionDocument(): EvolutionDocument {
       lastError: '',
     },
     diary: [],
+    works: [],
     request: { op: '', date: '' },
     notice: '',
   }
@@ -118,6 +122,15 @@ export const EvolutionDocSchema = Schema.object({
       text: Schema.string().default(''),
     }),
   ).default([]),
+  works: Schema.array(
+    Schema.object({
+      name: Schema.string().default(''),
+      size: Schema.number().default(0),
+      updatedAt: Schema.string().default(''),
+      kind: Schema.string().default('other'),
+      preview: Schema.string().default(''),
+    }),
+  ).default([]),
   request: Schema.object({
     op: Schema.string().default(''),
     date: Schema.string().default(''),
@@ -132,6 +145,8 @@ export interface EvolutionSectionDeps {
   settings(): { maxPerDay: number }
   enabled(): boolean
   started(): boolean
+  /** 她留在自己目录里的东西（读不到时给空数组）。 */
+  works(): Promise<WorkItem[]>
 }
 
 /** 工作台入口。 */
@@ -178,7 +193,7 @@ function writeDoc(state: SectionState, log: Log, doc: EvolutionDocument): void {
  * @param opened - 已经打开过的日期 → 打开时刻。
  * @returns 整份文档。
  */
-function project(deps: EvolutionSectionDeps): EvolutionDocument {
+function project(deps: EvolutionSectionDeps, works: readonly WorkItem[]): EvolutionDocument {
   const documents = deps.documents()
   const state = deps.state()
   const settings = deps.settings()
@@ -206,6 +221,7 @@ function project(deps: EvolutionSectionDeps): EvolutionDocument {
       lastError: state?.lastError ?? '',
     },
     diary,
+    works: [...works],
     request: { op: '', date: '' },
     notice: '',
   }
@@ -223,7 +239,8 @@ export function installEvolutionSection(ctx: Context, log: Log, deps: EvolutionS
 
   const refresh = async (notice = ''): Promise<void> => {
     if (!state.attached) return
-    const doc = project(deps)
+    const works = await deps.works().catch(() => [] as WorkItem[])
+    const doc = project(deps, works)
     if (notice !== '') doc.notice = notice
     writeDoc(state, log, doc)
   }

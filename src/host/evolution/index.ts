@@ -40,6 +40,7 @@ import {
   ensureRoom,
   ensureTask,
   inspectRoom,
+  listWorks,
   readThreads,
   reschedule,
   setActive,
@@ -268,6 +269,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     settings: () => ({ maxPerDay: deps.wake().maxPerDay }),
     enabled: () => moduleEnabled(),
     started: () => deps.started(),
+    works: () => listWorks(roomDeps),
   })
 
   /**
