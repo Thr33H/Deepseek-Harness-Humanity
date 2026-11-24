@@ -353,7 +353,21 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     const tokensToday = tokensTodayOf(settled.tokensDayKey, today, settled.tokensToday) + weighted
     const energy = Math.max(0, settled.energy - drainPoints(weighted, tokensToday))
     const next = { ...settled, energy, energyAt: at, tokensToday, tokensDayKey: today }
-    await saveState(documents, shouldSleep(next) ? { ...next, sleepingSince: at } : next)
+    const shouldSleepNow = shouldSleep(next)
+    await saveState(documents, shouldSleepNow ? { ...next, sleepingSince: at } : next)
+    /**
+     * 被聊天耗尽而睡下，同样要收账。
+     *
+     * 收账原来只挂在"醒来时判定睡下"那一条路上 —— 于是**你把她聊到没力气**的时候，
+     * 这一天就没有日记（真机风险，2026-11-24 审出来）。精力耗尽就是耗尽，不管怎么耗的。
+     * 只在"从醒着变成睡着"的这一下触发（`shouldSleep` 自身已经要求之前没在睡）。
+     */
+    if (shouldSleepNow) {
+      void settleDay(at).catch((error: unknown) => {
+        log.warn('睡前收账失败（这一天没有日记）', error)
+        void noteSettleError(documents, error instanceof Error ? error.message : String(error))
+      })
+    }
   }
 
   /**
