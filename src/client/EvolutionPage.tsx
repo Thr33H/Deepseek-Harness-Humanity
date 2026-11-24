@@ -190,6 +190,22 @@ export function EvolutionPage({ t, controller }: EvolutionPageProps) {
 
       <section style={{ ...panel, marginTop: 16 }}>
         <h2 style={{ ...panelTitle, ...headingWithHint }}>
+          {t('workbench.evolution.threads.title')}
+          <InfoHint label={t('workbench.evolution.threads.hint')} />
+        </h2>
+        {state.doc.threads.length === 0 ? (
+          <p style={{ margin: 0, color: 'var(--dsw-alias-label-secondary)' }}>{t('workbench.evolution.threads.empty')}</p>
+        ) : (
+          <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
+            {state.doc.threads.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section style={{ ...panel, marginTop: 16 }}>
+        <h2 style={{ ...panelTitle, ...headingWithHint }}>
           {t('workbench.evolution.works.title')}
           <InfoHint label={t('workbench.evolution.works.hint')} />
         </h2>

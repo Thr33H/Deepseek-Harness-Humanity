@@ -45,6 +45,7 @@ const BASE = {
     { date: '2026-11-22', opened: true, openedAt: '2026-11-23T02:00:00.000Z', text: '今天我去查了潮汐的事。' },
   ],
   works: [{ name: 'note.md', size: 2048, updatedAt: '2026-11-24T05:00:00.000Z', kind: 'text', preview: '查了潮汐' }],
+  threads: ['把潮汐那笔账查清楚'],
   transfer: { name: '', mime: '', base64: '' },
   request: { op: '', date: '' },
   notice: '',
@@ -65,6 +66,7 @@ test('自进化页：状态、日记、作品都渲染出来', async () => {
   assert.match(html, /workbench\.evolution\.energy\.tired/, '精力 34 ⇒ 有点累那一档')
   assert.match(html, /workbench\.evolution\.wakesValue/, '要显示今天几次与上限')
   assert.match(html, /note\.md/, '作品要列出来')
+  assert.match(html, /把潮汐那笔账查清楚/, '她自己攒的事要看得见')
 })
 
 test('自进化页：没翻开的日记不给正文，翻开过的才给', async () => {

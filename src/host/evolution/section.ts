@@ -82,6 +82,13 @@ export interface EvolutionDocument {
   /** 她留在自己目录里的东西（只读一扇窗）。 */
   works: WorkItem[]
   /**
+   * 她手上攒着没做完的事（读的是她自己目录里的 `todo.md`）。
+   *
+   * 为什么摆到页面上：这些是**她自己定的事**，也是她每次醒来的第一件事；
+   * 只有让她自己看而你看不到，你就没法知道她"在琢磨什么"。
+   */
+  threads: string[]
+  /**
    * 一次性的文件传输：客户端点了「下载」才有，下发一次就清掉。
    *
    * 为什么把字节放进投影里、而不是新开一条下载路由：数据面的 wire 面只有
@@ -113,6 +120,7 @@ export function emptyEvolutionDocument(): EvolutionDocument {
     },
     diary: [],
     works: [],
+    threads: [],
     transfer: { name: '', mime: '', base64: '' },
     request: { op: '', date: '' },
     notice: '',
@@ -148,6 +156,7 @@ export const EvolutionDocSchema = Schema.object({
     mime: Schema.string().default(''),
     base64: Schema.string().default(''),
   }),
+  threads: Schema.array(Schema.string()).default([]),
   works: Schema.array(
     Schema.object({
       name: Schema.string().default(''),
@@ -173,6 +182,8 @@ export interface EvolutionSectionDeps {
   started(): boolean
   /** 她留在自己目录里的东西（读不到时给空数组）。 */
   works(): Promise<WorkItem[]>
+  /** 她手上攒着的事（她自己的 	odo.md，最多几行）。 */
+  threads(): Promise<string[]>
   /** 闹钟是不是因为她正在别处说话而压着（单线程）。 */
   busy?(): boolean
   /** 读一个文件（下载用；不合法时给 undefined）。 */
@@ -226,6 +237,7 @@ function writeDoc(state: SectionState, log: Log, doc: EvolutionDocument): void {
 function project(
   deps: EvolutionSectionDeps,
   works: readonly WorkItem[],
+  threads: readonly string[],
   transfer: { name: string; mime: string; base64: string } | undefined,
 ): EvolutionDocument {
   const documents = deps.documents()
@@ -258,6 +270,7 @@ function project(
     },
     diary,
     works: [...works],
+    threads: [...threads],
     transfer: transfer ?? { name: '', mime: '', base64: '' },
     request: { op: '', date: '' },
     notice: '',
@@ -279,7 +292,8 @@ export function installEvolutionSection(ctx: Context, log: Log, deps: EvolutionS
   const refresh = async (notice = ''): Promise<void> => {
     if (!state.attached) return
     const works = await deps.works().catch(() => [] as WorkItem[])
-    const doc = project(deps, works, pendingTransfer)
+    const threads = await deps.threads().catch(() => [] as string[])
+    const doc = project(deps, works, threads, pendingTransfer)
     if (notice !== '') doc.notice = notice
     writeDoc(state, log, doc)
     // 传输只给一次：写进去就清掉，下次投影里不会再出现同一份字节。

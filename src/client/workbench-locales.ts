@@ -55,6 +55,9 @@ export const workbenchZh = {
   'workbench.evolution.diary.unnoticed': '她还没发现',
   'workbench.evolution.diary.noticed': '她在 {time} 知道了',
   // 她留下的东西。
+  'workbench.evolution.threads.title': '她手上攒着的事',
+  'workbench.evolution.threads.hint': '她自己写在本子上的待办（她自己目录里的 todo.md）。每次醒来她第一眼看到的就是这些；写不写、划不划掉，都是她的事。',
+  'workbench.evolution.threads.empty': '她手上没攒着事。',
   'workbench.evolution.works.title': '她留下的东西',
   'workbench.evolution.works.hint':
     '她自己目录里的文件（写的东西、以后画的图）。文本能直接看；图片只能看到名字与大小——浏览器拿不到宿主上的文件。',
@@ -109,6 +112,9 @@ export const workbenchEn = {
   'workbench.evolution.diary.openedAt': 'opened at {time}',
   'workbench.evolution.diary.unnoticed': 'she has not noticed',
   'workbench.evolution.diary.noticed': 'she found out at {time}',
+  'workbench.evolution.threads.title': 'What she is still chewing on',
+  'workbench.evolution.threads.hint': 'Her own list (todo.md in her directory). She sees it first thing every waking; whether she writes or crosses things out is up to her.',
+  'workbench.evolution.threads.empty': 'Nothing pending.',
   'workbench.evolution.works.title': 'Things she left behind',
   'workbench.evolution.works.hint':
     'Files in her own directory (what she wrote, and later what she draws). Text can be read here; images only show name and size — the browser cannot reach files on the host.',

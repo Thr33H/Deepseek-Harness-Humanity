@@ -272,6 +272,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     enabled: () => moduleEnabled(),
     started: () => deps.started(),
     works: () => listWorks(roomDeps),
+    threads: () => readThreads(roomDeps),
     busy: () => pausedForBusy,
     readWork: (name) => readWork(roomDeps, name),
   })
