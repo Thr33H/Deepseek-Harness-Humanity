@@ -56,7 +56,8 @@ export const workbenchZh = {
   'workbench.evolution.works.hint':
     '她自己目录里的文件（写的东西、以后画的图）。文本能直接看；图片只能看到名字与大小——浏览器拿不到宿主上的文件。',
   'workbench.evolution.works.empty': '她还没留下什么。',
-  'workbench.evolution.works.noPreview': '这一样只能看到名字与大小（暂时不能在网页里打开）。',
+  'workbench.evolution.works.noPreview': '这一样只能看到名字与大小。',
+  'workbench.evolution.works.download': '下载',
   'workbench.overviewHint':
     '这几项读的是当前真实状态；读不到时如实说明，不填推测的数字。'
     + '高风险改动（例如整节删除人格信息里仍有内容的小标题）在对话里确认。',
@@ -106,7 +107,8 @@ export const workbenchEn = {
   'workbench.evolution.works.hint':
     'Files in her own directory (what she wrote, and later what she draws). Text can be read here; images only show name and size — the browser cannot reach files on the host.',
   'workbench.evolution.works.empty': 'She has not left anything yet.',
-  'workbench.evolution.works.noPreview': 'Only the name and size are available (cannot be opened in the page yet).',
+  'workbench.evolution.works.noPreview': 'Only the name and size are available.',
+  'workbench.evolution.works.download': 'Download',
   'workbench.overviewHint':
     'These read the current real state; when something is not readable they say so instead of showing a guess. '
     + 'High-risk changes are confirmed in the conversation.',

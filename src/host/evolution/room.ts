@@ -134,10 +134,78 @@ const TEXT_EXTENSIONS = new Set(['md', 'txt', 'json', 'csv', 'html', 'css', 'js'
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'])
 
 /**
+ * 把字节转成 base64。
+ *
+ * 不直接用 Buffer：宿主编译没有 @types/node（
+ode:fs 那几个函数也是按结构取用的）。
+ * @param bytes - 原始字节。
+ * @returns base64 字符串。
+ */
+function base64Of(bytes: Uint8Array): string {
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary)
+}
+
+/** 扩展名 → MIME（下载时告诉浏览器）。 */
+const MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
+  md: 'text/markdown;charset=utf-8',
+  txt: 'text/plain;charset=utf-8',
+  json: 'application/json;charset=utf-8',
+  csv: 'text/csv;charset=utf-8',
+  html: 'text/html;charset=utf-8',
+  log: 'text/plain;charset=utf-8',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  bmp: 'image/bmp',
+}
+
+/**
+ * 读她目录里的一个文件（下载用）。
+ *
+ * 安全边界三条：名字必须是**顶层文件名**（不许带路径分隔符或 `..`）、必须是 `listWorks`
+ * 里真的存在的那个、大小不超过上限。任何一条不满足都返回 `undefined` —— 宁可下载不了，
+ * 也不能让一句伪造的名字读到别处的文件。
+ * @param deps - 外部事实。
+ * @param name - 文件名（只有名字，没有路径）。
+ * @param limit - 字节上限（默认 2 MB：base64 之后约 2.7 MB）。
+ * @returns base64 与 MIME；不合法或读不到时 `undefined`。
+ */
+export async function readWork(
+  deps: RoomDeps,
+  name: string,
+  limit = 2 * 1024 * 1024,
+): Promise<{ base64: string; mime: string; size: number } | undefined> {
+  if (name === '' || name.includes('/') || name.includes('\\') || name.includes('..')) return undefined
+  const dir = roomDirOf(deps)
+  if (dir === undefined) return undefined
+  const items = await listWorks(deps, 80)
+  const item = items.find((entry) => entry.name === name)
+  if (item === undefined || item.size > limit) return undefined
+  try {
+    const specifier: string = 'node:fs/promises'
+    const fs = (await import(specifier)) as FsPromisesModule & {
+      readFile(path: string): Promise<Uint8Array>
+    }
+    const bytes = await fs.readFile(`${dir}/${name}`)
+    const extension = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1).toLowerCase() : ''
+    return {
+      base64: base64Of(bytes),
+      mime: MIME_BY_EXTENSION[extension] ?? 'application/octet-stream',
+      size: bytes.byteLength,
+    }
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * 列她留在自己目录里的东西（只读、只顶层、有条数上限）。
  *
- * 为什么只给文本预览而不给下载：浏览器拿不到宿主上的文件，要真下载得由宿主开一个下载路由 ——
- * 那是一条新的面，还没验。先把"她写了什么"摆出来；图片只能看到名字与大小。
+ * 预览只给文本：正文最多 4000 字；图片只报名字与大小（要看图请走 `readWork` 下载）。
  * @param deps - 外部事实。
  * @param limit - 最多几样（按改动时间倒序）。
  * @returns 列表；目录还没建或读不到时是空数组。

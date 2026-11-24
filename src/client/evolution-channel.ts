@@ -50,6 +50,8 @@ export interface EvolutionDocument {
   status: DayStatusView
   diary: DiaryItemView[]
   works: WorkItemView[]
+  /** 一次性文件传输（点了下载才有；下完就空）。 */
+  transfer: { name: string; mime: string; base64: string }
   request: { op: string; date: string }
   notice: string
 }
@@ -71,6 +73,7 @@ export function emptyEvolutionDocument(): EvolutionDocument {
     },
     diary: [],
     works: [],
+    transfer: { name: '', mime: '', base64: '' },
     request: { op: '', date: '' },
     notice: '',
   }
@@ -128,6 +131,11 @@ export function asEvolutionDocument(value: unknown): EvolutionDocument {
     },
     diary,
     works,
+    transfer: {
+      name: typeof (raw.transfer as { name?: unknown } | undefined)?.name === 'string' ? String((raw.transfer as { name?: unknown }).name) : '',
+      mime: typeof (raw.transfer as { mime?: unknown } | undefined)?.mime === 'string' ? String((raw.transfer as { mime?: unknown }).mime) : '',
+      base64: typeof (raw.transfer as { base64?: unknown } | undefined)?.base64 === 'string' ? String((raw.transfer as { base64?: unknown }).base64) : '',
+    },
     request: {
       op: typeof request.op === 'string' ? request.op : '',
       date: typeof request.date === 'string' ? request.date : '',

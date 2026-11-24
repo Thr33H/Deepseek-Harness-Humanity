@@ -13,7 +13,15 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 
-import { ensureRoom, ensureTask, listWorks, readThreads, reschedule, roomDirOf } from '../lib/evolution/room.js'
+import {
+  ensureRoom,
+  ensureTask,
+  listWorks,
+  readThreads,
+  readWork,
+  reschedule,
+  roomDirOf,
+} from '../lib/evolution/room.js'
 import {
   afterWake,
   dayKeyOf,
@@ -344,6 +352,29 @@ test('她留下的东西：文本给预览、图片只给大小、点开头的�
     assert.equal(pic.kind, 'image')
     assert.equal(pic.preview, '', '图片不给预览（浏览器拿不到文件）')
     assert.ok(pic.size > 0)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('下载：只认顶层真文件，路径花招与超大文件一律拒绝', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'humanity-read-'))
+  try {
+    const room = path.join(dir, 'humanity', 'room')
+    await mkdir(room, { recursive: true })
+    await writeFile(path.join(room, 'note.md'), '查了潮汐', 'utf8')
+    await writeFile(path.join(room, 'big.txt'), 'x'.repeat(5000), 'utf8')
+    const deps = { schedule: () => undefined, agents: () => undefined, homeDir: () => dir, log: quietLog }
+
+    const ok = await readWork(deps, 'note.md')
+    assert.ok(ok !== undefined)
+    assert.equal(Buffer.from(ok.base64, 'base64').toString('utf8'), '查了潮汐', 'base64 要还原成原文')
+    assert.match(ok.mime, /markdown/)
+
+    assert.equal(await readWork(deps, '../note.md'), undefined, '路径花招要拒')
+    assert.equal(await readWork(deps, 'sub/note.md'), undefined, '不许带目录')
+    assert.equal(await readWork(deps, 'missing.md'), undefined, '不存在的文件要拒')
+    assert.equal(await readWork(deps, 'big.txt', 100), undefined, '超过上限要拒')
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

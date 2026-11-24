@@ -193,6 +193,11 @@ export function EvolutionPage({ t, controller }: EvolutionPageProps) {
                   {Math.max(1, Math.round(item.size / 1024))} KB · {stamp(item.updatedAt)}
                 </span>
               </summary>
+              <div style={{ marginTop: 8 }}>
+                <button type="button" onClick={() => void controller.download(item.name)}>
+                  {t('workbench.evolution.works.download')}
+                </button>
+              </div>
               {item.kind === 'text' && item.preview !== '' ? (
                 <pre style={{ margin: '8px 0 0', whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.7 }}>
                   {item.preview}

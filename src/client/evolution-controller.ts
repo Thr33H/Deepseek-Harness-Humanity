@@ -20,8 +20,34 @@ export interface EvolutionWorkbenchState {
   doc: EvolutionDocument
 }
 
-/** 自进化工作台控制器。 */
-export class EvolutionWorkbenchController {
+/**
+ * 把一次性传输变成浏览器的一次下载。
+ *
+ * 为什么不用 `Buffer`/`atob` 之外的东西：这里是浏览器 bundle，只有 Web API；
+ * 不在浏览器里（单元测试的 Node 环境）时直接返回 `false`，不抛。
+ * @param transfer - 宿主下发的文件。
+ * @returns 是否真的触发了下载。
+ */
+function saveTransfer(transfer: { name: string; mime: string; base64: string }): boolean {
+  if (typeof document === 'undefined' || typeof atob !== 'function') return false
+  try {
+    const binary = atob(transfer.base64)
+    const bytes = new Uint8Array(binary.length)
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+    const blob = new Blob([bytes], { type: transfer.mime === '' ? 'application/octet-stream' : transfer.mime })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = transfer.name
+    anchor.click()
+    URL.revokeObjectURL(url)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** 自进化工作台控制器。 */export class EvolutionWorkbenchController {
   private channel: EvolutionChannel | undefined
   /** 命名空间当前修订号：写回必须带上（并发保护）。 */
   private revision: number | undefined
@@ -79,6 +105,35 @@ export class EvolutionWorkbenchController {
       if (outcome.ok) this.revision = (outcome.value as { value?: { revision?: number } } | undefined)?.value?.revision ?? this.revision
       await this.load({ quiet: true })
       return outcome.ok === true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * 下载她目录里的一个文件。
+   *
+   * 宿主把字节放进**一次性**的 `transfer` 里下发（数据面只有三个方法，新开一条下载路由要动协议）；
+   * 客户端把它变成 Blob 交给浏览器。拿不到就返回 false，不假装成功。
+   * @param name - 文件名。
+   * @returns 是否真的交出了一个文件。
+   */
+  async download(name: string): Promise<boolean> {
+    const channel = this.channel
+    if (channel === undefined || name === '') return false
+    try {
+      await this.load({ quiet: true })
+      const outcome = await channel.replace(
+        EVOLUTION_NAMESPACE,
+        { ...this.state.doc, request: { op: 'read', date: name }, notice: '' },
+        this.revision,
+      )
+      if (outcome.ok !== true) return false
+      this.revision = (outcome.value as { value?: { revision?: number } } | undefined)?.value?.revision ?? this.revision
+      await this.load({ quiet: true })
+      const transfer = this.state.doc.transfer
+      if (transfer.name !== name || transfer.base64 === '') return false
+      return saveTransfer(transfer)
     } catch {
       return false
     }

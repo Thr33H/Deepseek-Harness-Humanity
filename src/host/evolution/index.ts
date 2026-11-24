@@ -41,6 +41,7 @@ import {
   ensureTask,
   inspectRoom,
   listWorks,
+  readWork,
   readThreads,
   reschedule,
   setActive,
@@ -270,6 +271,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     enabled: () => moduleEnabled(),
     started: () => deps.started(),
     works: () => listWorks(roomDeps),
+    readWork: (name) => readWork(roomDeps, name),
   })
 
   /**

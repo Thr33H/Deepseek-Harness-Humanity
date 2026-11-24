@@ -72,6 +72,14 @@ export interface EvolutionDocument {
   diary: DiaryView[]
   /** 她留在自己目录里的东西（只读一扇窗）。 */
   works: WorkItem[]
+  /**
+   * 一次性的文件传输：客户端点了「下载」才有，下发一次就清掉。
+   *
+   * 为什么把字节放进投影里、而不是新开一条下载路由：数据面的 wire 面只有
+   * `describe/replace/update` 三个方法，新开一条要动协议；而下载是**一次性、有上限**的
+   * （≤ 2 MB），放进投影最省事，也不会把每次推送撑大（平时是空的）。
+   */
+  transfer: { name: string; mime: string; base64: string }
   /** 命令槽：客户端写"想做什么"，宿主消费。 */
   request: { op: string; date: string }
   /** 宿主给的一句话（例如"这一天已经打开了"）。 */
@@ -95,6 +103,7 @@ export function emptyEvolutionDocument(): EvolutionDocument {
     },
     diary: [],
     works: [],
+    transfer: { name: '', mime: '', base64: '' },
     request: { op: '', date: '' },
     notice: '',
   }
@@ -122,6 +131,11 @@ export const EvolutionDocSchema = Schema.object({
       text: Schema.string().default(''),
     }),
   ).default([]),
+  transfer: Schema.object({
+    name: Schema.string().default(''),
+    mime: Schema.string().default(''),
+    base64: Schema.string().default(''),
+  }),
   works: Schema.array(
     Schema.object({
       name: Schema.string().default(''),
@@ -147,6 +161,8 @@ export interface EvolutionSectionDeps {
   started(): boolean
   /** 她留在自己目录里的东西（读不到时给空数组）。 */
   works(): Promise<WorkItem[]>
+  /** 读一个文件（下载用；不合法时给 undefined）。 */
+  readWork(name: string): Promise<{ base64: string; mime: string } | undefined>
 }
 
 /** 工作台入口。 */
@@ -193,7 +209,11 @@ function writeDoc(state: SectionState, log: Log, doc: EvolutionDocument): void {
  * @param opened - 已经打开过的日期 → 打开时刻。
  * @returns 整份文档。
  */
-function project(deps: EvolutionSectionDeps, works: readonly WorkItem[]): EvolutionDocument {
+function project(
+  deps: EvolutionSectionDeps,
+  works: readonly WorkItem[],
+  transfer: { name: string; mime: string; base64: string } | undefined,
+): EvolutionDocument {
   const documents = deps.documents()
   const state = deps.state()
   const settings = deps.settings()
@@ -222,6 +242,7 @@ function project(deps: EvolutionSectionDeps, works: readonly WorkItem[]): Evolut
     },
     diary,
     works: [...works],
+    transfer: transfer ?? { name: '', mime: '', base64: '' },
     request: { op: '', date: '' },
     notice: '',
   }
@@ -236,13 +257,17 @@ function project(deps: EvolutionSectionDeps, works: readonly WorkItem[]): Evolut
  */
 export function installEvolutionSection(ctx: Context, log: Log, deps: EvolutionSectionDeps): EvolutionSection {
   const state: SectionState = { attached: false }
+  /** 一次性文件传输（下发一次就清掉，见 EvolutionDocument.transfer）。 */
+  let pendingTransfer: { name: string; mime: string; base64: string } | undefined
 
   const refresh = async (notice = ''): Promise<void> => {
     if (!state.attached) return
     const works = await deps.works().catch(() => [] as WorkItem[])
-    const doc = project(deps, works)
+    const doc = project(deps, works, pendingTransfer)
     if (notice !== '') doc.notice = notice
     writeDoc(state, log, doc)
+    // 传输只给一次：写进去就清掉，下次投影里不会再出现同一份字节。
+    pendingTransfer = undefined
   }
 
   /**
@@ -272,6 +297,18 @@ export function installEvolutionSection(ctx: Context, log: Log, deps: EvolutionS
       } catch (error) {
         await refresh(`没改成（${error instanceof Error ? error.message : String(error)}）；去 DSH 设置里改也一样。`)
       }
+      return
+    }
+    if (request.op === 'read') {
+      const name = request.date
+      const item = await deps.readWork(name)
+      if (item === undefined) {
+        await refresh('这个文件读不到（可能太大，或者已经不在了）。')
+        return
+      }
+      // 放进下一次投影；下发之后由 refresh 自己清掉，不会长期挂在文档里。
+      pendingTransfer = { name, mime: item.mime, base64: item.base64 }
+      await refresh()
       return
     }
     if (request.op !== 'open' || request.date === '') {
