@@ -6,8 +6,14 @@
  * @module humanity/evolution/constants
  */
 
-/** 状态文档的键（存在文档表里，与人格/时钟同一张表）。 */
-export const EVOLUTION_DOC_KEY = 'humanity-evolution'
+/**
+ * 状态文档的键（存在文档表里，与人格/时钟同一张表）。
+ *
+ * ⚠️ **不能等于工作台的命名空间名**（`humanity-evolution`）：0.1.7+ 的设置服务会退化成
+ * "把文档写进同一张文档表"，两边用同一个键就会互相覆盖 —— 真机 2026-11-24 就这样把她的
+ * 精力、次数、房间 id 全冲掉了（一次，代价是当天的记录）。
+ */
+export const EVOLUTION_DOC_KEY = 'humanity-evolution-state'
 
 /** 她的房间在 `$DSH_HOME` 下的相对路径：她写的东西、以后的作品都落在这儿。 */
 export const ROOM_DIR = 'humanity/room'

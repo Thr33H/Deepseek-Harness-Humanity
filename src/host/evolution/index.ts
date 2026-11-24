@@ -36,6 +36,7 @@ import {
   type WakeRhythm,
 } from './state.js'
 import {
+  adoptTask,
   ensureRoom,
   ensureTask,
   inspectRoom,
@@ -389,28 +390,38 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       }
       // 房间必须先有：这个部署的调度服务不能自己创建会话（真机报错见 `room.ts` 的说明）。
       let sessionId = state.roomSessionId
+      let adopted: { taskId: string; sessionId: string; nextAt: string } | undefined
       if (state.taskId === '' && sessionId === '') {
-        const room = await ensureRoom(roomDeps, sessionId)
-        if (!room.ok) {
-          await saveState(documents, {
-            ...state,
-            lastError: `${room.reason}（看得见的服务：${visibility()}）`,
-            lastAttemptAt: now,
-          })
-          log.warn(`${reason}：房间没开出来——${room.reason}`)
-          return
+        // 状态可能丢过（被覆盖 / 换版本）：先认领已有房间，别把旧房间晾在那儿再开一间。
+        const existing = await adoptTask(roomDeps)
+        if (existing !== undefined) {
+          sessionId = existing.sessionId
+          adopted = { taskId: existing.taskId, sessionId: existing.sessionId, nextAt: existing.nextAt }
+        } else {
+          const room = await ensureRoom(roomDeps, sessionId)
+          if (!room.ok) {
+            await saveState(documents, {
+              ...state,
+              lastError: `${room.reason}（看得见的服务：${visibility()}）`,
+              lastAttemptAt: now,
+            })
+            log.warn(`${reason}：房间没开出来——${room.reason}`)
+            return
+          }
+          sessionId = room.sessionId
+          if (room.handle !== undefined) roomHandle = room.handle
         }
-        sessionId = room.sessionId
-        if (room.handle !== undefined) roomHandle = room.handle
       }
       // 提示词里写的是**她醒来那一刻**的时间，不是"现在排程的这一刻"；
       // 尾部接上她上次说到哪儿 —— 每一次醒来都不是空白的一天。
       const nextIso = new Date(Date.parse(now) + gap * 1000).toISOString()
       const threads = await readThreads(roomDeps)
       const prompt = buildWakePrompt(nextIso, timeZone, lastSaid.get(sessionId) ?? '', threads)
-      const outcome = state.taskId === ''
-        ? await ensureTask(roomDeps, '', sessionId, gap, prompt)
-        : await reschedule(roomDeps, state.taskId, gap, prompt)
+      const outcome = adopted !== undefined
+        ? { ok: true as const, room: { taskId: adopted.taskId, sessionId: adopted.sessionId, nextAt: adopted.nextAt, active: true } }
+        : state.taskId === ''
+          ? await ensureTask(roomDeps, '', sessionId, gap, prompt)
+          : await reschedule(roomDeps, state.taskId, gap, prompt)
       if (!outcome.ok) {
         // 失败必须留下证据：插件的日志进不了 docker logs，状态文档是外部唯一读得到的地方。
         await saveState(documents, { ...state, roomSessionId: sessionId, lastError: outcome.reason, lastAttemptAt: now })

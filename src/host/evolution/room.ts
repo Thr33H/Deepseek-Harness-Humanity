@@ -25,6 +25,8 @@ import { ROOM_TASK_TITLE } from './constants.js'
 /** 调度服务里我们用到的那部分（结构化声明，不固化 DSH 的类型面）。 */
 interface ScheduleTaskLike {
   id?: string
+  title?: string
+  createdAt?: string
   active?: string
   /** 循环任务的下一次。 */
   nextScheduledAt?: string
@@ -39,6 +41,8 @@ export interface ScheduleServiceLike {
   create(request: unknown, actorSessionId?: string, signal?: AbortSignal): Promise<ScheduleTaskLike>
   view(request: { id: string }): Promise<ScheduleTaskLike>
   edit(request: unknown, actorSessionId?: string, signal?: AbortSignal): Promise<ScheduleTaskLike>
+  /** 全部任务（"认领"已有房间时用）。 */
+  catalog(): Promise<ScheduleTaskLike[]>
 }
 
 /** 会话创建能力（`ctx.get('sessionController')` 的那一部分）。 */
@@ -224,6 +228,37 @@ export async function ensureRoom(
     deps.log.warn('她的房间没开出来（这次不排程）', error)
     return { ok: false, reason: `新建会话被拒绝：${describeError(error)}` }
   }
+}
+
+/**
+ * 认领一个**已经存在**的房间任务。
+ *
+ * 为什么需要：状态文档可能丢（真机 2026-11-24 就被工作台投影覆盖过一次）。丢了就重建的话，
+ * 旧房间会留在那儿没人管、闹钟越积越多。所以先找：同标题的任务里挑**最早的那个**（那是她的
+ * 老房间，里面有她的东西），其余同标题的暂停掉。
+ * @param deps - 外部事实。
+ * @returns 认领到的房间；没有就 `undefined`。
+ */
+export async function adoptTask(deps: RoomDeps): Promise<RoomState | undefined> {
+  const service = deps.schedule()
+  if (service === undefined) return undefined
+  let tasks: ScheduleTaskLike[]
+  try {
+    tasks = await service.catalog()
+  } catch {
+    return undefined
+  }
+  const mine = tasks
+    .filter((task) => task.title === ROOM_TASK_TITLE && typeof task.code !== 'string')
+    .sort((left, right) => String(left.createdAt ?? '').localeCompare(String(right.createdAt ?? '')))
+  const kept = mine[0]
+  if (kept === undefined) return undefined
+  // 多出来的（同标题）暂停：不删，免得误删你手建的同类任务；它们不会再喊她。
+  for (const extra of mine.slice(1)) {
+    await setActive(deps, String(extra.id ?? ''), false)
+  }
+  deps.log.info(`认领了已有的房间任务 ${String(kept.id ?? '')}`)
+  return roomOf(kept)
 }
 
 /**
