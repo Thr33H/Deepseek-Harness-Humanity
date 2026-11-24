@@ -649,14 +649,22 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   // 轮询是后台行为：Node 不该因为它而退出（也避免测试进程被挂住）。
   ;(busyTimer as unknown as { unref?: () => void }).unref?.()
 
-  const disposeStep = on('agent/pre-step', async (payload, next) => {    const decision = (await next()) as { kind?: string; messages?: unknown[] } | null
+  const disposeStep = on('agent/pre-step', async (payload, next) => {
+    const decision = (await next()) as { kind?: string; messages?: unknown[] } | null
     if (decision === null || decision.kind !== 'enter') return decision
     const { agent, step } = (payload ?? {}) as { agent?: unknown; step?: number }
-    // 只看每一步的第一步：一次醒来是一轮对话，不是每一步都要记一次。
-    if (step !== 1) return decision
     if (!moduleEnabled()) return decision
-    // 房间还没排上就借这一轮再试：会话服务可能比我们挂得晚（失败原因已写在状态文档里）。
     const documents = deps.documents()
+    const messages = Array.isArray(decision.messages) ? decision.messages : []
+    // 她房间里只留"她自己的时间"那一条：调度器的变更通知不该让她看见。
+    // ⚠️ 必须在"只看第一步"之前做 —— 通知会落在后续步骤上（真机 2026-11-24 抓到）。
+    const sessionId = (agent as { session?: { id?: string } } | undefined)?.session?.id ?? ''
+    const inRoom = documents !== undefined && sessionId !== '' && sessionId === readState(documents).roomSessionId
+    const cleaned = withoutScheduleNoise(messages, inRoom)
+    const decided = cleaned === messages ? decision : { ...decision, messages: cleaned }
+    // 以下只关心"一次醒来"：一次醒来是一轮对话，不是每一步都要记一次。
+    if (step !== 1) return decided
+    // 房间还没排上就借这一轮再试：会话服务可能比我们挂得晚（失败原因已写在状态文档里）。
     if (documents !== undefined) {
       const state = readState(documents)
       if (state.taskId === '') {
@@ -666,18 +674,12 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         }
       }
     }
-    const messages = Array.isArray(decision.messages) ? decision.messages : []
-    // 她房间里只留"她自己的时间"那一条：调度器的变更通知不该让她看见（真机第一晚她就看见了）。
-    const sessionId = (agent as { session?: { id?: string } } | undefined)?.session?.id ?? ''
-    const documentsForRoom = deps.documents()
-    const inRoom = documentsForRoom !== undefined && sessionId !== '' && sessionId === readState(documentsForRoom).roomSessionId
-    const cleaned = withoutScheduleNoise(messages, inRoom)
-    if (!cleaned.some(isWakeMessage)) return cleaned === messages ? decision : { ...decision, messages: cleaned }
+    if (!cleaned.some(isWakeMessage)) return decided
     // 落账放在异步尾巴上：她这一轮不必等一次调度写入。
     void settleWake(new Date().toISOString()).catch((error: unknown) => {
       log.warn('醒来之后没能排下一次（这一次不影响对话）', error)
     })
-    return cleaned === messages ? decision : { ...decision, messages: cleaned }
+    return decided
   })
 
   ctx.effect(
