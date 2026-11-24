@@ -24,6 +24,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { DocumentStore } from '../documents.js'
 import { createLlmAccess } from '../llm.js'
 import { appendDiary, buildDiaryPrompt, parseDiary, readDiary, type DiaryEntry } from './diary.js'
+import { settleWakeState } from './lifecycle.js'
 import { installEvolutionSection } from './section.js'
 import type { Log } from '../log.js'
 import {
@@ -524,31 +525,22 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       }
     }
     const timeZone = deps.timeZone()
-    const raw = readState(documents)
-    // 睡着时被叫醒、或者自然睡醒：这一步会把 `sleepingSince` 清掉。
-    const settled = settleAt(raw, at)
-    const after = { ...settled, ...afterWake(settled, at, timeZone) }
-    // 一次醒来本身的起动成本（见 `energy.ts` 的 WAKE_COST：光算 token 的话她永远累不了）。
-    after.energy = Math.max(0, after.energy - WAKE_COST)
-    // 刚刚睡下 ⇒ 睡前收账（一天一次，已经写过的日子会跳过）。
-    // 两条进入睡眠的路：精力掉到底线，或者今天的次数已经到顶（"她今天到头了"）。
-    if (
-      startsSleeping({
-        wasSleeping: raw.sleepingSince !== '' || settled.sleepingSince !== '',
-        energy: settled.energy,
-        dayCount: after.dayCount,
-        maxPerDay: deps.wake().maxPerDay,
-      })
-    ) {
-      after.sleepingSince = at
-    }
-    if (raw.sleepingSince === '' && after.sleepingSince !== '') {
+    /**
+     * 结算这一次醒来（纯函数，见 `lifecycle.ts`）。
+     *
+     * 为什么不再在这儿手写：这段顺序（睡眠曲线 → 起动成本 → 到顶判断 → 下一次间隔）
+     * 藏着一处真 bug —— 到顶之后按睡眠曲线排，会让整个下午陷在"每 90 分钟醒一次"。
+     * 抽出去之后有五条用例守着。
+     */
+    const settlement = settleWakeState({ state: readState(documents), at, timeZone, rhythm: deps.wake() })
+    const after = settlement.state
+    if (settlement.fellAsleep) {
       void settleDay(at).catch((error: unknown) => {
         log.warn('睡前收账失败（这一天没有日记）', error)
         void noteSettleError(documents, error instanceof Error ? error.message : String(error))
       })
     }
-    const gap = gapSeconds(after, at)
+    const gap = settlement.gapSeconds
     if (gap === undefined) {
       await saveState(documents, { ...after, nextAt: '', lastError: '', lastAttemptAt: at })
       await setActive(roomDeps, after.taskId, false)

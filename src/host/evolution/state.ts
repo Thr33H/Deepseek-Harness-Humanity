@@ -176,7 +176,7 @@ function localClock(iso: string, timeZone?: string): { hour: number; minute: num
 }
 
 /** 从现在到明天早上（`NEXT_MORNING_HOUR` 点）还有多少秒。 */
-function secondsToMorning(iso: string, timeZone?: string): number {
+export function secondsToMorning(iso: string, timeZone?: string): number {
   const clock = localClock(iso, timeZone)
   if (clock === undefined) return 12 * 3_600
   const nowMinutes = clock.hour * 60 + clock.minute
