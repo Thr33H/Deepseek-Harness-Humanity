@@ -299,6 +299,24 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   let seenBuffer = ''
   /** 这一天攒下的零散材料（睡前收账用）。 */
   const dayNotes: string[] = []
+  /** `dayNotes` 属于哪一天（跨午夜要清空，否则两天的话会被写进同一篇日记）。 */
+  let notesDayKey = ''
+
+  /**
+   * 往当天的材料里加一行。
+   *
+   * 跨过午夜就先清空：日记是**一天一篇**，昨天的话不该混进今天的本子。
+   * @param line - 一行材料。
+   */
+  const pushNote = (line: string): void => {
+    const key = dayKeyOf(new Date().toISOString(), deps.timeZone())
+    if (key !== notesDayKey) {
+      dayNotes.length = 0
+      notesDayKey = key
+    }
+    dayNotes.push(line)
+    if (dayNotes.length > 40) dayNotes.shift()
+  }
   /** 后台模型调用口（收账用）。 */
   const llm = createLlmAccess(ctx, log)
   /** 还没落盘的 token 消耗（攒成一次写入）。 */
@@ -594,8 +612,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
           const text = toolTextOf(event)
           if (text.trim() !== '') {
             seenBuffer = `${seenBuffer}\n${text}`.slice(-SEEN_LIMIT)
-            dayNotes.push(`看到：${text.replace(/\s+/g, ' ').trim().slice(0, 120)}`)
-            if (dayNotes.length > 40) dayNotes.shift()
+            pushNote(`看到：${text.replace(/\s+/g, ' ').trim().slice(0, 120)}`)
           }
         }
         return
@@ -607,8 +624,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
           lastSaid.set(sessionId, said)
           // 她这一天说过的话也要进收账的材料（只收她房间里的）。
           if (sessionId === roomSessionId) {
-            dayNotes.push(`她说：${said}`)
-            if (dayNotes.length > 40) dayNotes.shift()
+            pushNote(`她说：${said}`)
           }
         }
       }
@@ -659,6 +675,8 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     if (documents === undefined) return
     if (dayNotes.length === 0) return
     const date = dayKeyOf(at, deps.timeZone())
+    // 材料属于另一天（跨午夜后还留着昨天的）：宁可不写，也不把两天混成一篇。
+    if (notesDayKey !== '' && notesDayKey !== date) return
     // 一天只有一篇：已经写过了就不再写（重启也不该补第二篇）。
     if (readDiary(documents).some((entry) => entry.date === date)) return
     const route = llm.route()
