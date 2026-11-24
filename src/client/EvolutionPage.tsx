@@ -165,6 +165,7 @@ export function EvolutionPage({ t, controller }: EvolutionPageProps) {
               {status.busy ? (
                 <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
                   {t('workbench.evolution.busy')}
+                  {status.busySince !== '' ? ` ${t('workbench.evolution.busySince').replace('{time}', stamp(status.busySince))}` : ''}
                 </span>
               ) : null}
             </dd>

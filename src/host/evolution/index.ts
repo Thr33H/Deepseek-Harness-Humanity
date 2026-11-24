@@ -651,6 +651,14 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
           const state = readState(documents)
           if (state.taskId !== '') {
             pausedForBusy = true
+            /**
+             * 记下"从什么时候开始被压住"。
+             *
+             * 为什么要落到状态里：单线程是"你在跟她说话时她不该同时出现在房间"，
+             * 但它有个副作用 —— **你只要不断地说，她就永远没有自己的时间**。
+             * 这个时刻摆到工作台上，你能看见它，而不是以为她还好好地过着自己的日子。
+             */
+            void saveState(documents, { ...state, busySince: new Date().toISOString() }).catch(() => {})
             void setActive(roomDeps, state.taskId, false)
           }
         }
@@ -827,6 +835,16 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     if (!pausedForBusy || !moduleEnabled()) return
     if (Date.now() - lastBusyAt < BUSY_QUIET_MINUTES * 60_000) return
     pausedForBusy = false
+    // 压住结束：清掉起点，工作台不再显示"已经被压了多久"。
+    const documents = deps.documents()
+    if (documents !== undefined) {
+      const state = readState(documents)
+      if (state.busySince !== '') {
+        void saveState(documents, { ...state, busySince: '' }).catch((error: unknown) =>
+          log.warn('没能清掉"被压住"的起点', error),
+        )
+      }
+    }
     void arm('她聊完了').catch((error: unknown) => log.warn('聊天结束后没能恢复排程', error))
   }, BUSY_CHECK_MS)
   // 轮询是后台行为：Node 不该因为它而退出（也避免测试进程被挂住）。

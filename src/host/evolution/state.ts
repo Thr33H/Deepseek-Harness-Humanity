@@ -54,6 +54,13 @@ export interface EvolutionStateDoc {
    * 工作台就能如实显示"她上一轮到底做了什么"，不必去翻会话文件。
    */
   lastTurnTools: number
+  /**
+   * 闹钟从什么时候起被"你在别处说话"压住（空串 = 没被压）。
+   *
+   * 单线程有个副作用：你只要不断地说，她就永远没有自己的时间。
+   * 把起点记下来，工作台才说得清"已经被压了多久"。
+   */
+  busySince: string
   /** 上一次尝试排程的时刻（ISO 8601）。 */
   lastAttemptAt: string
 }
@@ -74,6 +81,7 @@ export const EMPTY_STATE: EvolutionStateDoc = {
   lastError: '',
   lastSettleError: '',
   lastTurnTools: 0,
+  busySince: '',
   lastAttemptAt: '',
 }
 
@@ -115,6 +123,7 @@ export function readState(documents: DocumentStore | undefined): EvolutionStateD
     tokensDayKey: text('tokensDayKey'),
     lastError: text('lastError'),
     lastSettleError: text('lastSettleError'),
+    busySince: text('busySince'),
     lastTurnTools: typeof raw.lastTurnTools === 'number' && Number.isFinite(raw.lastTurnTools) ? Math.max(0, Math.trunc(raw.lastTurnTools)) : 0,
     lastAttemptAt: text('lastAttemptAt'),
   }
