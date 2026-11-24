@@ -22,6 +22,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 
 import type { DocumentStore } from '../documents.js'
+import { createLlmAccess } from '../llm.js'
+import { appendDiary, buildDiaryPrompt, parseDiary, readDiary } from './diary.js'
 import type { Log } from '../log.js'
 import {
   afterWake,
@@ -56,6 +58,7 @@ import {
   drainPoints,
   minutesToWake,
   settleEnergy,
+  SLEEP_AT,
   shouldSleep,
   tokensTodayOf,
   WAKE_COST,
@@ -83,6 +86,13 @@ export interface EvolutionDeps {
    * 情绪模块关着时它返回 `undefined`，这一步就什么也不做。
    */
   appraiseOwn?(text: string): Promise<void>
+  /**
+   * 往记忆里记一件事（睡前收账用）。
+   *
+   * 必须走记忆模块自己的写入路径（去重、视角归一化），不直接写表 ——
+   * 旧引擎就是"绕过记忆直接 put"，结果时间与感受都是错的。
+   */
+  remember?(what: string, about: string): Promise<void>
 }
 
 /** 模块句柄。 */
@@ -265,6 +275,10 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   let pausedForBusy = false
   /** 她在自己房间里看到的东西（醒来后交给情绪评估）。 */
   let seenBuffer = ''
+  /** 这一天攒下的零散材料（睡前收账用）。 */
+  const dayNotes: string[] = []
+  /** 后台模型调用口（收账用）。 */
+  const llm = createLlmAccess(ctx, log)
   /** 还没落盘的 token 消耗（攒成一次写入）。 */
   let pendingTokens = 0
   let flushTimer: ReturnType<typeof setTimeout> | undefined
@@ -435,6 +449,16 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     const after = { ...settled, ...afterWake(settled, at, timeZone) }
     // 一次醒来本身的起动成本（见 `energy.ts` 的 WAKE_COST：光算 token 的话她永远累不了）。
     after.energy = Math.max(0, after.energy - WAKE_COST)
+    // 刚刚睡下 ⇒ 睡前收账（一天一次，已经写过的日子会跳过）。
+    // 两条进入睡眠的路：精力掉到底线，或者今天的次数已经到顶（"她今天到头了"）。
+    const hitCap = after.dayCount >= deps.wake().maxPerDay && deps.wake().maxPerDay > 0
+    if (raw.sleepingSince === '' && settled.sleepingSince === '') {
+      if (settled.energy <= SLEEP_AT) after.sleepingSince = at
+      else if (hitCap) after.sleepingSince = at
+    }
+    if (raw.sleepingSince === '' && after.sleepingSince !== '') {
+      void settleDay(at).catch((error: unknown) => log.warn('睡前收账失败（这一天没有日记）', error))
+    }
     const gap = gapSeconds(after, at)
     if (gap === undefined) {
       await saveState(documents, { ...after, nextAt: '', lastError: '', lastAttemptAt: at })
@@ -512,14 +536,25 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       if (typed?.type === 'tool/result') {
         if (documents !== undefined && sessionId !== '' && sessionId === roomSessionId) {
           const text = toolTextOf(event)
-          if (text.trim() !== '') seenBuffer = `${seenBuffer}\n${text}`.slice(-SEEN_LIMIT)
+          if (text.trim() !== '') {
+            seenBuffer = `${seenBuffer}\n${text}`.slice(-SEEN_LIMIT)
+            dayNotes.push(`看到：${text.replace(/\s+/g, ' ').trim().slice(0, 120)}`)
+            if (dayNotes.length > 40) dayNotes.shift()
+          }
         }
         return
       }
       // 顺手记下她最后一句话：下一次醒来要接上"上次做到哪"（连续性不靠她的记性）。
       if (typed?.type === 'assistant/message') {
         const said = continuityOf(textOf(typed.data?.message))
-        if (sessionId !== '' && said !== '') lastSaid.set(sessionId, said)
+        if (sessionId !== '' && said !== '') {
+          lastSaid.set(sessionId, said)
+          // 她这一天说过的话也要进收账的材料（只收她房间里的）。
+          if (sessionId === roomSessionId) {
+            dayNotes.push(`她说：${said}`)
+            if (dayNotes.length > 40) dayNotes.shift()
+          }
+        }
       }
       if (typed?.type !== 'assistant/message') return
       bumpTokens(weightedTokens(typed.data?.usage as TokenUsageLike | undefined), new Date().toISOString())
@@ -530,7 +565,43 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   })
 
   /**
-   * 她聊完了就把房间的闹钟放回去。
+   * 睡前收账：把这一天收成一篇日记 + 几件事。
+   *
+   * 触发点只有一处 —— **她刚刚睡下**（精力掉到底线）。这时候一天的材料已经齐了：
+   * 她说过的话、她看到的东西。写完，这一天就算折叠完了，第二天从新的一天开始。
+   * @param at - 睡下的时刻。
+   */
+  const settleDay = async (at: string): Promise<void> => {
+    const documents = deps.documents()
+    if (documents === undefined) return
+    if (dayNotes.length === 0) return
+    const date = dayKeyOf(at, deps.timeZone())
+    // 一天只有一篇：已经写过了就不再写（重启也不该补第二篇）。
+    if (readDiary(documents).some((entry) => entry.date === date)) return
+    const route = llm.route()
+    if (route === undefined) return
+    const { system, text } = buildDiaryPrompt(dayNotes.slice(-40), date)
+    const result = await llm.streamText({ route, system, text, maxTokens: 1200, timeoutMs: 60_000 })
+    const parsed = parseDiary(result.text)
+    if (parsed === undefined) {
+      // 失败不重试、不补写：宁可这一天没有日记，也不留一篇编的。
+      log.warn(`收账的输出无法使用（${date} 这一天没有日记）：${result.text.slice(0, 200)}`)
+      return
+    }
+    await appendDiary(documents, { date, text: parsed.diary, createdAt: at })
+    dayNotes.length = 0
+    for (const memory of parsed.memories) {
+      try {
+        await deps.remember?.(memory.what, memory.about)
+      } catch (error) {
+        // 某一条没记上只影响那一条。
+        log.warn('收账时有一条没能写进记忆', error)
+      }
+    }
+    log.info(`收账完成（${date}）：日记 ${parsed.diary.length} 字，记下 ${parsed.memories.length} 件事`)
+  }
+
+  /** 她聊完了就把房间的闹钟放回去。
    *
    * 为什么用轮询而不是"最后一条消息之后延时"：会话可能被压缩、重放或中途断开，
    * 事件不一定有收尾；每分钟看一眼"安静了多久"最稳，也不会因为漏掉一条事件就永远压着。

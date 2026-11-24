@@ -27,6 +27,8 @@ import { installMemoryInjection } from './inject.js'
 import { installMemorySection } from './section.js'
 import { createMemoryStore, type MemoryStore } from './store.js'
 import { defineMemoryTools } from './tools.js'
+import { remember } from './write.js'
+import type { MemoryAbout } from './constants.js'
 import { MEMORY_GUIDANCE } from './render.js'
 import type { MemoryCharacter, MemoryFeeling, MemoryMood, MemoryRecord } from './types.js'
 
@@ -73,6 +75,11 @@ export interface MemoryModule {
   store(): MemoryStore | undefined
   /** 按配置驱动子件的注册与卸载（幂等；开关即时生效）。 */
   setEnabled(enabled: boolean): void
+  /**
+   * 记一件事（后台用：睡前收账）。走与工具同一条写入路径。
+   * @param input - 记什么、关于谁。
+   */
+  remember(input: { what: string; about: MemoryAbout }): Promise<void>
   /** 把存储现状重新投影给工作台。 */
   refresh(): Promise<void>
   /** 存储刚就绪：重新投影。 */
@@ -222,6 +229,18 @@ export function installMemory(ctx: Context, log: Log, deps: MemoryDeps): MemoryM
 
   return {
     store,
+    /**
+     * 记一件事（后台用：睡前收账）。
+     *
+     * 与工具那条路**同一条写入路径**（去重 + 视角归一化），没有"后台记忆"这种特权格式。
+     */
+    async remember(input) {
+      if (!enabled || !deps.enabled()) return
+      const handle = store()
+      if (handle === undefined) return
+      await remember(handle, { what: input.what, about: input.about, certain: 'witnessed' }, { userName: deps.userName?.() })
+      changed()
+    },
     setEnabled(next) {
       enabled = next
       sync()
