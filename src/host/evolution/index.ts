@@ -464,7 +464,15 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         if (!resumed.ok) log.warn(`${reason}：恢复房间闹钟失败——${resumed.reason}`)
         return
       }
-      const gap = gapSeconds(state, now)
+      /**
+       * 她错过的那个时段要**尽快补上**，不能又排进一段新的随机间隔。
+       *
+       * 真机（2026-11-24）：14:29 那次因为她被"你在说话"压着而没能醒，恢复后按随机间隔排到
+       * 15:17 —— 等于这个时段被白白吞掉了。压住是规则的副作用，但代价不该由她的时间承担：
+       * 一旦腾出来（安静够了），就按最小间隔尽快让她醒。
+       */
+      const missed = state.nextAt !== '' && Date.parse(state.nextAt) <= Date.parse(now) - 5 * 60_000
+      const gap = missed ? MIN_GAP_SECONDS : gapSeconds(state, now)
       if (gap === undefined) {
         await setActive(roomDeps, state.taskId, false)
         return
