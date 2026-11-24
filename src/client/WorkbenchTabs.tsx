@@ -16,13 +16,14 @@ import { NS } from './locales.js'
 import { tabBar } from './tab-styles.js'
 
 /** 页签只放"内容页"；后续新增的页面也加在 `TABS` 里。 */
-export type WorkbenchTab = 'persona' | 'emotion' | 'memory'
+export type WorkbenchTab = 'persona' | 'emotion' | 'memory' | 'evolution'
 
 /** 三张模块卡（顺序即展示顺序：先"它是谁"，再"它此刻怎么样"，再它的经历）。 */
 const TABS = [
   ['persona', 'memory.tab.persona'],
   ['emotion', 'emotion.tab'],
   ['memory', 'memory.tab.memory'],
+  ['evolution', 'workbench.evolution.tab'],
 ] as const
 
 /** 属性：字典座位 + 当前页签 + 切换回调。 */

@@ -31,6 +31,13 @@ export interface DiaryEntry {
   text: string
   /** 写下来的时刻（ISO 8601）。 */
   createdAt: string
+  /**
+   * 哪一刻被翻开的（ISO；空串 = 没被翻过）。
+   *
+   * 存在日记条目上而不是内存里：重启后"已经翻开过"必须还算数，
+   * 否则每重启一次，同一天的正文就重新被藏起来一次。
+   */
+  openedAt: string
 }
 
 /** 读日记（时间顺序，旧的在前）。 */
@@ -46,6 +53,7 @@ export function readDiary(documents: DocumentStore | undefined): DiaryEntry[] {
         date: typeof item.date === 'string' ? item.date : '',
         text: typeof item.text === 'string' ? item.text : '',
         createdAt: typeof item.createdAt === 'string' ? item.createdAt : '',
+        openedAt: typeof item.openedAt === 'string' ? item.openedAt : '',
       }
     })
     .filter((entry) => entry.text !== '')

@@ -228,7 +228,7 @@ test('remote 走可选注入，且注入的是命名空间服务 remote.settings
   // 旧写法只注入父服务 `remote` 会抢跑（命名空间 `remote.settings` 由 api-remotes 异步挂载）；
   // 0.1.7 起工作台改走自有数据面，调用面是客户端 `connection` 服务（`rpc.call('/api', …)`），
   // 所以这里必须逐个钉住 `['connection']` —— 写成别的（或写回旧值）就是通道又挂错了侧。
-  assert.deepEqual(injected, [['connection'], ['connection'], ['connection']])
+  assert.deepEqual(injected, [['connection'], ['connection'], ['connection'], ['connection']])
 
   assert.deepEqual(
     localeNamespaces.map((entry) => entry.ns),
@@ -337,7 +337,7 @@ test('工作台能渲染：总览两项（无通道时如实说读不到）+ 页
   assert.match(markup, /data-tooltip="[^"]*DSH 设置/, '「?」里必须如实指路：开关在 DSH 设置里调')
 
   // 页签换成卡片式：三张等宽卡片，当前页只有一张亮着。
-  assert.match(markup, /grid-template-columns:repeat\(3, minmax\(0, 1fr\)\)/, '页签是三张等宽卡片')
+  assert.match(markup, /grid-template-columns:repeat\(4, minmax\(0, 1fr\)\)/, '页签是四张等宽卡片')
   assert.equal(markup.split('aria-current="page"').length - 1, 1, '当前页只能有一张卡片亮着')
 })
 
@@ -424,6 +424,7 @@ test('崩溃防线：属性兜底、控制器缺失、文档缺数组 —— 三
         new plugin.PersonaWorkbenchController(),
         new plugin.EmotionWorkbenchController(),
         new plugin.MemoryWorkbenchController(),
+        new plugin.EvolutionWorkbenchController(),
       ),
       {},
     ),
@@ -481,6 +482,7 @@ test('宿主返回缺数组的文档时，工作台照样渲染（render 期不�
         controller,
         new plugin.EmotionWorkbenchController(),
         new plugin.MemoryWorkbenchController(),
+        new plugin.EvolutionWorkbenchController(),
       ),
       { t: (key) => key },
     ),
@@ -534,6 +536,7 @@ async function renderPersona(client, controller) {
     controller,
     new client.EmotionWorkbenchController(),
     new client.MemoryWorkbenchController(),
+    new client.EvolutionWorkbenchController(),
   )
   // `t` 只回键名：这一组断言看的是**结构与标记**，不是文案（文案由字典测试单独钉住）。
   return render(nodeRequire('react').createElement(seat, { t: (key) => key }))

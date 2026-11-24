@@ -5,6 +5,7 @@ import { HumanityWorkbench } from './HumanityWorkbench.js'
 import { NS } from './locales.js'
 import { PersonaBoundary } from './PersonaBoundary.js'
 import type { EmotionWorkbenchController } from './emotion-controller.js'
+import type { EvolutionWorkbenchController } from './evolution-controller.js'
 import type { MemoryWorkbenchController } from './memory-controller.js'
 import type { PersonaWorkbenchController } from './persona-controller.js'
 
@@ -57,10 +58,11 @@ export function createWorkbenchSeat(
   controller: PersonaWorkbenchController,
   emotion: EmotionWorkbenchController,
   memory: MemoryWorkbenchController,
+  evolution: EvolutionWorkbenchController,
 ) {
   return function WorkbenchSeat(props: SeatProps) {
     const t = (typeof props?.t === 'function' ? props.t : fallbackTranslate) as PropsLocale<typeof NS>['t']
-    const unwired = [controller, emotion, memory].some((seat) => seat === undefined || seat === null)
+    const unwired = [controller, emotion, memory, evolution].some((seat) => seat === undefined || seat === null)
     return (
       // `PersonaBoundary` 是**产品级防御**，不是排查用的脚手架：工作台里任何一次渲染抛错，
       // React 会把**整个根**卸载（真机现象：点会话 → 会话列表全没了）。边界把爆炸半径收到
@@ -69,7 +71,7 @@ export function createWorkbenchSeat(
         {unwired ? (
           <FallbackNote kind="unwired" />
         ) : (
-          <HumanityWorkbench t={t} controller={controller} emotion={emotion} memory={memory} />
+          <HumanityWorkbench t={t} controller={controller} emotion={emotion} memory={memory} evolution={evolution} />
         )}
       </PersonaBoundary>
     )

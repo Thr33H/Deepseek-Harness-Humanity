@@ -2,12 +2,14 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { useState } from 'react'
 
 import { EmotionPage } from './EmotionPage.js'
+import { EvolutionPage } from './EvolutionPage.js'
 import { InfoHint } from './InfoHint.js'
 import { MemoryPage } from './MemoryPage.js'
 import { OverviewPanel } from './WorkbenchOverview.js'
 import { PersonaEditor } from './PersonaEditor.js'
 import { WorkbenchTabs, type WorkbenchTab } from './WorkbenchTabs.js'
 import type { EmotionWorkbenchController } from './emotion-controller.js'
+import type { EvolutionWorkbenchController } from './evolution-controller.js'
 import type { MemoryWorkbenchController } from './memory-controller.js'
 import { NS } from './locales.js'
 import type { PersonaWorkbenchController } from './persona-controller.js'
@@ -20,6 +22,8 @@ export interface HumanityWorkbenchProps extends PropsLocale<typeof NS> {
   emotion: EmotionWorkbenchController
   /** 记忆工作台控制器。 */
   memory: MemoryWorkbenchController
+  /** 自进化工作台控制器（她自己的时间）。 */
+  evolution: EvolutionWorkbenchController
 }
 
 /**
@@ -29,7 +33,7 @@ export interface HumanityWorkbenchProps extends PropsLocale<typeof NS> {
  * 数据只有一条来源：各控制器经 `connection`（自有数据面）读写。
  * @param props - 字典座位与三个工作台控制器。
  */
-export function HumanityWorkbench({ t, controller, emotion, memory }: HumanityWorkbenchProps) {
+export function HumanityWorkbench({ t, controller, emotion, memory, evolution }: HumanityWorkbenchProps) {
   const [tab, setTab] = useState<WorkbenchTab>('persona')
   // 人格页自己出两张卡片（底色 / 信息），所以这里不再套一层面板与标题。
   const body =
@@ -37,8 +41,10 @@ export function HumanityWorkbench({ t, controller, emotion, memory }: HumanityWo
       <PersonaEditor t={t} controller={controller} />
     ) : tab === 'emotion' ? (
       <EmotionPage t={t} controller={emotion} />
-    ) : (
+    ) : tab === 'memory' ? (
       <MemoryPage t={t} controller={memory} />
+    ) : (
+      <EvolutionPage t={t} controller={evolution} />
     )
 
   return (

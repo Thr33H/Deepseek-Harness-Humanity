@@ -1,0 +1,165 @@
+/**
+ * 自进化页：**她的今天** + **她的日记**。
+ *
+ * 两件事必须一眼看得出来：
+ * 1. 她今天醒了几次、还剩多少力气、下一次什么时候醒（这是"她有自己的日子"唯一的证据）；
+ * 2. 日记是**合着的** —— 只显示日期。翻开要走两步（先问、再确认），因为翻开就不可撤销。
+ *
+ * 文案全部走字典（`workbench.evolution.*`），不在组件里写死。
+ * @module deepseek-harness-humanity/client/EvolutionPage
+ */
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
+import { useState, useSyncExternalStore } from 'react'
+
+import { InfoHint } from './InfoHint.js'
+import type { DiaryItemView } from './evolution-channel.js'
+import type { EvolutionWorkbenchController } from './evolution-controller.js'
+import { NS } from './locales.js'
+import { headingWithHint, panel, panelTitle } from './styles.js'
+
+type Translate = PropsLocale<typeof NS>['t']
+
+/** 精力的一句话描述（不显示小数点：她不是仪表盘）。 */
+function energyText(t: Translate, energy: number): string {
+  const value = Math.max(0, Math.min(100, Math.round(energy)))
+  const level = value >= 70 ? 'fresh' : value >= 40 ? 'ok' : value >= 25 ? 'tired' : 'spent'
+  return t(`workbench.evolution.energy.${level}` as never).replace('{value}', String(value))
+}
+
+/** 时间戳 → "11-24 10:43"（不显示年份：这一页只看最近）。 */
+function stamp(iso: string): string {
+  if (iso === '') return '—'
+  const at = Date.parse(iso)
+  if (!Number.isFinite(at)) return '—'
+  const date = new Date(at)
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+/** 一条日记。 */
+function DiaryRow({
+  t,
+  item,
+  onOpen,
+}: {
+  t: Translate
+  item: DiaryItemView
+  onOpen(date: string): Promise<boolean>
+}) {
+  const [confirming, setConfirming] = useState(false)
+  return (
+    <div style={{ padding: '10px 0', borderBottom: '1px solid var(--dsw-alias-border-l2)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <span style={{ fontVariantNumeric: 'tabular-nums' }}>{item.date}</span>
+        {item.opened ? (
+          <span style={{ color: 'var(--dsw-alias-label-secondary)', fontSize: 12 }}>
+            {t('workbench.evolution.diary.openedAt').replace('{time}', stamp(item.openedAt))}
+          </span>
+        ) : confirming ? (
+          <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
+              {t('workbench.evolution.diary.confirm')}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setConfirming(false)
+                void onOpen(item.date)
+              }}
+            >
+              {t('workbench.evolution.diary.confirmYes')}
+            </button>
+            <button type="button" onClick={() => setConfirming(false)}>
+              {t('workbench.evolution.diary.confirmNo')}
+            </button>
+          </span>
+        ) : (
+          <button type="button" onClick={() => setConfirming(true)}>
+            {t('workbench.evolution.diary.open')}
+          </button>
+        )}
+      </div>
+      {item.opened && item.text !== '' ? (
+        <p style={{ margin: '8px 0 0', whiteSpace: 'pre-wrap', lineHeight: 1.75 }}>{item.text}</p>
+      ) : null}
+    </div>
+  )
+}
+
+/** 属性。 */
+export interface EvolutionPageProps {
+  t: Translate
+  controller: EvolutionWorkbenchController
+}
+
+/**
+ * 渲染自进化页。
+ * @param props - 字典座位与控制器。
+ * @returns 页面。
+ */
+export function EvolutionPage({ t, controller }: EvolutionPageProps) {
+  const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
+  const status = state.doc.status
+  const unavailable = state.status === 'unavailable'
+
+  return (
+    <div>
+      <section style={panel}>
+        <h2 style={{ ...panelTitle, ...headingWithHint }}>
+          {t('workbench.evolution.today')}
+          <InfoHint label={t('workbench.evolution.todayHint')} />
+        </h2>
+        {unavailable ? (
+          <p style={{ margin: 0, color: 'var(--dsw-alias-label-secondary)' }}>
+            {t('workbench.metric.unavailable')}
+          </p>
+        ) : !status.started ? (
+          <p style={{ margin: 0, color: 'var(--dsw-alias-label-secondary)' }}>
+            {t('workbench.evolution.notStarted')}
+          </p>
+        ) : (
+          <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '8px 16px' }}>
+            <dt style={{ color: 'var(--dsw-alias-label-secondary)' }}>{t('workbench.evolution.field.state')}</dt>
+            <dd style={{ margin: 0 }}>
+              {status.sleeping ? t('workbench.evolution.state.sleeping') : t('workbench.evolution.state.awake')}
+            </dd>
+            <dt style={{ color: 'var(--dsw-alias-label-secondary)' }}>{t('workbench.evolution.field.energy')}</dt>
+            <dd style={{ margin: 0 }}>{energyText(t, status.energy)}</dd>
+            <dt style={{ color: 'var(--dsw-alias-label-secondary)' }}>{t('workbench.evolution.field.wakes')}</dt>
+            <dd style={{ margin: 0 }}>
+              {t('workbench.evolution.wakesValue')
+                .replace('{count}', String(status.dayCount))
+                .replace('{max}', String(status.maxPerDay))}
+            </dd>
+            <dt style={{ color: 'var(--dsw-alias-label-secondary)' }}>{t('workbench.evolution.field.lastWake')}</dt>
+            <dd style={{ margin: 0, fontVariantNumeric: 'tabular-nums' }}>{stamp(status.lastWakeAt)}</dd>
+            <dt style={{ color: 'var(--dsw-alias-label-secondary)' }}>{t('workbench.evolution.field.nextWake')}</dt>
+            <dd style={{ margin: 0, fontVariantNumeric: 'tabular-nums' }}>{stamp(status.nextAt)}</dd>
+          </dl>
+        )}
+        {status.lastError !== '' ? (
+          <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
+            {t('workbench.evolution.error').replace('{reason}', status.lastError)}
+          </p>
+        ) : null}
+      </section>
+
+      <section style={{ ...panel, marginTop: 16 }}>
+        <h2 style={{ ...panelTitle, ...headingWithHint }}>
+          {t('workbench.evolution.diary.title')}
+          <InfoHint label={t('workbench.evolution.diary.hint')} />
+        </h2>
+        {state.doc.notice !== '' ? (
+          <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>{state.doc.notice}</p>
+        ) : null}
+        {state.doc.diary.length === 0 ? (
+          <p style={{ margin: 0, color: 'var(--dsw-alias-label-secondary)' }}>{t('workbench.evolution.diary.empty')}</p>
+        ) : (
+          state.doc.diary.map((item) => (
+            <DiaryRow key={item.date} t={t} item={item} onOpen={(date) => controller.open(date)} />
+          ))
+        )}
+      </section>
+    </div>
+  )
+}

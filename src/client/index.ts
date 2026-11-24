@@ -23,10 +23,12 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { createElement } from 'react'
 
 import { EmotionWorkbenchController } from './emotion-controller.js'
+import { EvolutionWorkbenchController } from './evolution-controller.js'
 import { HumanityPanelIcon } from './HumanityPanelIcon.js'
 import { PANEL_LABEL, PANEL_ORDER, WORKBENCH_ID } from './ids.js'
 import { en, NS, zh } from './locales.js'
 import { EMOTION_NAMESPACE } from './emotion-channel.js'
+import { EVOLUTION_NAMESPACE } from './evolution-channel.js'
 import { MEMORY_NAMESPACE } from './memory-channel.js'
 import { PERSONA_NAMESPACE, PersonaWorkbenchController } from './persona-controller.js'
 import { MemoryWorkbenchController } from './memory-controller.js'
@@ -103,12 +105,14 @@ export function apply(ctx: Context): void {
   const controller = new PersonaWorkbenchController()
   const emotion = new EmotionWorkbenchController()
   const memory = new MemoryWorkbenchController()
+  const evolution = new EvolutionWorkbenchController()
   attachRemoteController(ctx, controller, PERSONA_NAMESPACE, '人格')
   attachRemoteController(ctx, emotion, EMOTION_NAMESPACE, '情绪')
   attachRemoteController(ctx, memory, MEMORY_NAMESPACE, '记忆')
+  attachRemoteController(ctx, evolution, EVOLUTION_NAMESPACE, '自进化')
 
   registerSidebarEntry(ctx)
-  registerWorkbench(ctx, createWorkbenchSeat(controller, emotion, memory))
+  registerWorkbench(ctx, createWorkbenchSeat(controller, emotion, memory, evolution))
 }
 
 // 这几个符号导出是**给测试用的**（与第一方客户端插件导出自己的控制器同一做法）：
@@ -125,6 +129,9 @@ export { MemoryPage } from './MemoryPage.js'
 export { HumanityPanelIcon } from './HumanityPanelIcon.js'
 export { PersonaBoundary } from './PersonaBoundary.js'
 
+export { EVOLUTION_NAMESPACE } from './evolution-channel.js'
+export { EvolutionWorkbenchController } from './evolution-controller.js'
+export { EvolutionPage } from './EvolutionPage.js'
 export { OverviewPanel } from './WorkbenchOverview.js'
 export { createWorkbenchSeat } from './WorkbenchSeat.js'
 export { subscribeToProjection } from './remote-attach.js'

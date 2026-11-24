@@ -24,6 +24,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { DocumentStore } from '../documents.js'
 import { createLlmAccess } from '../llm.js'
 import { appendDiary, buildDiaryPrompt, parseDiary, readDiary } from './diary.js'
+import { installEvolutionSection } from './section.js'
 import type { Log } from '../log.js'
 import {
   afterWake,
@@ -77,6 +78,8 @@ export interface EvolutionDeps {
   wake(): WakeRhythm
   /** 生效时区（`undefined` = 跟随进程时区）。 */
   timeZone(): string | undefined
+  /** 人格是否已封存（她"开机"了没有）。 */
+  started(): boolean
   /** `$DSH_HOME`（房间目录要用）。 */
   homeDir(): string | undefined
   /**
@@ -254,6 +257,17 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   }
   /** 房间那个 Agent 的句柄：句柄活着，会话就活着（见 `room.ts` 的说明）。 */
   let roomHandle: AgentHandleLike | undefined
+  /** 工作台那扇窗（真源是状态文档与日记，它只负责投影）。 */
+  const section = installEvolutionSection(ctx, log, {
+    documents: deps.documents,
+    state: () => {
+      const documents = deps.documents()
+      return documents === undefined ? undefined : readState(documents)
+    },
+    settings: () => ({ maxPerDay: deps.wake().maxPerDay }),
+    enabled: () => moduleEnabled(),
+    started: () => deps.started(),
+  })
 
   /**
    * 这个上下文里看得见哪些相关服务（排程失败时写进状态文档）。
@@ -417,6 +431,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       log.info(`${reason}：她下一次醒来 ${outcome.room.nextAt === '' ? '（时间未回报）' : outcome.room.nextAt}`)
     } finally {
       arming = false
+      void section.refresh()
     }
   }
 
@@ -482,6 +497,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       lastAttemptAt: at,
     })
     const sleeping = after.sleepingSince === '' ? '' : `（睡到 ${outcome.ok ? outcome.room.nextAt : '待定'}）`
+    void section.refresh()
     log.info(`她醒了一次（今天第 ${after.dayCount} 次，精力 ${Math.round(after.energy)}）；下一次 ${outcome.ok ? outcome.room.nextAt : '没排上'}${sleeping}`)
   }
 
@@ -588,7 +604,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       log.warn(`收账的输出无法使用（${date} 这一天没有日记）：${result.text.slice(0, 200)}`)
       return
     }
-    await appendDiary(documents, { date, text: parsed.diary, createdAt: at })
+    await appendDiary(documents, { date, text: parsed.diary, createdAt: at, openedAt: '' })
     dayNotes.length = 0
     for (const memory of parsed.memories) {
       try {
@@ -598,6 +614,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         log.warn('收账时有一条没能写进记忆', error)
       }
     }
+    void section.refresh()
     log.info(`收账完成（${date}）：日记 ${parsed.diary.length} 字，记下 ${parsed.memories.length} 件事`)
   }
 
@@ -680,6 +697,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     },
     refresh: () => arm('时间基准变化'),
     notifyStoreReady() {
+      section.notifyStoreReady()
       void arm('存储就绪').catch((error: unknown) => log.warn('存储就绪后没能排程', error))
     },
     energyNow() {

@@ -189,6 +189,7 @@ export function evolutionDeps(
     },
     timeZone: () => clock?.report().effective,
     homeDir: () => homeDir?.(),
+    started: () => humanityStarted(state),
     // 她自己的见闻交给情绪模块评估（只产出"对事/对自己"的情绪）。
     appraiseOwn: async (text) => {
       await state.emotion?.appraiseOwn(text)
