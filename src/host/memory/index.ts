@@ -37,6 +37,13 @@ export { MEMORY_RECALL_TOOL, MEMORY_REMEMBER_TOOL } from './constants.js'
 
 /** 宿主交给记忆模块的外部事实（依赖由宿主注入，记忆内部不去猜）。 */
 export interface MemoryDeps {
+  /**
+   * 哪个会话要**完全跳过**记忆这一步（她自己的时间）。
+   *
+   * 为什么：注入按会话全局跑，她独处时被推"想起他累了"这类内容，会放下手上的事去照顾一个
+   * 不在场的人（2026-11-24 12:38 真机）。她真想起来的时侯有 `humanity_recall` 可以主动查。
+   */
+  skipSession?(): string
   /** 已就绪的套件存储句柄；未就绪时返回 `undefined`。 */
   store(): HumanityStore | undefined
   /** 记忆总开关（配置现读）。 */
@@ -213,6 +220,7 @@ export function installMemory(ctx: Context, log: Log, deps: MemoryDeps): MemoryM
     onRecallShown: (cue, hits) => section.noteRecall(cue, hits),
     timeZone: deps.timeZone,
     feeling: deps.feeling,
+    skipSession: deps.skipSession,
   })
 
   const sync = (): void => tools.setEnabled(enabled && deps.enabled())

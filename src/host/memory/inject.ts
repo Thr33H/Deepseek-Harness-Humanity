@@ -222,6 +222,14 @@ export interface MemoryInjectionDeps {
   /** 后台写了东西（整合/归拢）之后让工作台重新投影。 */
   changed?(): void
   /**
+   * 哪个会话要**完全跳过**记忆这一步（她自己的时间）。
+   *
+   * 为什么：注入是按会话全局跑的，她独处时也会被推"想起他累了"这类内容，
+   * 结果她放下手上的事、转身去照顾一个不在场的人（2026-11-24 12:38 真机）。
+   * 她的时间不该被他的事推着走；她真想起来的时侯，有 `humanity_recall` 可以主动查。
+   */
+  skipSession?(): string
+  /**
    * 这一轮想起了什么（给工作台的"为什么想起"）。
    *
    * 与 `onRecalled` 的区别：那个是给情绪做回声，这个是给**人看**的说明。
@@ -365,6 +373,10 @@ export function installMemoryInjection(ctx: Context, log: Log, deps: MemoryInjec
       const { agent, turn } = (payload ?? {}) as { agent?: unknown; turn?: unknown }
       if (agent === null || typeof agent !== 'object' || !isMainAgent(agent)) return decision
       if (!deps.enabled()) return decision
+      // 她自己的时间：不注入、也不从那儿收割（她的经历由睡前收账自己写）。
+      const skip = deps.skipSession?.() ?? ''
+      const sessionId = (agent as { session?: { id?: string } } | undefined)?.session?.id ?? ''
+      if (skip !== '' && sessionId === skip) return decision
 
       const now = new Date()
       const store = deps.store()

@@ -104,6 +104,12 @@ export interface EvolutionDeps {
 
 /** 模块句柄。 */
 export interface EvolutionModule {
+  /**
+   * 她房间那个会话的 id（空串 = 还没开出来）。
+   *
+   * 为什么对外暴露：记忆注入要跳过这个会话 —— 她的时间不该被他的事推着走（见 memory/inject）。
+   */
+  roomSessionId(): string
   /** 开关变化（宿主 `syncModulesEnabled` 调）。 */
   setEnabled(enabled: boolean): void
   /** 配置变化：重排下一次（宿主 `onChanged` 调）。 */
@@ -819,6 +825,10 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   log.info('自进化模块已装配（等存储就绪后第一次排程）')
 
   return {
+    roomSessionId() {
+      const documents = deps.documents()
+      return documents === undefined ? '' : readState(documents).roomSessionId
+    },
     setEnabled(next) {
       enabled = next
       if (next && moduleEnabled()) {

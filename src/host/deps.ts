@@ -105,6 +105,8 @@ export function memoryDeps(settings: SettingsBridge, state: HostState, clock?: C
     // 工作台要凭它说"还没开始"（而不是"没有记忆"）。
     dormant: () => !humanityStarted(state),
     maxInject: () => settings.read().modules.memory.maxInject,
+    // 她自己的时间那个会话不注入记忆：她的时间不该被他的事推着走（见 memory/inject）。
+    skipSession: () => state.evolution?.roomSessionId() ?? '',
     // 生效时区：她回忆时说"昨天/今天"按这个时区的日历算（半夜聊天时毫秒差会把昨晚算成今天）。
     timeZone: () => clock?.report().effective,
     // 情绪指纹：写记忆的那一刻它在什么心情。情绪模块缺席/关掉时返回 undefined（记成平静）。
