@@ -8,12 +8,12 @@
  * 4. **只有我们自己的那条调度消息算"醒来"** —— 你给自己排的提醒不算。
  */
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 
-import { ensureRoom, ensureTask, reschedule, roomDirOf } from '../lib/evolution/room.js'
+import { ensureRoom, ensureTask, readThreads, reschedule, roomDirOf } from '../lib/evolution/room.js'
 import {
   afterWake,
   dayKeyOf,
@@ -130,9 +130,50 @@ test('醒来那一段话：带标记、带时间、并且说清"没有人在等�
   const prompt = buildWakePrompt('2026-11-23T07:04:00.000Z', 'Asia/Shanghai')
   assert.ok(prompt.includes(WAKE_MARKER), '必须带标记（醒来判据靠它）')
   assert.match(prompt, /15:04/, '时间按她的时区渲染（UTC 07:04 = 北京 15:04）')
-  assert.match(prompt, /没有人在叫你/, '第一句就要否掉"有人来了"的误解')
+  assert.match(prompt, /没有人在叫你/, '要点明这一段时间没有人在等')
   assert.match(prompt, /不用向谁汇报/, '要点明这一段时间不产出汇报')
   assert.ok(!prompt.includes('上一次'), '第一次醒来时不该凭空说"上一次"')
+})
+
+test('醒来词要拆掉"这是用户发来的"这个误认（真机第一晚她把它当成了主人来了）', () => {
+  const prompt = buildWakePrompt('2026-11-23T07:04:00.000Z', 'Asia/Shanghai')
+  assert.match(prompt, /不是他发的/, '必须说清不是他发的')
+  assert.match(prompt, /自己给自己定的闹钟/, '要说清这是她自己的闹钟')
+})
+
+test('醒来词要给"能做什么"，也要说清做不到什么（只给自由她会坐着想事情）', () => {
+  const prompt = buildWakePrompt('2026-11-23T07:04:00.000Z', 'Asia/Shanghai')
+  assert.match(prompt, /上网搜东西/, '搜索是真能做的')
+  assert.match(prompt, /读写文件/, '文件读写是真能做的')
+  assert.match(prompt, /没有画图/, '做不到的要明说，别让她以为自己能画')
+})
+
+test('醒来词要带上她手上还没做完的事；没有就说没有', () => {
+  const withThreads = buildWakePrompt('2026-11-23T07:04:00.000Z', 'Asia/Shanghai', '', [
+    '追的连载看到第 37 章，想看下一章',
+  ])
+  assert.match(withThreads, /你手上还没做完的事/)
+  assert.match(withThreads, /第 37 章/)
+
+  const empty = buildWakePrompt('2026-11-23T07:04:00.000Z', 'Asia/Shanghai')
+  assert.match(empty, /没有攒着没做完的事/)
+})
+
+test('线索账就是她目录里的 todo.md：读得到就用，读不到当空', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'humanity-threads-'))
+  try {
+    const deps = { schedule: () => undefined, agents: () => undefined, homeDir: () => dir, log: quietLog }
+    assert.deepEqual(await readThreads(deps), [], '还没有文件时是空的（不替她编内容）')
+    await mkdir(path.join(dir, 'humanity', 'room'), { recursive: true })
+    await writeFile(
+      path.join(dir, 'humanity', 'room', 'todo.md'),
+      '# 我手上的事\n\n- 追的电视剧看到第 9 集，马上结局\n- 想弄明白潮汐为什么一天两次\n',
+      'utf8',
+    )
+    assert.deepEqual(await readThreads(deps), ['追的电视剧看到第 9 集，马上结局', '想弄明白潮汐为什么一天两次'])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
 
 test('醒来那一段话可以接上"上次做到哪"：连续，但标明那是她自己的记录', () => {

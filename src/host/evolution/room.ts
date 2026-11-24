@@ -105,6 +105,33 @@ export function roomDirOf(deps: RoomDeps): string | undefined {
 /** 我们用到的那两个 `node:fs/promises` 函数（宿主编译没有 `@types/node`）。 */
 interface FsPromisesModule {
   mkdir(path: string, options: { recursive: boolean }): Promise<string | undefined>
+  readFile(path: string, encoding: 'utf8'): Promise<string>
+}
+
+/**
+ * 读她手上的"未完成清单"。
+ *
+ * 为什么用文件而不是新表／新工具：她本来就有读写自己目录的能力（沉浸预设里开着）。
+ * 一份 `todo.md` 就是最朴素的线索账 —— 她能读、能改、能勾掉，不需要我们再发明一个工具。
+ * 读不到（还没建）就当空的：不替她编内容。
+ * @param deps - 外部事实。
+ * @returns 清单的每一行（去掉空行与标题行，最多 8 行）。
+ */
+export async function readThreads(deps: RoomDeps, limit = 8): Promise<string[]> {
+  const dir = roomDirOf(deps)
+  if (dir === undefined) return []
+  try {
+    const specifier: string = 'node:fs/promises'
+    const fs = (await import(specifier)) as FsPromisesModule
+    const text = await fs.readFile(`${dir}/todo.md`, 'utf8')
+    return text
+      .split('\n')
+      .map((line) => line.replace(/^\s*[-*]\s*/, '').trim())
+      .filter((line) => line !== '' && !line.startsWith('#'))
+      .slice(0, limit)
+  } catch {
+    return []
+  }
 }
 
 /** 确保房间目录存在；失败只记日志（目录没建成也不阻止排程）。 */

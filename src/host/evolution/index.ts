@@ -36,6 +36,7 @@ import {
   ensureRoom,
   ensureTask,
   inspectRoom,
+  readThreads,
   reschedule,
   setActive,
   type AgentHandleLike,
@@ -50,6 +51,7 @@ import {
   settleEnergy,
   shouldSleep,
   tokensTodayOf,
+  WAKE_COST,
   weightedTokens,
   type TokenUsageLike,
 } from './energy.js'
@@ -347,7 +349,8 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       // 提示词里写的是**她醒来那一刻**的时间，不是"现在排程的这一刻"；
       // 尾部接上她上次说到哪儿 —— 每一次醒来都不是空白的一天。
       const nextIso = new Date(Date.parse(now) + gap * 1000).toISOString()
-      const prompt = buildWakePrompt(nextIso, timeZone, lastSaid.get(sessionId) ?? '')
+      const threads = await readThreads(roomDeps)
+      const prompt = buildWakePrompt(nextIso, timeZone, lastSaid.get(sessionId) ?? '', threads)
       const outcome = state.taskId === ''
         ? await ensureTask(roomDeps, '', sessionId, gap, prompt)
         : await reschedule(roomDeps, state.taskId, gap, prompt)
@@ -401,6 +404,8 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     // 睡着时被叫醒、或者自然睡醒：这一步会把 `sleepingSince` 清掉。
     const settled = settleAt(raw, at)
     const after = { ...settled, ...afterWake(settled, at, timeZone) }
+    // 一次醒来本身的起动成本（见 `energy.ts` 的 WAKE_COST：光算 token 的话她永远累不了）。
+    after.energy = Math.max(0, after.energy - WAKE_COST)
     const gap = gapSeconds(after, at)
     if (gap === undefined) {
       await saveState(documents, { ...after, nextAt: '', lastError: '', lastAttemptAt: at })
@@ -412,7 +417,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       roomDeps,
       after.taskId,
       gap,
-      buildWakePrompt(new Date(Date.parse(at) + gap * 1000).toISOString(), timeZone, lastSaid.get(after.roomSessionId) ?? ''),
+      buildWakePrompt(new Date(Date.parse(at) + gap * 1000).toISOString(), timeZone, lastSaid.get(after.roomSessionId) ?? '', await readThreads(roomDeps)),
     )
     // 这一轮的"上次"已经用掉了：她马上会产出新的。
     lastSaid.delete(after.roomSessionId)

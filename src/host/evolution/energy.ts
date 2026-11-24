@@ -35,6 +35,14 @@ export const BLOCK_MINUTES = 15
 export const BLOCK_RECOVERY = 2.4
 /** 醒来那一下的迷糊：先扣掉。 */
 export const SLEEP_INERTIA = 6
+/**
+ * 一次醒来本身的"起动成本"（点）。
+ *
+ * 为什么要它：真机第一晚记了 6 次醒来，总消耗只有 0.6 点 —— 光算 token 的话，
+ * 她自己的一天几乎不花力气，于是永远累不了、永远不睡。人在"出去转一圈"这件事上，
+ * 花掉的主要是时间与精神，不是说了几个字。这个数按"一天醒 8 次就该明显累"定。
+ */
+export const WAKE_COST = 5
 /** 最多算多久的睡眠（再长也不额外恢复）。 */
 export const SLEEP_CAP_MINUTES = 12 * 60
 
