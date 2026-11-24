@@ -306,6 +306,8 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   let seenBuffer = ''
   /** 这一天攒下的零散材料（睡前收账用）。 */
   const dayNotes: string[] = []
+  /** 收账正在进行（防同一分钟里两个入口撞车，见 settleDay）。 */
+  let settlingDay = false
   /** `dayNotes` 属于哪一天（跨午夜要清空，否则两天的话会被写进同一篇日记）。 */
   let notesDayKey = ''
 
@@ -740,6 +742,29 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
    * @param at - 睡下的时刻。
    */
   const settleDay = async (at: string): Promise<void> => {
+    const documents = deps.documents()
+    if (documents === undefined) return
+    /**
+     * 同一时刻只写一次。
+     *
+     * 收账现在有三条入口（醒来判定 / 聊天耗尽 / 重排时才发现该睡），它们可能在同一分钟内撞上；
+     * 「已经写过就跳过」是写盘之后才成立的判断，两个并发调用会**都**通过检查、都调一次模型，
+     * 后写的那篇覆盖前一篇。加一道闸，省掉一次白花的调用，也不让本子被覆盖。
+     */
+    if (settlingDay) return
+    settlingDay = true
+    try {
+      await settleDayOnce(at)
+    } finally {
+      settlingDay = false
+    }
+  }
+
+  /**
+   * 收账的实体（只由 `settleDay` 调用一次）。
+   * @param at - 睡下的时刻。
+   */
+  const settleDayOnce = async (at: string): Promise<void> => {
     const documents = deps.documents()
     if (documents === undefined) return
     if (dayNotes.length === 0) return
