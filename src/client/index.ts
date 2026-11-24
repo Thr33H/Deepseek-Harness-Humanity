@@ -108,8 +108,8 @@ export function apply(ctx: Context): void {
   const evolution = new EvolutionWorkbenchController()
   attachRemoteController(ctx, controller, PERSONA_NAMESPACE, '人格')
   attachRemoteController(ctx, emotion, EMOTION_NAMESPACE, '情绪')
-  attachRemoteController(ctx, memory, MEMORY_NAMESPACE, '记忆')
-  attachRemoteController(ctx, evolution, EVOLUTION_NAMESPACE, '自进化')
+  attachRemoteController(ctx, memory, MEMORY_NAMESPACE, '记忆', { pollMs: 120_000 })
+  attachRemoteController(ctx, evolution, EVOLUTION_NAMESPACE, '自进化', { pollMs: 60_000 })
 
   registerSidebarEntry(ctx)
   registerWorkbench(ctx, createWorkbenchSeat(controller, emotion, memory, evolution))

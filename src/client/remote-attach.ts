@@ -70,6 +70,7 @@ export function attachRemoteController<C>(
   controller: { attach(channel: C): void; detach(): void; load(options?: { quiet?: boolean }): Promise<void> },
   namespace: string,
   label: string,
+  options: { pollMs?: number } = {},
 ): void {
   // 0.1.7 起走**自有数据面**：`connection.rpc.call('/api', 'humanity/<method>', { args })`。
   // 为什么不再注入 `remote.settings`：那个命名空间在 0.1.7 已变成"配置表单"语义面
@@ -89,7 +90,24 @@ export function attachRemoteController<C>(
     // 而第三方没有事件推送 seam（清单写死在 `dsh-api-remotes`），所以改为
     // ①每次写入的返回值就是最新投影（`plane-channel.ts` 的 settle），②这里补一次首读。
     void controller.load({ quiet: true })
+    /**
+     * 定时重读。
+     *
+     * 为什么需要：自有数据面**没有推送**（只有 describe/replace/update 三个方法），
+     * 而她的状态是**自己会变**的 —— 精力在掉、下一次醒在推、日记是后台写出来的。
+     * 没有这一圈，页面会停在你打开那一刻，除非你手动刷新。
+     *
+     * 只在浏览器里跑（测试环境没有 `document`，不留下悬挂的定时器）。
+     */
+    const pollMs = options.pollMs ?? 0
+    const timer =
+      pollMs > 0 && typeof document !== 'undefined'
+        ? setInterval(() => {
+            void controller.load({ quiet: true })
+          }, pollMs)
+        : undefined
     return () => {
+      if (timer !== undefined) clearInterval(timer)
       controller.detach()
     }
   })

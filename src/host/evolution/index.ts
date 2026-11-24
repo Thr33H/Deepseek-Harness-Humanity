@@ -321,6 +321,14 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   const llm = createLlmAccess(ctx, log)
   /** 还没落盘的 token 消耗（攒成一次写入）。 */
   let pendingTokens = 0
+  /**
+   * 已经记过账的助手消息 id（只为防重复计数）。
+   *
+   * 实测（2026-11-24 13:41）：容器重启后 `tokensToday` 没有变化，说明 DSH 不会重放助手消息 ——
+   * 这条守卫是**保险**，不是已知故障的补丁。会话被压缩或事件重放时若不认 id，
+   * 历史用量会被再记一遍，她的精力会凭空掉下去。
+   */
+  const countedMessages = new Set<string>()
   let flushTimer: ReturnType<typeof setTimeout> | undefined
 
   /**
@@ -639,6 +647,16 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         }
       }
       if (typed?.type !== 'assistant/message') return
+      const messageId = (typed.data?.message as { id?: unknown } | undefined)?.id
+      if (typeof messageId === 'string' && messageId !== '') {
+        if (countedMessages.has(messageId)) return
+        countedMessages.add(messageId)
+        // 只留最近一批：这条集合只为防重复，不该无限长。
+        if (countedMessages.size > 400) {
+          const oldest = countedMessages.values().next().value
+          if (typeof oldest === 'string') countedMessages.delete(oldest)
+        }
+      }
       bumpTokens(weightedTokens(typed.data?.usage as TokenUsageLike | undefined), new Date().toISOString())
     } catch (error) {
       // 记账失败绝不能影响这一轮对话。
