@@ -380,7 +380,11 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         && Number.isFinite(Date.parse(state.nextAt))
         && Date.parse(state.nextAt) > Date.parse(now)
       if (hasFuture) {
-        await setActive(roomDeps, state.taskId, true)
+        // 用"重排到剩下的时间"来恢复，而不是只改 active：真机上只改 active 时任务仍是 paused，
+        // 她因此会一直不醒（2026-11-24 抓到）。重排会同时把 timing 与 active 一起写。
+        const remain = Math.max(60, Math.round((Date.parse(state.nextAt) - Date.parse(now)) / 1000))
+        const resumed = await reschedule(roomDeps, state.taskId, remain)
+        if (!resumed.ok) log.warn(`${reason}：恢复房间闹钟失败——${resumed.reason}`)
         return
       }
       const gap = gapSeconds(state, now)
