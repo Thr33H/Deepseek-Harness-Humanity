@@ -56,6 +56,7 @@ import {
   readWork,
   readThreads,
   reschedule,
+  roomDirOf,
   setActive,
   writeOwnFile,
   type AgentHandleLike,
@@ -1195,7 +1196,14 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     // 他还在说话：这一轮不送，下一轮再看。不写原因 —— 这不是故障，是在等。
     if (!quietEnough(lastBusyAt, Date.now())) return
 
-    const prompt = buildTellPrompt(verdict.text, verdict.show)
+    // 他要看的东西：给她绝对路径，并让她在投递那一轮用 present 交出去（他那边就能点开）。
+    const showPath = verdict.show === ''
+      ? ''
+      : (() => {
+          const dir = roomDirOf(roomDeps)
+          return dir === undefined ? '' : `${dir}/${verdict.show}`
+        })()
+    const prompt = buildTellPrompt(verdict.text, verdict.show, showPath)
     const reusable = doc.taskId !== '' && doc.taskSession === state.talkSessionId
     let outcome = reusable
       ? await reschedule(roomDeps, doc.taskId, TELL_DELAY_SECONDS, prompt)

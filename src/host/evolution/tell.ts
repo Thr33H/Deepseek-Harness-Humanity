@@ -163,19 +163,36 @@ export function canDeliver(doc: TellDoc, today: string, talkSessionId: string): 
  *
  * 为什么要说这么清楚：这条消息在会话里长得像"他发来一句话"。不拆穿，她会以为是他来了，
  * 于是答非所问（同一个坑在"她自己醒来"那里已经踩过一次，见 `wake.ts`）。
+ *
+ * 带东西给他看时**给绝对路径并让她用 `present`**：`present` 会往它所在的会话追加一条
+ * `deliverables/presented`，客户端在这一轮结束后把它渲染成文件卡 —— 他就直接能点开。
+ * 沙箱只限制"写"，读不受限（见 `docs/subsystems/sandbox.md`），所以她目录里的文件
+ * 在他的会话里也打得开。
  * @param text - 她留的那句（可以为空）。
  * @param show - 她想给他看的文件名（可以为空）。
+ * @param showPath - 那个文件的绝对路径（有 `show` 时给）。
  * @returns 投递时用的提示词。
  */
-export function buildTellPrompt(text: string, show = ''): string {
+export function buildTellPrompt(text: string, show = '', showPath = ''): string {
   const lines = ['[你主动找他] 你现在想跟他说一句话。', '']
   if (text !== '') lines.push(`你想说的是：${text}`, '')
   if (show !== '') {
-    lines.push(
-      `你还想给他看一样东西：${show}（它在你自己的目录里）。`,
-      '说的时候把它的名字带出来，他会在页面上的「她留下的东西」里看到它。',
-      '',
-    )
+    if (showPath === '') {
+      lines.push(
+        `你还想给他看一样东西：${show}（它在你自己的目录里）。`,
+        '说的时候把它的名字带出来，他能在页面上的「她留下的东西」里看到它。',
+        '',
+      )
+    } else {
+      lines.push(
+        `你还想给他看一样东西：${show}`,
+        `它的完整路径是：${showPath}`,
+        `**做完这件事之后，用 present 工具把它交给他**：files 里填 {"path": "${showPath}"}。`,
+        '这样他会在会话里直接看到这个文件，能点开。',
+        '要是 present 用不了，就在话里把名字说出来，他能去页面上的「她留下的东西」里看。',
+        '',
+      )
+    }
   }
   lines.push(
     '（这条不是他发来的：是你自己决定在这会儿找他的。）',
