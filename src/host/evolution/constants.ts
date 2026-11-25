@@ -15,6 +15,15 @@
  */
 export const EVOLUTION_DOC_KEY = 'humanity-evolution-state'
 
+/**
+ * 材料清点文档的键。
+ *
+ * 为什么单独一份、而不是塞进状态文档：它要回答的问题只有一个 ——「那天到底留下过话没有」。
+ * 状态文档的写者已经很多（精力、次数、排程），混在一起时一次并发写入就可能把清点冲掉，
+ * 而它存在的全部意义就是"不能被冲掉"。
+ */
+export const NOTES_DOC_KEY = 'humanity-evolution-notes'
+
 /** 她的房间在 `$DSH_HOME` 下的相对路径：她写的东西、以后的作品都落在这儿。 */
 export const ROOM_DIR = 'humanity/room'
 

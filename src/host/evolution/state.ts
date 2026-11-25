@@ -6,7 +6,7 @@
  * @module humanity/evolution/state
  */
 import type { DocumentStore } from '../documents.js'
-import { EVOLUTION_DOC_KEY, MIN_GAP_SECONDS, NEXT_MORNING_HOUR } from './constants.js'
+import { EVOLUTION_DOC_KEY, MIN_GAP_SECONDS, NEXT_MORNING_HOUR, NOTES_DOC_KEY } from './constants.js'
 
 /** 状态文档的形状。空串/0 是"还没有"的唯一判据，不引入 null。 */
 export interface EvolutionStateDoc {
@@ -150,6 +150,49 @@ export function readState(documents: DocumentStore | undefined): EvolutionStateD
 export async function saveState(documents: DocumentStore | undefined, state: EvolutionStateDoc): Promise<void> {
   if (documents === undefined) return
   await documents.write(EVOLUTION_DOC_KEY, state)
+}
+
+/** 当天材料的清点（只记"那天记过几行"，材料本身不在这里）。 */
+export interface NotesRecord {
+  /** 属于哪一天（`YYYY-MM-DD`，她的时区；空串 = 还没有记录）。 */
+  day: string
+  /** 那天记过几行。 */
+  count: number
+  /** 最后一行是什么时候记的（ISO 8601）。 */
+  lastAt: string
+}
+
+/** 还没记过任何材料。 */
+export const EMPTY_NOTES: NotesRecord = { day: '', count: 0, lastAt: '' }
+
+/**
+ * 读材料清点。
+ *
+ * 它要回答的问题只有一个：**那天到底留下过话没有**。内存里那份材料活不过重启，
+ * 没有这个数就永远分不开"她那天没开口"与"材料被重启冲掉了"。
+ * @param documents - 文档表句柄；未就绪时按空清点算。
+ * @returns 清点（字段逐个兜底）。
+ */
+export function readNotesRecord(documents: DocumentStore | undefined): NotesRecord {
+  const value = documents?.read(NOTES_DOC_KEY)?.value
+  if (typeof value !== 'object' || value === null) return EMPTY_NOTES
+  const raw = value as Partial<Record<keyof NotesRecord, unknown>>
+  const count = typeof raw.count === 'number' && Number.isFinite(raw.count) ? raw.count : 0
+  return {
+    day: typeof raw.day === 'string' ? raw.day : '',
+    count: Math.max(0, Math.trunc(count)),
+    lastAt: typeof raw.lastAt === 'string' ? raw.lastAt : '',
+  }
+}
+
+/**
+ * 写材料清点。
+ * @param documents - 文档表句柄；未就绪时什么也不做。
+ * @param record - 完整清点。
+ */
+export async function saveNotesRecord(documents: DocumentStore | undefined, record: NotesRecord): Promise<void> {
+  if (documents === undefined) return
+  await documents.write(NOTES_DOC_KEY, { day: record.day, count: record.count, lastAt: record.lastAt })
 }
 
 /**

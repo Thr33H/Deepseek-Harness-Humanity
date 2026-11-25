@@ -31,11 +31,14 @@ import {
   afterWake,
   dayKeyOf,
   nextGapSeconds,
+  readNotesRecord,
   readState,
+  saveNotesRecord,
   saveState,
   type EvolutionStateDoc,
   type WakeRhythm,
 } from './state.js'
+import { decideSettle } from './settle-plan.js'
 import {
   adoptTask,
   ensureRoom,
@@ -315,6 +318,35 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   let lastAppraise = ''
   /** `dayNotes` 属于哪一天（跨午夜要清空，否则两天的话会被写进同一篇日记）。 */
   let notesDayKey = ''
+  /** 材料清点的内存镜像（`undefined` = 还没从盘里读过）。 */
+  let recordedNotes: { day: string; count: number } | undefined
+  /**
+   * 本进程起来的时刻。
+   *
+   * 收账判定要用它说清"那一天在不在这个进程的视野里"：进程比那天晚起来，
+   * 就不能断言"她没开口" —— 中间那段的材料可能已经被重启冲掉了。
+   */
+  const startedAt = new Date().toISOString()
+
+  /**
+   * 把"今天记过几行材料"记下来。
+   *
+   * 材料本身只在内存里（活不过重启），所以至少要留下清点：收账时才能分开
+   * 「她那天没开口」与「材料被重启冲掉了」。它只是证据，不参与任何决定。
+   * @param documents - 文档表。
+   * @param key - 清点属于哪一天。
+   */
+  const recordNote = async (documents: DocumentStore, key: string): Promise<void> => {
+    if (recordedNotes === undefined) {
+      const stored = readNotesRecord(documents)
+      recordedNotes = { day: stored.day, count: stored.count }
+    }
+    const next = recordedNotes.day === key
+      ? { day: key, count: recordedNotes.count + 1 }
+      : { day: key, count: 1 }
+    recordedNotes = next
+    await saveNotesRecord(documents, { ...next, lastAt: new Date().toISOString() })
+  }
 
   /**
    * 往当天的材料里加一行。
@@ -343,6 +375,10 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     }
     dayNotes.push(line)
     if (dayNotes.length > 40) dayNotes.shift()
+    const documents = deps.documents()
+    if (documents !== undefined) {
+      void recordNote(documents, key).catch((error: unknown) => log.warn('没能记下今天有几行材料', error))
+    }
   }
   /** 后台模型调用口（收账用）。 */
   const llm = createLlmAccess(ctx, log)
@@ -811,7 +847,11 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
      * 收账现在有多条入口（醒来判定 / 聊天耗尽 / 重排发现 / 跨午夜收尾），它们可能在同一分钟内撞上；
      * 「已经写过就跳过」是写盘之后才成立的判断，两个并发调用会**都**通过检查、都调一次模型。
      */
-    if (settlingDay) return
+    if (settlingDay) {
+      // 同一时刻另一次收账正在跑：那一次会写日记，这次跳过是正常行为，不该记成失败。
+      log.info(`收账撞车（${date}）：另一条入口正在收，这一次跳过`)
+      return
+    }
     settlingDay = true
     try {
       await settleDayOnce(date, at, notes)
@@ -821,14 +861,35 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   }
 
   /**
-   * 按"现在"给她收账（材料取当天内存里的那份）。
+   * 按"现在"给她收账：先判定该收哪一天，再交给那一天去收。
+   *
+   * 为什么不在这里自己比日期：跨过午夜时"今天"与"手上材料属于哪天"会不一样。
+   * 原来这里是一句静默的 `return` —— 于是昨天那篇日记既没写、也没留下原因（真机 2026-11-24）。
+   * 现在判定统一交给 `decideSettle`（纯函数，每条分支都有用例），这里只负责把结果落到位。
    * @param at - 睡下的时刻。
    */
   const settleDay = async (at: string): Promise<void> => {
-    const date = dayKeyOf(at, deps.timeZone())
-    // 材料属于另一天：交给那个日期自己去收（见 `pushNote` 的跨午夜收尾）。
-    if (notesDayKey !== '' && notesDayKey !== date) return
-    await settleDayFor(date, at, [...dayNotes])
+    const documents = deps.documents()
+    if (documents === undefined) return
+    const timeZone = deps.timeZone()
+    const record = readNotesRecord(documents)
+    const plan = decideSettle({
+      today: dayKeyOf(at, timeZone),
+      notesDay: notesDayKey,
+      notesCount: dayNotes.length,
+      recordedDay: record.day,
+      recordedCount: record.count,
+      writtenDates: readDiary(documents).map((entry) => entry.date),
+      startedAt,
+      startedDay: dayKeyOf(startedAt, timeZone),
+      timeZone,
+    })
+    if (plan.kind === 'done') return
+    if (plan.kind === 'cannot') {
+      await noteSettleError(documents, plan.reason)
+      return
+    }
+    await settleDayFor(plan.date, at, [...dayNotes])
   }
 
   /**
@@ -845,9 +906,12 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
      *
      * 真机 2026-11-24：日记没写出来、错误字段却是空的 —— 因为它走了某个静默返回，
      * 外面完全看不出为什么。宁可多写一行状态，也不要"没有日记也没有理由"。
+     *
+     * 「有没有材料」已经由 `decideSettle` 判定并留了原因（见 `settleDay`），
+     * 这里只保留兜底：真走到这一步还没有材料，说明调用方绕过了判定。
      */
     if (notes.length === 0) {
-      await noteSettleError(documents, `${date} 没有材料（她那天没在房间里留下话），没有写日记`)
+      await noteSettleError(documents, `${date} 没有材料：这次收账没有带上任何一行（调用方绕过了判定）`)
       return
     }
     // 一天只有一篇：已经写过了就不再写（重启也不该补第二篇）。
@@ -869,8 +933,25 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     await appendDiary(documents, { date, text: parsed.diary, createdAt: at, openedAt: '', noticedAt: '' })
     // 她自己的一份副本：设计里"回头重读那一天"要有可读的东西，而她只能读自己的目录。
     await writeOwnFile(roomDeps, `diary-${date}.md`, `# ${date}\n\n${parsed.diary}\n`)
-    dayNotes.length = 0
-    notesDayKey = ''
+    /**
+     * 只清"手上这批确实属于那一天"的材料。
+     *
+     * 跨午夜收昨天的时候，昨天的收账是异步跑的，而今天的第一行材料可能已经进来了 ——
+     * 无条件清空会把它连昨天的一起抹掉（收昨天、丢今天）。
+     */
+    if (notesDayKey === date) {
+      dayNotes.length = 0
+      notesDayKey = ''
+    }
+    // 清点同理：不清的话，下一次会把"这一天已经收过了"读成"材料丢了"。
+    if (readNotesRecord(documents).day === date) {
+      recordedNotes = { day: '', count: 0 }
+      try {
+        await saveNotesRecord(documents, { day: '', count: 0, lastAt: '' })
+      } catch (error) {
+        log.warn(`收账后没能清掉材料清点（${date}）`, error)
+      }
+    }
     await noteSettleError(documents, '')
     for (const memory of parsed.memories) {
       try {
