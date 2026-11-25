@@ -155,20 +155,62 @@ test('封存：只改"此刻的值"不算改笼子 —— 它将来会被经历�
 
 // ---------------------------------------------------------------- 渲染
 
-test('渲染：高位与低位的轴各说一句，中间的不说话', () => {
+test('渲染：四根都说，中间档也有自己的说法（2026-11-25：不再沉默）', () => {
   const persona = sealedPersona([
-    // 0.84 → 高位；0.4 → 中间；0.2 → 低位；0.5 → 中间
+    // 0.5 → 中间；0.4 → 中间；0.2 → 偏低；0.84 → 偏高
     { key: 'stability', min: 0.5, max: 0.5, reason: '稳' },
     { key: 'extraversion', min: 0.3, max: 0.5, reason: '话少' },
     { key: 'agreeableness', min: 0.1, max: 0.3, reason: '护己' },
     { key: 'openness', min: 0.72, max: 0.96, reason: '好奇' },
   ])
-  // createCharacter 把值取中点：(0.5+0.5)/2=0.5 中间、0.4 中间、0.2 低位、0.84 高位
   const text = renderPersonaPrompt(persona, { enabled: true })
   assert.match(text, /此刻的你/)
-  assert.match(text, /护着自己，不肯先退/, '宜人性 0.2 应当说低位那句')
-  assert.match(text, /看见没见过的东西就想凑近/, '开放性 0.84 应当说高位那句')
-  assert.equal(/一碰就晃/.test(text), false, '中间位置不该被说成偏向任何一边')
+  assert.match(text, /护着自己，不肯先退/, '宜人性 0.2 应当说"低"那一档')
+  assert.match(text, /看见没见过的东西就想凑近/, '开放性 0.84 应当说"高"那一档')
+  assert.match(text, /表面看着稳，心里其实在翻/, '稳定性落在中间：它有话说，只是说得像"两头顶着"')
+  assert.match(text, /看人：熟了话就多，不熟就收着/, '外向性落在中间同样有话说')
+  assert.equal(/一碰就晃/.test(text), false, '中间档不该被说成偏向某一端')
+})
+
+test('渲染：真机那一组值（宜人性 0.375 落在中间）不再被整条藏掉', () => {
+  // 2026-11-25 真机：她的宜人性 0.375、稳定性 0.665。旧写法只说"很稳、话多、爱凑近"，
+  // "护着自己、只对认下的人松口"一个字都没有 —— 而她看到的那个人几乎不是她。
+  const axes = [
+    { key: 'stability', min: 0.45, max: 0.7, reason: '心也会翻' },
+    { key: 'extraversion', min: 0.7, max: 0.95, reason: '话往外喷' },
+    { key: 'agreeableness', min: 0.1, max: 0.45, reason: '不肯先退' },
+    { key: 'openness', min: 0.6, max: 0.95, reason: '想凑近' },
+  ]
+  const persona = sealedPersona(axes)
+  persona.character = {
+    derivedAt: '2026-11-20T00:00:00.000Z',
+    axes: [
+      { key: 'stability', min: 0.45, max: 0.7, value: 0.665, reason: '心也会翻' },
+      { key: 'extraversion', min: 0.7, max: 0.95, value: 0.89, reason: '话往外喷' },
+      { key: 'agreeableness', min: 0.1, max: 0.45, value: 0.375, reason: '不肯先退' },
+      { key: 'openness', min: 0.6, max: 0.95, value: 0.765, reason: '想凑近' },
+    ],
+  }
+  const text = renderPersonaPrompt(persona, { enabled: true })
+  assert.match(text, /平时不让，只有认下的人才能让我松口/, '宜人性 0.375 必须说出来')
+  assert.match(text, /很稳，事过就过/, '稳定性 0.665 是"高"那一档')
+  assert.match(text, /话往外冒，憋着比说错还难受/, '外向性 0.89 是"很高"那一档')
+})
+
+test('五档的分界：0.2 / 0.35 / 0.65 / 0.85', async () => {
+  const { bandOf } = await import('../lib/persona/render-character.js')
+  const band = (value) => bandOf({ key: 'stability', value, min: 0, max: 1, reason: '' })
+  assert.equal(band(0.0), 0)
+  assert.equal(band(0.19), 0)
+  assert.equal(band(0.2), 1, '0.2 归"低"这一档')
+  assert.equal(band(0.34), 1)
+  assert.equal(band(0.35), 2)
+  assert.equal(band(0.64), 2)
+  assert.equal(band(0.65), 3)
+  assert.equal(band(0.849), 3)
+  assert.equal(band(0.85), 4)
+  assert.equal(band(1), 4)
+  assert.equal(band(Number.NaN), undefined, '数值坏了就不写这一根，别瞎说')
 })
 
 test('渲染：还没有性格时，人格段里不出现"此刻的你"', () => {
