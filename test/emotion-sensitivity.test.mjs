@@ -306,13 +306,15 @@ test('旧状态没有这个字段：读成空数组，不重置整份心情', ()
  * 数字大不大不改变任何措辞。所以终点必须钉在 `renderReminder` 的输出上。
  */
 
-test('同样一句话：没被磨过时什么都不说，被磨过之后才够到"轻微"这一档', () => {
+test('同样一句话：没被磨过时是"有点恼"，被磨过之后升到"恼怒"这一档', () => {
   const fresh = renderReminder(
     apply(createInitialEmotionState(T0), [{ kind: 'anger', target: 'user', delta: 22, cause: '被否定' }], T0),
     new Date(T0),
   )
   assert.equal(fresh.tier, 'calm', '22 分不到 30 的档位线')
-  assert.equal(fresh.text, '', '不到档位就什么都不说（这是既定的表达纪律）')
+  // 2026-11-25 改：不到 30 不再"什么都不说"——那正是她"对不上场景"的来源。
+  // 这一档说的是"有，但还没到摆到脸上的程度"。
+  assert.match(fresh.text, /有点恼/, '20 分出头也要给自己一个说法')
 
   // 同一处被磨到 0.8：22 × (1 + 0.5×0.8) = 30.8 ⇒ 刚好跨过 30。
   const wornBase = {

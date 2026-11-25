@@ -172,6 +172,26 @@ export const EMOTION_WORDS: Record<EmotionKind, readonly [string, string, string
 }
 
 /**
+ * 不到「有点」那一档（30 分以下）时用的词。
+ *
+ * 为什么不复用 {@link EMOTION_WORDS}：那张表的 calm 一档**八种情绪全是「平静」**——
+ * 拿它去写一条 20 分的恼火，得到的还是「平静」，等于没说。这一档要说的是
+ * "有，但还没到摆到脸上的程度"，所以每个词都自带那点分量，前面加「有点」才成句。
+ *
+ * 这一档以前被整体藏掉（用户 2026-11-25：她的情绪"对不上场景"）。改法见 `render.ts`。
+ */
+export const EMOTION_LOW_WORDS: Record<EmotionKind, string> = {
+  joy: '高兴',
+  trust: '信任',
+  fear: '不安',
+  surprise: '意外',
+  sadness: '失落',
+  disgust: '膈应',
+  anger: '恼',
+  anticipation: '惦记',
+}
+
+/**
  * 并存情绪的条数上限。
  *
  * **取 8，而不是 4。** 2026-11-25 的实机现场：她被当众凌辱、遗弃，`anger / fear / sadness`

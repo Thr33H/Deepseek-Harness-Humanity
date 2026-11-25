@@ -93,10 +93,11 @@ function withCharge(kind, intensity, cause = '') {
   return apply(createInitialEmotionState(T0), [{ kind, delta: intensity, cause }], T0)
 }
 
-test('渲染：平静时什么都不说（空串）', () => {
+test('渲染：平静时也给一行——她必须拿得到"此刻是什么样"', () => {
   const rendered = renderReminder(createInitialEmotionState(T0), new Date(T0))
-  assert.equal(rendered.text, '')
   assert.equal(rendered.tier, 'calm')
+  assert.match(rendered.text, /没什么起伏/)
+  assert.notEqual(rendered.text, '', '空着等于她拿不到自己的状态（2026-11-25 改）')
 })
 
 test('渲染：低档位只让它落在措辞里，不写"你在生气"', () => {
@@ -114,9 +115,7 @@ test('渲染：最高档才允许直接说，而且明确"只说一次"', () => 
   assert.match(rendered.text, /只说一次/)
 })
 
-test('渲染：没有复合名时退回并列（只加一个"也"，不叠程度词）', () => {
-  // 二十四种复合覆盖了所有**非对极**的两两组合，所以唯一没有名字的就是一对对极
-  // （喜悦↔悲伤）。两条同强度：同分不互压，这里能干净地测并列写法。
+test('渲染：两条同强时各写一条，都带冲谁（不再把两条挤成一句话）', () => {
   const state = apply(
     createInitialEmotionState(T0),
     [
@@ -127,8 +126,9 @@ test('渲染：没有复合名时退回并列（只加一个"也"，不叠程度
   )
   const rendered = renderReminder(state, new Date(T0))
   assert.match(rendered.text, /喜悦/)
-  assert.match(rendered.text, /也悲伤/)
+  assert.match(rendered.text, /悲伤/)
   assert.match(rendered.text, /被夸到点上/)
+  assert.match(rendered.text, /被当面说中/, '第二条也要带上它自己的原因')
   assert.equal(rendered.text.includes('也也'), false)
 })
 
@@ -154,7 +154,7 @@ test('渲染：对方的观察会带上，但过期（90 分钟）就不再提',
 
 /* ───────────────────────────── 合成 ───────────────────────────── */
 
-test('合成：厌恶 + 愤怒都够强时，用"轻蔑"而不是并列', () => {
+test('渲染：两条同时够强时分开写，不再压成一个复合词（复合会吞掉"冲谁"）', () => {
   const state = apply(
     createInitialEmotionState(T0),
     [
@@ -164,9 +164,11 @@ test('合成：厌恶 + 愤怒都够强时，用"轻蔑"而不是并列', () => 
     T0,
   )
   const rendered = renderReminder(state, new Date(T0))
-  assert.match(rendered.text, /轻蔑/)
-  assert.equal(rendered.text.includes('也愤怒'), false, '合成之后不该再并列')
+  assert.match(rendered.text, /厌恶/)
+  assert.match(rendered.text, /愤怒/)
+  assert.equal(rendered.text.includes('轻蔑'), false, '复合词把两条并成一条，就看不出它冲的是谁')
   assert.match(rendered.text, /被冒犯到底线/)
+  assert.match(rendered.text, /被否定/)
 })
 
 test('合成：只有一条够强时仍是单情绪（不硬凑组合）', () => {
@@ -183,7 +185,94 @@ test('合成：只有一条够强时仍是单情绪（不硬凑组合）', () =>
   assert.equal(rendered.text.includes('轻蔑'), false)
 })
 
-/* ───────────────────────────── 精力 ───────────────────────────── */
+test('渲染：30 分以下也写出来，用「有点…」，不准写成「平静」', () => {
+  // 真机 2026-11-25：她对 TA 的恼是 20.8，旧写法整条藏掉，她看到的是"期待"。
+  const rendered = renderReminder(withCharge('anger', 21, '他一句话把我晾在这儿'), new Date(T0))
+  assert.match(rendered.text, /有点恼/, '20 分的恼要说得出来')
+  assert.match(rendered.text, /他一句话把我晾在这儿/, '要带上因为什么')
+  assert.equal(rendered.text.includes('平静'), false, '八种情绪的 calm 档词全是"平静"，那等于没说')
+})
+
+test('渲染：分三层说——主 / 还压着 / 很轻但还在', () => {
+  const state = apply(
+    createInitialEmotionState(T0),
+    [
+      { kind: 'anticipation', delta: 50, cause: '话头递回来了' },
+      { kind: 'anger', delta: 30, cause: '被晾了一下' },
+      { kind: 'joy', delta: 12, cause: '他还愿意听' },
+    ],
+    T0,
+  )
+  const rendered = renderReminder(state, new Date(T0))
+  assert.match(rendered.text, /你此刻：.*期待/)
+  assert.match(rendered.text, /还压着：.*恼怒/, '不弱于主导一半的算"还压着"')
+  assert.match(rendered.text, /很轻但还在：.*高兴/, '不够一半的算余温')
+})
+
+test('渲染：10 分以下不提（免得把真有的那几条稀释掉）', () => {
+  const rendered = renderReminder(withCharge('anger', 8), new Date(T0))
+  assert.match(rendered.text, /没什么起伏/)
+  assert.equal(rendered.text.includes('恼'), false)
+})
+
+test('渲染：每条都带冲谁，冲外面的事也要写出来', () => {
+  const state = apply(
+    createInitialEmotionState(T0),
+    [{ kind: 'fear', delta: 40, target: 'world', cause: '外面太吵' }],
+    T0,
+  )
+  const rendered = renderReminder(state, new Date(T0))
+  assert.match(rendered.text, /对外面的事忧虑/)
+})
+
+test('渲染：签名会随"又冒出一条"变化（否则新的恼意永远不会重新注入）', () => {
+  const base = apply(createInitialEmotionState(T0), [{ kind: 'anticipation', delta: 50 }], T0)
+  const withAnger = apply(base, [{ kind: 'anger', delta: 18 }], T0)
+  const before = renderReminder(base, new Date(T0)).signature
+  const after = renderReminder(withAnger, new Date(T0)).signature
+  assert.notEqual(before, after, '档位没变、但多了一条情绪 —— 这必须算"变了"')
+})
+
+test('渲染：同一种情绪冲几个人只留最强的一条（否则会把名额吃光，挤掉别的情绪）', () => {
+  // 真机 2026-11-25 的原样：三个"期待"（50.3 / 24.4 / 23.6）把 20.8 的恼挤出了注入。
+  const state = apply(
+    createInitialEmotionState(T0),
+    [
+      { kind: 'anticipation', target: 'world', delta: 50, cause: '话头递回来了' },
+      { kind: 'anticipation', target: 'self', delta: 24 },
+      { kind: 'anticipation', target: 'user', delta: 23 },
+      { kind: 'anger', target: 'user', delta: 21, cause: '被晾在这儿' },
+    ],
+    T0,
+  )
+  const rendered = renderReminder(state, new Date(T0))
+  assert.equal(rendered.text.match(/期待/g)?.length, 1, '期待只写一条（最强的那条）')
+  assert.match(rendered.text, /恼/, '恼不能被三条期待挤掉')
+  assert.match(rendered.text, /被晾在这儿/)
+})
+
+test('渲染：最多几条的口径（还压着 2 条、余温 2 条）', () => {
+  const state = apply(
+    createInitialEmotionState(T0),
+    [
+      { kind: 'anticipation', delta: 80, cause: '主导' },
+      { kind: 'anger', delta: 70, cause: '次一' },
+      { kind: 'sadness', delta: 60, cause: '次二' },
+      { kind: 'fear', delta: 55, cause: '次三（不写）' },
+      { kind: 'joy', delta: 12, cause: '余温一' },
+      { kind: 'trust', delta: 11, cause: '余温二' },
+      { kind: 'disgust', delta: 10.5, cause: '余温三（不写）' },
+    ],
+    T0,
+  )
+  const rendered = renderReminder(state, new Date(T0))
+  const secondary = rendered.text.match(/还压着：([^\n]*)/)?.[1] ?? ''
+  assert.equal(secondary.split('；').length, 2, '还压着只写两条')
+  assert.equal(rendered.text.includes('次三'), false)
+  assert.equal(rendered.text.includes('余温三'), false)
+})
+
+
 
 test('渲染：精力低会单独说一句，与情绪无关', () => {
   const tired = { ...createInitialEmotionState(T0), energy: 30 }
