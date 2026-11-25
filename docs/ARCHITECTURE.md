@@ -108,7 +108,7 @@ cwd 就是她的目录 —— **本子写得出去，别处写不出去**。而�
 |---|---|---|
 | 人格、记忆（表） | `$DSH_HOME/storages/humanity.json`（版本化领域 `humanity`） | 领域带**代数**，升级走迁移；逐记录容错（一条坏记录不再拖垮整个领域） |
 | 人格历史 | 同库 `persona_history` | 有保留期，默认 30 天；清理只动这张表 |
-| 她自己的时间（状态、日记、归档） | 同库**文档表**：`humanity-evolution-state` / `humanity-diary` / `humanity-diary-archive` | 整份写回；缺字段回退默认值。⚠️ 状态键**不许**与工作台命名空间同名（`humanity-evolution`），否则投影会把状态覆盖掉 |
+| 她自己的时间（状态、日记、归档、材料本子、投递记录） | 同库**文档表**：`humanity-evolution-state` / `humanity-diary` / `humanity-diary-archive` / `humanity-evolution-notes` / `humanity-evolution-tell` / `humanity-persona-grow` | 整份写回；缺字段回退默认值。⚠️ 状态键**不许**与工作台命名空间同名（`humanity-evolution`），否则投影会把状态覆盖掉 |
 | 她的作品 | `$DSH_HOME/humanity/room/`（她自己的目录） | 不进插件包目录（升级整包替换会删掉）；只读一扇窗，工作台可预览与下载 |
 | 模块开关、记忆策略、调度与预算 | `$DSH_HOME/settings.yaml` 的 `humanity` 段 | 旧数据缺新字段时回退默认值，不炸命名空间注册 |
 
