@@ -6,7 +6,7 @@
  * @module humanity/evolution/state
  */
 import type { DocumentStore } from '../documents.js'
-import { EVOLUTION_DOC_KEY, MIN_GAP_SECONDS, NEXT_MORNING_HOUR, NOTES_DOC_KEY } from './constants.js'
+import { EVOLUTION_DOC_KEY, MIN_GAP_SECONDS, NEXT_MORNING_HOUR, NOTES_DOC_KEY, NOTES_MAX_LINES } from './constants.js'
 
 /** 状态文档的形状。空串/0 是"还没有"的唯一判据，不引入 null。 */
 export interface EvolutionStateDoc {
@@ -152,47 +152,60 @@ export async function saveState(documents: DocumentStore | undefined, state: Evo
   await documents.write(EVOLUTION_DOC_KEY, state)
 }
 
-/** 当天材料的清点（只记"那天记过几行"，材料本身不在这里）。 */
-export interface NotesRecord {
-  /** 属于哪一天（`YYYY-MM-DD`，她的时区；空串 = 还没有记录）。 */
+/**
+ * 当天材料的本子。
+ *
+ * 为什么落盘：材料原来只在内存里，而真机上一天要重启十几次 —— 她明明说过话，
+ * 睡前收账时手上却是空的，于是那一天既没日记也没人知道为什么。落盘之后重启不再丢她的一天。
+ *
+ * 为什么不放进状态文档：状态文档的写者很多（精力、次数、排程），一次并发写入就可能把
+ * 这份还在累积的材料冲掉，而它正是"她这一天"本身。
+ */
+export interface NotesDoc {
+  /** 这些材料属于哪一天（`YYYY-MM-DD`，她的时区；空串 = 本子空着）。 */
   day: string
-  /** 那天记过几行。 */
-  count: number
+  /** 材料（每行一条，新的在后面，最多 `NOTES_MAX_LINES` 行）。 */
+  lines: string[]
   /** 最后一行是什么时候记的（ISO 8601）。 */
   lastAt: string
 }
 
-/** 还没记过任何材料。 */
-export const EMPTY_NOTES: NotesRecord = { day: '', count: 0, lastAt: '' }
+/** 空本子。 */
+export const EMPTY_NOTES: NotesDoc = { day: '', lines: [], lastAt: '' }
 
 /**
- * 读材料清点。
+ * 读材料本子。
  *
- * 它要回答的问题只有一个：**那天到底留下过话没有**。内存里那份材料活不过重启，
- * 没有这个数就永远分不开"她那天没开口"与"材料被重启冲掉了"。
- * @param documents - 文档表句柄；未就绪时按空清点算。
- * @returns 清点（字段逐个兜底）。
+ * 只认 `lines`：0.8.1 曾用 `count` 记"那天记过几行"却不存正文，那一版留下的文档
+ * 读出来是"有日期、没正文" —— 当成空本子更诚实，别拿一个数字冒充材料。
+ * @param documents - 文档表句柄；未就绪时按空本子算。
+ * @returns 本子（没有正文的一律当空）。
  */
-export function readNotesRecord(documents: DocumentStore | undefined): NotesRecord {
+export function readNotes(documents: DocumentStore | undefined): NotesDoc {
   const value = documents?.read(NOTES_DOC_KEY)?.value
   if (typeof value !== 'object' || value === null) return EMPTY_NOTES
-  const raw = value as Partial<Record<keyof NotesRecord, unknown>>
-  const count = typeof raw.count === 'number' && Number.isFinite(raw.count) ? raw.count : 0
+  const raw = value as { day?: unknown; lines?: unknown; lastAt?: unknown }
+  const lines = Array.isArray(raw.lines)
+    ? raw.lines.filter((line): line is string => typeof line === 'string' && line.trim() !== '')
+    : []
+  if (lines.length === 0) {
+    return { day: '', lines: [], lastAt: typeof raw.lastAt === 'string' ? raw.lastAt : '' }
+  }
   return {
     day: typeof raw.day === 'string' ? raw.day : '',
-    count: Math.max(0, Math.trunc(count)),
+    lines: lines.slice(-NOTES_MAX_LINES),
     lastAt: typeof raw.lastAt === 'string' ? raw.lastAt : '',
   }
 }
 
 /**
- * 写材料清点。
+ * 写材料本子。
  * @param documents - 文档表句柄；未就绪时什么也不做。
- * @param record - 完整清点。
+ * @param doc - 完整本子。
  */
-export async function saveNotesRecord(documents: DocumentStore | undefined, record: NotesRecord): Promise<void> {
+export async function saveNotes(documents: DocumentStore | undefined, doc: NotesDoc): Promise<void> {
   if (documents === undefined) return
-  await documents.write(NOTES_DOC_KEY, { day: record.day, count: record.count, lastAt: record.lastAt })
+  await documents.write(NOTES_DOC_KEY, { day: doc.day, lines: [...doc.lines], lastAt: doc.lastAt })
 }
 
 /**

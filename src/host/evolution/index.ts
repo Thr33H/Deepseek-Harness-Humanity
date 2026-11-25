@@ -31,9 +31,9 @@ import {
   afterWake,
   dayKeyOf,
   nextGapSeconds,
-  readNotesRecord,
+  readNotes,
   readState,
-  saveNotesRecord,
+  saveNotes,
   saveState,
   type EvolutionStateDoc,
   type WakeRhythm,
@@ -59,6 +59,7 @@ import {
   BUSY_CHECK_MS,
   BUSY_QUIET_MINUTES,
   MIN_GAP_SECONDS,
+  NOTES_MAX_LINES,
   RETRY_ARM_AFTER_MS,
   SEEN_LIMIT,
   WAKE_MARKER,
@@ -308,77 +309,66 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   let pausedForBusy = false
   /** 她在自己房间里看到的东西（醒来后交给情绪评估）。 */
   let seenBuffer = ''
-  /** 这一天攒下的零散材料（睡前收账用）。 */
-  const dayNotes: string[] = []
   /** 收账正在进行（防同一分钟里两个入口撞车，见 settleDay）。 */
   let settlingDay = false
+  /** 材料写入的排队链（见 `queueNotes`）。 */
+  let notesQueue: Promise<void> = Promise.resolve()
   /** 这一轮醒来她调了几次工具（醒来结算时写进状态并清零）。 */
   let roomToolUses = 0
   /** 上一次自评的结果（写进状态，用来分辨"没感觉"与"这条路坏了"）。 */
   let lastAppraise = ''
-  /** `dayNotes` 属于哪一天（跨午夜要清空，否则两天的话会被写进同一篇日记）。 */
-  let notesDayKey = ''
-  /** 材料清点的内存镜像（`undefined` = 还没从盘里读过）。 */
-  let recordedNotes: { day: string; count: number } | undefined
   /**
    * 本进程起来的时刻。
    *
    * 收账判定要用它说清"那一天在不在这个进程的视野里"：进程比那天晚起来，
-   * 就不能断言"她没开口" —— 中间那段的材料可能已经被重启冲掉了。
+   * 就不能断言"她没开口" —— 那一天的材料也许根本没被记下来。
    */
   const startedAt = new Date().toISOString()
 
   /**
-   * 把"今天记过几行材料"记下来。
+   * 材料写入的排队口。
    *
-   * 材料本身只在内存里（活不过重启），所以至少要留下清点：收账时才能分开
-   * 「她那天没开口」与「材料被重启冲掉了」。它只是证据，不参与任何决定。
-   * @param documents - 文档表。
-   * @param key - 清点属于哪一天。
+   * 材料是"读出来、追加、写回去"，两个事件同时来就会少记一行 —— 而她的一天就是这么丢的。
+   * 串成一条链之后，写入永远按到达顺序一个个落盘。
+   * @param task - 这一次要做的事。
+   * @returns 它自己的结果（失败会抛给调用方，不影响后面排队的那些）。
    */
-  const recordNote = async (documents: DocumentStore, key: string): Promise<void> => {
-    if (recordedNotes === undefined) {
-      const stored = readNotesRecord(documents)
-      recordedNotes = { day: stored.day, count: stored.count }
-    }
-    const next = recordedNotes.day === key
-      ? { day: key, count: recordedNotes.count + 1 }
-      : { day: key, count: 1 }
-    recordedNotes = next
-    await saveNotesRecord(documents, { ...next, lastAt: new Date().toISOString() })
+  const queueNotes = <T>(task: () => Promise<T>): Promise<T> => {
+    const run = notesQueue.then(task, task)
+    notesQueue = run.then(() => undefined, () => undefined)
+    return run
   }
 
   /**
-   * 往当天的材料里加一行。
+   * 往材料本子里加一行。
    *
-   * 跨过午夜就先清空：日记是**一天一篇**，昨天的话不该混进今天的本子。
+   * 跨过午夜就把昨天那批按**昨天**收掉：日记是一天一篇，昨天的话不该混进今天的本子；
+   * 但也**不能清掉就算了** —— 她可能整夜都不够累、也没到次数上限，那一天就既没睡下、
+   * 也没日记（真机 2026-11-24 就是这样丢了一整天的本子）。
    * @param line - 一行材料。
    */
   const pushNote = (line: string): void => {
-    const key = dayKeyOf(new Date().toISOString(), deps.timeZone())
-    if (key !== notesDayKey) {
-      /**
-       * 跨午夜：昨天那批材料要按**昨天**收掉。
-       *
-       * 不然它们只会被清空 —— 她可能整夜都不够累、也没到次数上限，
-       * 那一天就既没睡下、也没日记（真机 2026-11-24 就是这样丢了一整天的本子）。
-       */
-      if (notesDayKey !== '' && dayNotes.length > 0) {
-        const closing = notesDayKey
-        const notes = [...dayNotes]
-        void settleDayFor(closing, new Date().toISOString(), notes).catch((error: unknown) => {
-          log.warn(`跨午夜收账失败（${closing}）`, error)
-        })
+    void queueNotes(async () => {
+      const documents = deps.documents()
+      if (documents === undefined) return
+      const now = new Date().toISOString()
+      const key = dayKeyOf(now, deps.timeZone())
+      const book = readNotes(documents)
+      if (book.day !== key) {
+        // 先快照再换本子：换完之后这份文档就不属于昨天了。
+        if (book.day !== '' && book.lines.length > 0) {
+          const closing = book.day
+          const notes = [...book.lines]
+          void settleDayFor(closing, now, notes).catch((error: unknown) => {
+            log.warn(`跨午夜收账失败（${closing}）`, error)
+          })
+        }
+        await saveNotes(documents, { day: key, lines: [line], lastAt: now })
+        return
       }
-      dayNotes.length = 0
-      notesDayKey = key
-    }
-    dayNotes.push(line)
-    if (dayNotes.length > 40) dayNotes.shift()
-    const documents = deps.documents()
-    if (documents !== undefined) {
-      void recordNote(documents, key).catch((error: unknown) => log.warn('没能记下今天有几行材料', error))
-    }
+      const lines = [...book.lines, line].slice(-NOTES_MAX_LINES)
+      await saveNotes(documents, { day: key, lines, lastAt: now })
+    }).catch((error: unknown) => log.warn('没能记下这一行材料（这一天会少一行）', error))
   }
   /** 后台模型调用口（收账用）。 */
   const llm = createLlmAccess(ctx, log)
@@ -872,13 +862,11 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     const documents = deps.documents()
     if (documents === undefined) return
     const timeZone = deps.timeZone()
-    const record = readNotesRecord(documents)
+    const book = readNotes(documents)
     const plan = decideSettle({
       today: dayKeyOf(at, timeZone),
-      notesDay: notesDayKey,
-      notesCount: dayNotes.length,
-      recordedDay: record.day,
-      recordedCount: record.count,
+      notesDay: book.day,
+      notesCount: book.lines.length,
       writtenDates: readDiary(documents).map((entry) => entry.date),
       startedAt,
       startedDay: dayKeyOf(startedAt, timeZone),
@@ -889,7 +877,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       await noteSettleError(documents, plan.reason)
       return
     }
-    await settleDayFor(plan.date, at, [...dayNotes])
+    await settleDayFor(plan.date, at, [...book.lines])
   }
 
   /**
@@ -934,22 +922,16 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     // 她自己的一份副本：设计里"回头重读那一天"要有可读的东西，而她只能读自己的目录。
     await writeOwnFile(roomDeps, `diary-${date}.md`, `# ${date}\n\n${parsed.diary}\n`)
     /**
-     * 只清"手上这批确实属于那一天"的材料。
+     * 本子只在"它仍然是那一天"时清空。
      *
      * 跨午夜收昨天的时候，昨天的收账是异步跑的，而今天的第一行材料可能已经进来了 ——
      * 无条件清空会把它连昨天的一起抹掉（收昨天、丢今天）。
      */
-    if (notesDayKey === date) {
-      dayNotes.length = 0
-      notesDayKey = ''
-    }
-    // 清点同理：不清的话，下一次会把"这一天已经收过了"读成"材料丢了"。
-    if (readNotesRecord(documents).day === date) {
-      recordedNotes = { day: '', count: 0 }
+    if (readNotes(documents).day === date) {
       try {
-        await saveNotesRecord(documents, { day: '', count: 0, lastAt: '' })
+        await saveNotes(documents, { day: '', lines: [], lastAt: '' })
       } catch (error) {
-        log.warn(`收账后没能清掉材料清点（${date}）`, error)
+        log.warn(`收账后没能清空材料本子（${date}）`, error)
       }
     }
     await noteSettleError(documents, '')

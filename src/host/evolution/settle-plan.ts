@@ -12,9 +12,12 @@
  * 1. **材料跟着它自己的那一天走**：手上是昨天的材料，就收昨天（跨午夜的正常情况），
  *    绝不因为"现在不是那天"把它丢掉；
  * 2. **一天只有一篇**：那一天已经有日记，就不是错误，安静跳过；
- * 3. **没有材料时必须说清是哪一种"没有"**：是她那天没开口、是清点里记过但手上空了
- *    （材料活不过重启）、还是这份清点之前的事看不出来。三种说法绝不能混成一句 ——
- *    混了就等于让外面的人拿一条错的原因去查一个不存在的毛病。
+ * 3. **没有材料时必须说清是哪一种"没有"**：是她那天真的没开口，还是这份记录开始
+ *    之前的事看不出来。两种说法不能混成一句 —— 混了就等于让人拿一条错的原因
+ *    去查一个不存在的毛病。
+ *
+ * 材料从 0.8.2 起随本子一起落盘（见 `state.ts` 的 `NotesDoc`），所以"记过、却读不到
+ * 正文"这种状态不再存在：本子里有几行就是几行，重启也还在。
  * @module humanity/evolution/settle-plan
  */
 
@@ -22,14 +25,10 @@
 export interface SettleFacts {
   /** 现在按哪一天算（她的时区，`YYYY-MM-DD`；空串 = 算不出来）。 */
   today: string
-  /** 手上那批材料属于哪一天（空串 = 手上没有材料）。 */
+  /** 手上的材料属于哪一天（空串 = 本子是空的）。 */
   notesDay: string
-  /** 手上握着几行材料。 */
+  /** 手上有几行材料。 */
   notesCount: number
-  /** 落盘清点：最近一次记材料是哪一天（空串 = 从来没记过）。 */
-  recordedDay: string
-  /** 落盘清点：那一天一共记过几行。 */
-  recordedCount: number
   /** 已经写过日记的日期。 */
   writtenDates: readonly string[]
   /** 本进程起来的时刻（ISO 8601）。 */
@@ -72,9 +71,9 @@ export function momentText(iso: string, timeZone?: string): string {
 /**
  * 没有材料时该怎么说。
  *
- * 三种情形各有各的证据，不许互相顶替：
- * - **清点里记过、手上没有** ⇒ 材料被重启冲掉了（有证据，可以直说）；
- * - **清点里没有、但这个进程那天之前就活着** ⇒ 她那天确实没开口（这一天全在本进程的视野里）；
+ * 两种情形各有各的证据，不许互相顶替：
+ * - **本子是空的、但这个进程在那天之前就活着** ⇒ 她那天确实没开口
+ *   （那一天全在本进程的视野里，材料不会漏记）；
  * - **其余** ⇒ 看不出来，只能如实说看不出来。
  * @param facts - 判定事实。
  * @param notesDate - 手上材料所属的日期（空串 = 没有）。
@@ -83,18 +82,13 @@ export function momentText(iso: string, timeZone?: string): string {
 function noMaterialReason(facts: SettleFacts, notesDate: string): string {
   const date = facts.today
   if (notesDate !== '' && notesDate !== date) {
-    return `${date} 没有可收的材料：手上那批是 ${notesDate} 的，那天的日记已经写过了`
+    return `${date} 没有可收的材料：本子里那几行是 ${notesDate} 的，那天的日记已经写过了`
   }
   const started = momentText(facts.startedAt, facts.timeZone)
-  if (facts.recordedDay === date && facts.recordedCount > 0) {
-    return `${date} 记过 ${facts.recordedCount} 行材料，收账时手上却是空的 —— `
-      + `材料只活在内存里，进程重启就会把它们冲掉（这个进程是 ${started} 起来的）`
-  }
   if (facts.startedDay !== '' && facts.startedDay < date) {
     return `${date} 没有材料：她这一天没在房间里说过话，也没调用过工具`
   }
-  return `${date} 没有材料。这份清点是 ${started} 才开始的，那之前她有没有留下话看不出来 —— `
-    + `也可能是重启冲掉了（材料只活在内存里）`
+  return `${date} 没有材料。这份本子是 ${started} 才开始记的，那之前她有没有留下话看不出来`
 }
 
 /**
@@ -111,7 +105,7 @@ export function decideSettle(facts: SettleFacts): SettlePlan {
   if (notesDate !== '' && !facts.writtenDates.includes(notesDate)) {
     return { kind: 'write', date: notesDate }
   }
-  // 2. 那一天已经写过（或者手上本来就没有材料）：看今天。
+  // 2. 那一天已经写过（或者本子本来就是空的）：看今天。
   if (facts.writtenDates.includes(facts.today)) return { kind: 'done' }
   return { kind: 'cannot', reason: noMaterialReason(facts, notesDate) }
 }
