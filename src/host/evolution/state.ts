@@ -6,7 +6,14 @@
  * @module humanity/evolution/state
  */
 import type { DocumentStore } from '../documents.js'
-import { EVOLUTION_DOC_KEY, MIN_GAP_SECONDS, NEXT_MORNING_HOUR, NOTES_DOC_KEY, NOTES_MAX_LINES } from './constants.js'
+import {
+  EVOLUTION_DOC_KEY,
+  MIN_GAP_SECONDS,
+  NEXT_MORNING_HOUR,
+  NOTES_DOC_KEY,
+  NOTES_MAX_LINES,
+  TALK_MAX_LINES,
+} from './constants.js'
 
 /** 状态文档的形状。空串/0 是"还没有"的唯一判据，不引入 null。 */
 export interface EvolutionStateDoc {
@@ -158,42 +165,59 @@ export async function saveState(documents: DocumentStore | undefined, state: Evo
  * 为什么落盘：材料原来只在内存里，而真机上一天要重启十几次 —— 她明明说过话，
  * 睡前收账时手上却是空的，于是那一天既没日记也没人知道为什么。落盘之后重启不再丢她的一天。
  *
- * 为什么不放进状态文档：状态文档的写者很多（精力、次数、排程），一次并发写入就可能把
- * 这份还在累积的材料冲掉，而它正是"她这一天"本身。
+ * 为什么分两栏：**她自己的时间**（她在房间里说的话、看到的东西）与**你们的对话**
+ * （沉浸会话里两个人这一天说过的话）是两种材料。日记写的是"她这一天"，两栏都要进；
+ * 但分开存，才能说清"这一天她有没有自己的时间"，也才好控制两边各占多少。
  */
 export interface NotesDoc {
   /** 这些材料属于哪一天（`YYYY-MM-DD`，她的时区；空串 = 本子空着）。 */
   day: string
-  /** 材料（每行一条，新的在后面，最多 `NOTES_MAX_LINES` 行）。 */
-  lines: string[]
-  /** 最后一行是什么时候记的（ISO 8601）。 */
+  /** 她自己的时间：她在房间里说过的话、看到的东西。 */
+  hers: string[]
+  /** 你们的对话：沉浸会话里这一天说过的话（她那一侧与对方那一侧）。 */
+  talk: string[]
+  /** 最后一笔材料是什么时候记的（ISO 8601）。 */
   lastAt: string
 }
 
 /** 空本子。 */
-export const EMPTY_NOTES: NotesDoc = { day: '', lines: [], lastAt: '' }
+export const EMPTY_NOTES: NotesDoc = { day: '', hers: [], talk: [], lastAt: '' }
+
+/** 一行材料都还没记。 */
+export function isEmptyNotes(notes: NotesDoc): boolean {
+  return notes.hers.length === 0 && notes.talk.length === 0
+}
+
+/** 两栏加起来几行（判"有没有材料"只看这个数）。 */
+export function noteCountOf(notes: NotesDoc): number {
+  return notes.hers.length + notes.talk.length
+}
 
 /**
  * 读材料本子。
  *
- * 只认 `lines`：0.8.1 曾用 `count` 记"那天记过几行"却不存正文，那一版留下的文档
- * 读出来是"有日期、没正文" —— 当成空本子更诚实，别拿一个数字冒充材料。
+ * 兼容两种旧形状：0.8.1 的 `{ day, count }`（只有条数、没有正文）读成空本子 ——
+ * 不拿一个数字冒充材料；0.8.2 的 `{ day, lines }` 读成"她自己的时间"那一栏。
  * @param documents - 文档表句柄；未就绪时按空本子算。
  * @returns 本子（没有正文的一律当空）。
  */
 export function readNotes(documents: DocumentStore | undefined): NotesDoc {
   const value = documents?.read(NOTES_DOC_KEY)?.value
   if (typeof value !== 'object' || value === null) return EMPTY_NOTES
-  const raw = value as { day?: unknown; lines?: unknown; lastAt?: unknown }
-  const lines = Array.isArray(raw.lines)
-    ? raw.lines.filter((line): line is string => typeof line === 'string' && line.trim() !== '')
-    : []
-  if (lines.length === 0) {
-    return { day: '', lines: [], lastAt: typeof raw.lastAt === 'string' ? raw.lastAt : '' }
+  const raw = value as { day?: unknown; hers?: unknown; talk?: unknown; lines?: unknown; lastAt?: unknown }
+  const text = (candidate: unknown): string[] =>
+    Array.isArray(candidate)
+      ? candidate.filter((line): line is string => typeof line === 'string' && line.trim() !== '')
+      : []
+  const hers = text(raw.hers ?? raw.lines).slice(-NOTES_MAX_LINES)
+  const talk = text(raw.talk).slice(-TALK_MAX_LINES)
+  if (hers.length === 0 && talk.length === 0) {
+    return { day: '', hers: [], talk: [], lastAt: typeof raw.lastAt === 'string' ? raw.lastAt : '' }
   }
   return {
     day: typeof raw.day === 'string' ? raw.day : '',
-    lines: lines.slice(-NOTES_MAX_LINES),
+    hers,
+    talk,
     lastAt: typeof raw.lastAt === 'string' ? raw.lastAt : '',
   }
 }
@@ -205,7 +229,12 @@ export function readNotes(documents: DocumentStore | undefined): NotesDoc {
  */
 export async function saveNotes(documents: DocumentStore | undefined, doc: NotesDoc): Promise<void> {
   if (documents === undefined) return
-  await documents.write(NOTES_DOC_KEY, { day: doc.day, lines: [...doc.lines], lastAt: doc.lastAt })
+  await documents.write(NOTES_DOC_KEY, {
+    day: doc.day,
+    hers: [...doc.hers],
+    talk: [...doc.talk],
+    lastAt: doc.lastAt,
+  })
 }
 
 /**

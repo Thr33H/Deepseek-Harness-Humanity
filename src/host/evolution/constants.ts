@@ -24,12 +24,24 @@ export const EVOLUTION_DOC_KEY = 'humanity-evolution-state'
 export const NOTES_DOC_KEY = 'humanity-evolution-notes'
 
 /**
- * 材料本子最多留多少行。
+ * 她自己的时间那一栏最多留多少行。
  *
  * 一天醒 8 次、每次几句，几十行足够；上限的意义是"这篇日记写的是这一天的近况"，
  * 不是把她一整天说的话原样搬进提示词。
  */
 export const NOTES_MAX_LINES = 40
+
+/**
+ * 你们的对话那一栏最多留多少行。
+ *
+ * 一行是"一句话"（她说或他说），所以 60 行大约是一个晚上的来回。为什么不更多：
+ * 日记要的是"这一天发生了什么"，不是把聊天记录搬进提示词 —— 材料越多，
+ * 写出来的越像流水账。
+ */
+export const TALK_MAX_LINES = 60
+
+/** 对话里每一句最多留多少字（留得住意思，又不会一句话占满一整段）。 */
+export const TALK_LINE_CHARS = 120
 
 /** 她的房间在 `$DSH_HOME` 下的相对路径：她写的东西、以后的作品都落在这儿。 */
 export const ROOM_DIR = 'humanity/room'

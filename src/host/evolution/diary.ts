@@ -111,28 +111,48 @@ export interface DiaryResult {
 
 /** 收账的系统提示。 */
 const DIARY_SYSTEM = [
-  '你在替一个人整理她自己的一天。材料只来自她自己在自己房间里做过、看到的事。',
+  '你在替一个人整理她自己的一天，写成她自己的日记。',
+  '材料有两栏：【她自己那段时间】——她在自己房间里做了什么、看到什么、说过什么；',
+  '【你们这一天】——她和他这一天说过的话（`他说：` 是他说的，`她说：` 是她说的）。',
   '输出一个 JSON 对象，不要解释、不要 Markdown 代码块：',
   '{"diary":"第一人称的日记，150–400 字","memories":[{"what":"一句话，第一人称","about":"self|world|us|user"}]}',
   '',
   '要求：',
-  '- 日记用**她自己的口气**写（第一人称），写这一天她干了什么、看到什么、心里怎么想；',
-  '- 不要写成流水账，也不要写成给别人看的汇报 —— 这是她自己的本子；',
+  '- 日记写的是**这一天的日子**：她做了什么、看到什么、心里怎么想，以及她和他之间发生了什么；',
+  '- 用**她自己的口气**（第一人称），不是旁白、不是汇报；',
+  '- 两栏都要照顾到：不能只写她自己的时间，也不能整篇都在写他 —— 他是这一天的一部分，不是这一天的全部；',
+  '- 对话不要照抄成流水账，只写"她对哪几句有反应、那几句话让她怎么想"；',
   '- memories 只挑 **1–3 件**真正值得记住的具体事；没有就给空数组；',
   '- about：self=关于她自己、world=关于外面的事、us=关于她和对方、user=关于对方；',
   '- 材料里没有的东西一律不编。',
 ].join('\n')
 
+/** 收账喂进去的材料（两栏分开给，才看得清哪一栏空了）。 */
+export interface DayMaterial {
+  /** 她自己的时间。 */
+  hers: readonly string[]
+  /** 你们这一天说过的话。 */
+  talk: readonly string[]
+}
+
 /**
  * 造收账的调用输入。
- * @param notes - 这一天的零散材料（每行一条）。
+ * @param material - 这一天的两栏材料。
  * @param date - 哪一天。
  * @returns 系统段与用户段。
  */
-export function buildDiaryPrompt(notes: readonly string[], date: string): { system: string; text: string } {
+export function buildDiaryPrompt(material: DayMaterial, date: string): { system: string; text: string } {
+  const section = (title: string, lines: readonly string[], empty: string): string[] =>
+    lines.length === 0 ? [`【${title}】`, empty] : [`【${title}】`, ...lines.map((line) => `- ${line}`)]
   return {
     system: DIARY_SYSTEM,
-    text: [`今天是 ${date}。这是这一天的零散记录（她说过的话、她看到的东西）：`, '', ...notes].join('\n'),
+    text: [
+      `今天是 ${date}。`,
+      '',
+      ...section('她自己那段时间', material.hers, '（这一天她没有自己的时间）'),
+      '',
+      ...section('你们这一天', material.talk, '（这一天你们没有说过话）'),
+    ].join('\n'),
   }
 }
 

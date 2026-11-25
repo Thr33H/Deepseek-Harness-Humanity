@@ -16,8 +16,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { NOTES_DOC_KEY, NOTES_MAX_LINES } from '../lib/evolution/constants.js'
-import { readNotes, saveNotes } from '../lib/evolution/state.js'
+import { NOTES_DOC_KEY, NOTES_MAX_LINES, TALK_MAX_LINES } from '../lib/evolution/constants.js'
+import { isEmptyNotes, noteCountOf, readNotes, saveNotes } from '../lib/evolution/state.js'
 import { decideSettle, momentText } from '../lib/evolution/settle-plan.js'
 
 /** 只支持读写文档的假文档表。 */
@@ -88,7 +88,8 @@ test('收账判定：今天已经写过，安静跳过（不算错误）', () =>
 test('收账判定：本子空的、进程那天之前就活着 ⇒ 才能说她那天没开口', () => {
   const plan = decideSettle(facts({ startedDay: '2026-11-20' }))
   assert.equal(plan.kind, 'cannot')
-  assert.match(plan.reason, /没在房间里说过话/)
+  assert.match(plan.reason, /没在自己房间里留下话/)
+  assert.match(plan.reason, /没跟他说过话/)
 })
 
 test('收账判定：进程是当天才起来的 ⇒ 只能说看不出来，不许冒充结论', () => {
@@ -120,25 +121,38 @@ test('收账判定：时刻按她的时区写成"几号几点"', () => {
   assert.match(momentText('2026-11-25T01:30:00.000Z', 'Not/AZone'), /^\d{2}-\d{2} \d{2}:\d{2}$/)
 })
 
-test('材料本子：存进去的正文能原样读回来（重启也不丢）', async () => {
+test('材料本子：两栏（她自己的时间 / 你们的对话）分开存，重启也读得回来', async () => {
   const documents = fakeDocuments()
   await saveNotes(documents, {
     day: '2026-11-25',
-    lines: ['她说：今天去查了潮汐', '看到：月球引力一天两次'],
+    hers: ['她说：今天去查了潮汐', '看到：月球引力一天两次'],
+    talk: ['他说：晚上想吃什么', '她说：糖葫芦'],
     lastAt: '2026-11-25T03:00:00.000Z',
   })
   const book = readNotes(documents)
   assert.equal(book.day, '2026-11-25')
-  assert.deepEqual(book.lines, ['她说：今天去查了潮汐', '看到：月球引力一天两次'])
+  assert.deepEqual(book.hers, ['她说：今天去查了潮汐', '看到：月球引力一天两次'])
+  assert.deepEqual(book.talk, ['他说：晚上想吃什么', '她说：糖葫芦'])
+  assert.equal(noteCountOf(book), 4, '两栏加起来才是"这一天有几行材料"')
+  assert.equal(isEmptyNotes(book), false)
 })
 
-test('材料本子：只留最近 40 行，旧的不再参与这一天的日记', async () => {
+test('材料本子：她那一栏只留最近 40 行，旧的滚出去', async () => {
   const documents = fakeDocuments()
   const many = Array.from({ length: NOTES_MAX_LINES + 7 }, (_, index) => `第 ${index} 行`)
-  await saveNotes(documents, { day: '2026-11-25', lines: many, lastAt: '' })
+  await saveNotes(documents, { day: '2026-11-25', hers: many, talk: [], lastAt: '' })
   const book = readNotes(documents)
-  assert.equal(book.lines.length, NOTES_MAX_LINES)
-  assert.equal(book.lines[book.lines.length - 1], `第 ${NOTES_MAX_LINES + 6} 行`)
+  assert.equal(book.hers.length, NOTES_MAX_LINES)
+  assert.equal(book.hers[book.hers.length - 1], `第 ${NOTES_MAX_LINES + 6} 行`)
+})
+
+test('材料本子：对话那一栏有自己的上限（60 行），不挤占她那一栏', async () => {
+  const documents = fakeDocuments()
+  const many = Array.from({ length: TALK_MAX_LINES + 5 }, (_, index) => `他说：第 ${index} 句`)
+  await saveNotes(documents, { day: '2026-11-25', hers: ['她说：一句'], talk: many, lastAt: '' })
+  const book = readNotes(documents)
+  assert.equal(book.talk.length, TALK_MAX_LINES)
+  assert.deepEqual(book.hers, ['她说：一句'])
 })
 
 test('材料本子：老版本"只有条数、没有正文"的文档当成空本子', () => {
@@ -147,17 +161,36 @@ test('材料本子：老版本"只有条数、没有正文"的文档当成空本
   })
   const book = readNotes(documents)
   assert.equal(book.day, '')
-  assert.deepEqual(book.lines, [])
+  assert.deepEqual(book.hers, [])
+  assert.deepEqual(book.talk, [])
+})
+
+test('材料本子：上一版的 lines 读成她那一栏（不丢已有材料）', () => {
+  const documents = fakeDocuments({
+    [NOTES_DOC_KEY]: { day: '2026-11-25', lines: ['她说：旧的'], lastAt: '' },
+  })
+  const book = readNotes(documents)
+  assert.equal(book.day, '2026-11-25')
+  assert.deepEqual(book.hers, ['她说：旧的'])
+  assert.deepEqual(book.talk, [])
 })
 
 test('材料本子：空白与非字符串的行不进来（别拿噪声写她的日记）', () => {
   const documents = fakeDocuments({
-    [NOTES_DOC_KEY]: { day: '2026-11-25', lines: ['真的', '   ', 42, '', '也算真的'], lastAt: '' },
+    [NOTES_DOC_KEY]: {
+      day: '2026-11-25',
+      hers: ['真的', '   ', 42, '', '也算真的'],
+      talk: ['他说：在吗', null],
+      lastAt: '',
+    },
   })
-  assert.deepEqual(readNotes(documents).lines, ['真的', '也算真的'])
+  const book = readNotes(documents)
+  assert.deepEqual(book.hers, ['真的', '也算真的'])
+  assert.deepEqual(book.talk, ['他说：在吗'])
 })
 
 test('材料本子：什么都没存过时读成空本子（不炸）', () => {
-  assert.deepEqual(readNotes(fakeDocuments()), { day: '', lines: [], lastAt: '' })
-  assert.deepEqual(readNotes(undefined), { day: '', lines: [], lastAt: '' })
+  assert.deepEqual(readNotes(fakeDocuments()), { day: '', hers: [], talk: [], lastAt: '' })
+  assert.deepEqual(readNotes(undefined), { day: '', hers: [], talk: [], lastAt: '' })
+  assert.equal(isEmptyNotes(readNotes(undefined)), true)
 })

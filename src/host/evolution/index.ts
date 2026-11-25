@@ -23,13 +23,16 @@ import type { Context } from '@deepseek-ai/cordis'
 
 import type { DocumentStore } from '../documents.js'
 import { createLlmAccess } from '../llm.js'
-import { appendDiary, buildDiaryPrompt, parseDiary, readDiary, type DiaryEntry } from './diary.js'
+import { appendDiary, buildDiaryPrompt, parseDiary, readDiary, type DayMaterial, type DiaryEntry } from './diary.js'
 import { settleWakeState, sleepGapSeconds } from './lifecycle.js'
 import { installEvolutionSection } from './section.js'
 import type { Log } from '../log.js'
 import {
   afterWake,
   dayKeyOf,
+  EMPTY_NOTES,
+  isEmptyNotes,
+  noteCountOf,
   nextGapSeconds,
   readNotes,
   readState,
@@ -62,8 +65,12 @@ import {
   NOTES_MAX_LINES,
   RETRY_ARM_AFTER_MS,
   SEEN_LIMIT,
+  TALK_LINE_CHARS,
+  TALK_MAX_LINES,
   WAKE_MARKER,
 } from './constants.js'
+import { presetOfAgent } from '../agent-scope.js'
+import { HUMANITY_PRESET_ID } from '../presets.js'
 import {
   drainPoints,
   minutesToWake,
@@ -145,6 +152,30 @@ function textOf(message: unknown): string {
       return candidate?.type === 'text' && typeof candidate.text === 'string' ? candidate.text : ''
     })
     .join('\n')
+}
+
+/** 材料本子的两栏：她自己的时间 / 你们的对话。 */
+type NoteColumn = 'hers' | 'talk'
+
+/**
+ * 这条消息是不是"他说的"。
+ *
+ * 为什么还要看 `source.kind`：同一轮里还会带上 DSH 的运行环境说明、时间注入、
+ * 以及我们自己注入的人格/情绪段 —— 它们不是"他说的"。把它们当对话收进去，
+ * 日记就会开始复述系统的说明书。
+ * @param message - 消息对象。
+ * @returns 正文；不是用户消息时为空串。
+ */
+function userSaidOf(message: unknown): string {
+  const source = (message as { source?: { kind?: unknown } } | undefined)?.source
+  if (source?.kind !== 'user') return ''
+  return textOf(message)
+}
+
+/** 一句话截到固定长度（材料是摘要，不是存档）。 */
+function clip(text: string, limit: number): string {
+  const clean = text.replace(/\s+/g, ' ').trim()
+  return clean.length <= limit ? clean : clean.slice(0, limit)
 }
 
 /** 这条消息是不是"她自己的时间"那一条（导出给测试：醒来判据写错会让你的提醒也算她醒来）。 */
@@ -340,36 +371,47 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   }
 
   /**
-   * 往材料本子里加一行。
+   * 往材料本子的某一栏里加一行。
    *
    * 跨过午夜就把昨天那批按**昨天**收掉：日记是一天一篇，昨天的话不该混进今天的本子；
    * 但也**不能清掉就算了** —— 她可能整夜都不够累、也没到次数上限，那一天就既没睡下、
    * 也没日记（真机 2026-11-24 就是这样丢了一整天的本子）。
+   * @param column - 哪一栏。
    * @param line - 一行材料。
    */
-  const pushNote = (line: string): void => {
+  const appendNote = (column: NoteColumn, line: string): void => {
     void queueNotes(async () => {
       const documents = deps.documents()
       if (documents === undefined) return
       const now = new Date().toISOString()
       const key = dayKeyOf(now, deps.timeZone())
       const book = readNotes(documents)
-      if (book.day !== key) {
-        // 先快照再换本子：换完之后这份文档就不属于昨天了。
-        if (book.day !== '' && book.lines.length > 0) {
-          const closing = book.day
-          const notes = [...book.lines]
-          void settleDayFor(closing, now, notes).catch((error: unknown) => {
-            log.warn(`跨午夜收账失败（${closing}）`, error)
-          })
-        }
-        await saveNotes(documents, { day: key, lines: [line], lastAt: now })
-        return
+      const sameDay = book.day === key
+      // 先快照再换本子：换完之后这份文档就不属于昨天了。
+      if (!sameDay && book.day !== '' && !isEmptyNotes(book)) {
+        const closing = book.day
+        const material: DayMaterial = { hers: [...book.hers], talk: [...book.talk] }
+        void settleDayFor(closing, now, material).catch((error: unknown) => {
+          log.warn(`跨午夜收账失败（${closing}）`, error)
+        })
       }
-      const lines = [...book.lines, line].slice(-NOTES_MAX_LINES)
-      await saveNotes(documents, { day: key, lines, lastAt: now })
-    }).catch((error: unknown) => log.warn('没能记下这一行材料（这一天会少一行）', error))
+      const limit = column === 'hers' ? NOTES_MAX_LINES : TALK_MAX_LINES
+      // 换天了就从空本子起：昨天那批已经交给收账了，不该混进今天。
+      const base = sameDay ? book : EMPTY_NOTES
+      const kept = [...base[column], line].slice(-limit)
+      await saveNotes(documents, {
+        day: key,
+        hers: column === 'hers' ? kept : [...base.hers],
+        talk: column === 'talk' ? kept : [...base.talk],
+        lastAt: now,
+      })
+    }).catch((error: unknown) => log.warn(`没能记下这一行材料（${column}）`, error))
   }
+
+  /** 她自己的时间（房间里说的话、看到的东西）。 */
+  const pushHers = (line: string): void => appendNote('hers', line)
+  /** 你们的对话（沉浸会话里这一天说过的话）。 */
+  const pushTalk = (line: string): void => appendNote('talk', line)
   /** 后台模型调用口（收账用）。 */
   const llm = createLlmAccess(ctx, log)
   /** 还没落盘的 token 消耗（攒成一次写入）。 */
@@ -691,6 +733,22 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     }, 30_000)
   }
 
+  /**
+   * 这个会话是不是"她"的沉浸会话 —— 也就是你们的对话。
+   *
+   * 判据是**此刻实际跑着的预设**（会话投影优先、会话头兜底，见 `presetOfAgent`），
+   * 不是"是不是主会话"：你在别的会话里干的活不该进她的日记，更不该变成她对自己的认识。
+   * 她自己的房间要排掉 —— 那一栏另有归属（她自己那段时间）。
+   * @param session - 事件带的会话对象。
+   * @param sessionId - 会话 id。
+   * @param roomSessionId - 她房间的会话 id。
+   * @returns 是的话为 `true`。
+   */
+  const isTalkSession = (session: unknown, sessionId: string, roomSessionId: string): boolean => {
+    if (sessionId === '' || sessionId === roomSessionId) return false
+    return presetOfAgent({ session }, ctx) === HUMANITY_PRESET_ID
+  }
+
   /** 每一条助手消息都带用量：订阅它，就不必去翻会话文件。 */
   const onEvent = ctx.on as unknown as (
     name: string,
@@ -729,8 +787,21 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
           const text = toolTextOf(event)
           if (text.trim() !== '') {
             seenBuffer = `${seenBuffer}\n${text}`.slice(-SEEN_LIMIT)
-            pushNote(`看到：${text.replace(/\s+/g, ' ').trim().slice(0, 120)}`)
+            pushHers(`看到：${text.replace(/\s+/g, ' ').trim().slice(0, 120)}`)
           }
+        }
+        return
+      }
+      /**
+       * 他说的那句话：进"你们的对话"那一栏。
+       *
+       * 只认**沉浸会话**（跑着 Humanity 预设的会话）：你别的会话里干的活不该被写进她的日记，
+       * 更不该变成她对自己的认识。她自己的房间另算，它走上面`tool/result`那一条。
+       */
+      if (typed?.type === 'user/message') {
+        if (isTalkSession(session, sessionId, roomSessionId)) {
+          const said = userSaidOf(typed.data?.message)
+          if (said !== '') pushTalk(`他说：${clip(said, TALK_LINE_CHARS)}`)
         }
         return
       }
@@ -749,10 +820,9 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         const said = continuityOf(textOf(typed.data?.message))
         if (sessionId !== '' && said !== '') {
           lastSaid.set(sessionId, said)
-          // 她这一天说过的话也要进收账的材料（只收她房间里的）。
-          if (sessionId === roomSessionId) {
-            pushNote(`她说：${said}`)
-          }
+          // 收账的材料：房间里的是"她自己的时间"，别处的是"你们的对话"。
+          if (sessionId === roomSessionId) pushHers(`她说：${said}`)
+          else if (isTalkSession(session, sessionId, roomSessionId)) pushTalk(`她说：${clip(said, TALK_LINE_CHARS)}`)
         }
       }
       if (typed?.type !== 'assistant/message') return
@@ -826,9 +896,9 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
    * 结果日记是空的，而错误字段也是空的 —— 说明它在某个"静默提前返回"里退出了。
    * @param date - 哪一天（YYYY-MM-DD）。
    * @param at - 拿什么时刻当"写下来的时刻"。
-   * @param notes - 那天的材料（调用方给快照，避免被清空影响）。
+   * @param material - 那天的两栏材料（调用方给快照，避免被清空影响）。
    */
-  const settleDayFor = async (date: string, at: string, notes: readonly string[]): Promise<void> => {
+  const settleDayFor = async (date: string, at: string, material: DayMaterial): Promise<void> => {
     const documents = deps.documents()
     if (documents === undefined) return
     /**
@@ -844,7 +914,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     }
     settlingDay = true
     try {
-      await settleDayOnce(date, at, notes)
+      await settleDayOnce(date, at, material)
     } finally {
       settlingDay = false
     }
@@ -866,7 +936,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     const plan = decideSettle({
       today: dayKeyOf(at, timeZone),
       notesDay: book.day,
-      notesCount: book.lines.length,
+      notesCount: noteCountOf(book),
       writtenDates: readDiary(documents).map((entry) => entry.date),
       startedAt,
       startedDay: dayKeyOf(startedAt, timeZone),
@@ -877,16 +947,16 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       await noteSettleError(documents, plan.reason)
       return
     }
-    await settleDayFor(plan.date, at, [...book.lines])
+    await settleDayFor(plan.date, at, { hers: [...book.hers], talk: [...book.talk] })
   }
 
   /**
    * 收账的实体（只由 `settleDayFor` 调用一次）。
    * @param date - 哪一天。
    * @param at - 写下来的时刻。
-   * @param notes - 那天的材料。
+   * @param material - 那天的两栏材料。
    */
-  const settleDayOnce = async (date: string, at: string, notes: readonly string[]): Promise<void> => {
+  const settleDayOnce = async (date: string, at: string, material: DayMaterial): Promise<void> => {
     const documents = deps.documents()
     if (documents === undefined) return
     /**
@@ -898,7 +968,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
      * 「有没有材料」已经由 `decideSettle` 判定并留了原因（见 `settleDay`），
      * 这里只保留兜底：真走到这一步还没有材料，说明调用方绕过了判定。
      */
-    if (notes.length === 0) {
+    if (material.hers.length === 0 && material.talk.length === 0) {
       await noteSettleError(documents, `${date} 没有材料：这次收账没有带上任何一行（调用方绕过了判定）`)
       return
     }
@@ -909,7 +979,10 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       await noteSettleError(documents, '没有可用的模型，这一天没有写成日记')
       return
     }
-    const { system, text } = buildDiaryPrompt(notes.slice(-40), date)
+    const { system, text } = buildDiaryPrompt({
+      hers: material.hers.slice(-NOTES_MAX_LINES),
+      talk: material.talk.slice(-TALK_MAX_LINES),
+    }, date)
     const result = await llm.streamText({ route, system, text, maxTokens: 1200, timeoutMs: 60_000 })
     const parsed = parseDiary(result.text)
     if (parsed === undefined) {
@@ -929,7 +1002,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
      */
     if (readNotes(documents).day === date) {
       try {
-        await saveNotes(documents, { day: '', lines: [], lastAt: '' })
+        await saveNotes(documents, { day: '', hers: [], talk: [], lastAt: '' })
       } catch (error) {
         log.warn(`收账后没能清空材料本子（${date}）`, error)
       }

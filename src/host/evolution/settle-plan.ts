@@ -86,7 +86,7 @@ function noMaterialReason(facts: SettleFacts, notesDate: string): string {
   }
   const started = momentText(facts.startedAt, facts.timeZone)
   if (facts.startedDay !== '' && facts.startedDay < date) {
-    return `${date} 没有材料：她这一天没在房间里说过话，也没调用过工具`
+    return `${date} 没有材料：她这一天既没在自己房间里留下话，也没跟他说过话`
   }
   return `${date} 没有材料。这份本子是 ${started} 才开始记的，那之前她有没有留下话看不出来`
 }

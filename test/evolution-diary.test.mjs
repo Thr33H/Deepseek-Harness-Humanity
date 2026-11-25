@@ -74,13 +74,28 @@ test('日记：读不到 / 形状坏掉时当作没有（不抛）', () => {
   )
 })
 
-test('收账输入：要带上日期与材料，并写清"不编"', () => {
-  const { system, text } = buildDiaryPrompt(['她说：今天看了潮汐', '看到：月球引力'], '2026-11-24')
+test('收账输入：两栏材料分开给，并写清"不编"与"不能只写他"', () => {
+  const { system, text } = buildDiaryPrompt({
+    hers: ['她说：今天看了潮汐', '看到：月球引力'],
+    talk: ['他说：晚上想吃什么', '她说：糖葫芦'],
+  }, '2026-11-24')
   assert.match(system, /第一人称的日记/)
-  assert.match(system, /不要写成流水账/, '流水账要明确否掉')
+  assert.match(system, /不要照抄成流水账/, '流水账要明确否掉')
   assert.match(system, /没有的东西一律不编/)
+  assert.match(system, /不能整篇都在写他/, '对话进来之后必须约束"别写成关于他的汇报"')
   assert.match(text, /今天是 2026-11-24/)
+  assert.match(text, /【她自己那段时间】/)
+  assert.match(text, /【你们这一天】/)
   assert.match(text, /今天看了潮汐/)
+  assert.match(text, /糖葫芦/)
+})
+
+test('收账输入：哪一栏空着要明说，别让模型以为那天只有一半', () => {
+  const { text } = buildDiaryPrompt({ hers: [], talk: ['他说：在吗'] }, '2026-11-24')
+  assert.match(text, /这一天她没有自己的时间/)
+  assert.match(text, /在吗/)
+  const other = buildDiaryPrompt({ hers: ['她说：晒太阳'], talk: [] }, '2026-11-24')
+  assert.match(other.text, /这一天你们没有说过话/)
 })
 
 test('收账解析：正常 JSON 能取到日记与几件事', () => {
