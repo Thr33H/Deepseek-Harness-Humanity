@@ -49,6 +49,7 @@ import {
 import { decideSettle } from './settle-plan.js'
 import {
   adoptTask,
+  deleteTask,
   ensureRoom,
   ensureTask,
   inspectRoom,
@@ -711,9 +712,44 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
            * 那时句柄还是空的，等于空转：改名一条都没写成，当次 arm 后面抛错还被兜底吞掉，连状态都没落盘。
            */
           if (roomHandle?.agent?.session !== undefined) publishRoomTitle(roomHandle.agent.session)
+          /**
+           * 建完**立刻落盘**：房间是新的，状态里却还空着 —— 只要后面任意一步抛错，
+           * 外部就会看到"有房间、没记录"的半截现场（真机 2026-11-25 连踩两次）。
+           */
+          state = { ...state, roomSessionId: sessionId, roomDay: dayKeyOf(now, deps.timeZone()) }
+          await saveState(documents, state)
         }
       }
       // 房间如果是在这一次里刚建出来的，名字在 `ensureRoom` 之后已经对齐过（见上面的 `roomHandle`）。
+      /**
+       * **每天一个新会话**：日期变了就换一间。
+       *
+       * 为什么：她的房间是"一天一间"——写完日记这一天就收口（防上下文污染，也让她每天干净地开始）。
+       * 旧会话不删（她写过的东西都在磁盘上），只把旧任务删掉、换一间新的继续投递。
+       */
+      const today = dayKeyOf(now, deps.timeZone())
+      if (sessionId !== '' && state.roomDay !== '' && state.roomDay !== today) {
+        roomHandle?.dispose?.()
+        const fresh = await ensureRoom(roomDeps, '')
+        if (fresh.ok) {
+          const staleTask = state.taskId
+          sessionId = fresh.sessionId
+          roomHandle = fresh.handle
+          // 建完就是活的：名字在这一刻写（这是唯一不用等会话"被加载"的时机）。
+          if (roomHandle?.agent?.session !== undefined) publishRoomTitle(roomHandle.agent.session)
+          // 立刻落盘：这一步之后旧任务要删、新会话要记，中途失败不能让状态停在"两不靠"。
+          state = { ...state, roomSessionId: sessionId, roomDay: today, taskId: '' }
+          await saveState(documents, { ...state, lastAttemptAt: now })
+          await deleteTask(roomDeps, staleTask)
+          log.info(`换了一间新会话（${today}）`)
+        } else {
+          log.warn(`换新会话失败（${fresh.reason}）——今天先接着用旧的那间`)
+        }
+      } else if (sessionId !== '' && state.roomDay === '') {
+        // 老数据没有这个字段：把当前这间认下，别凭空多开一间。
+        state = { ...state, roomDay: today }
+        await saveState(documents, state)
+      }
       // 提示词里写的是**她醒来那一刻**的时间，不是"现在排程的这一刻"；
       // 尾部接上她上次说到哪儿 —— 每一次醒来都不是空白的一天。
       const nextIso = new Date(Date.parse(now) + gap * 1000).toISOString()

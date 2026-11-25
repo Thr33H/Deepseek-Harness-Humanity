@@ -529,6 +529,44 @@ export async function reschedule(
  * @param taskId - 任务 id。
  * @param active - 是否活动。
  */
+/**
+ * 删掉一个调度任务。
+ *
+ * 为什么需要：她的房间**每天是一个新会话**，旧会话的那个任务不能留着 ——
+ * 留着它就会往昨天的会话里投递，等于她被拉回昨天。
+ * 之前只会"暂停"，任务列表里于是越积越多（源码里 `edit` 支持 `action: 'delete'`）。
+ * @param deps - 外部事实。
+ * @param taskId - 任务 id。
+ */
+export async function deleteTask(deps: RoomDeps, taskId: string): Promise<void> {
+  const service = deps.schedule()
+  if (service === undefined || taskId === '') return
+  try {
+    await service.edit({ id: taskId, action: 'delete' })
+  } catch (error) {
+    deps.log.warn('旧任务没能删掉（不影响她今天）', error)
+  }
+}
+
+/**
+ * 把一个任务改成投到别的会话。
+ * @param deps - 外部事实。
+ * @param taskId - 任务 id。
+ * @param sessionId - 新的投递会话。
+ * @returns 改成功了吗。
+ */
+export async function retarget(deps: RoomDeps, taskId: string, sessionId: string): Promise<boolean> {
+  const service = deps.schedule()
+  if (service === undefined || taskId === '' || sessionId === '') return false
+  try {
+    await service.edit({ id: taskId, action: 'update', patch: { target: { kind: 'session', sessionId } } })
+    return true
+  } catch (error) {
+    deps.log.warn('房间任务没能改到新会话', error)
+    return false
+  }
+}
+
 export async function setActive(deps: RoomDeps, taskId: string, active: boolean): Promise<void> {
   const service = deps.schedule()
   if (service === undefined || taskId === '') return

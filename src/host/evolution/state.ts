@@ -93,6 +93,13 @@ export interface EvolutionStateDoc {
    * 状态文档是外部唯一读得到的地方。
    */
   roomTitleNote: string
+  /**
+   * 现在这个房间会话属于哪一天（YYYY-MM-DD）。
+   *
+   * 为什么要有：她的房间**每天是一个新会话**（写完日记，这一天就收口）。
+   * 靠它判断"今天要不要开新会话"，以及"旧的那个该结束了"。
+   */
+  roomDay: string
 }
 
 /** 还没开始过的状态。 */
@@ -117,6 +124,7 @@ export const EMPTY_STATE: EvolutionStateDoc = {
   talkSessionId: '',
   talkSeenAt: '',
   roomTitleNote: '',
+  roomDay: '',
 }
 
 /** 醒来的节奏参数（配置的现读镜像）。 */
@@ -164,6 +172,7 @@ export function readState(documents: DocumentStore | undefined): EvolutionStateD
     talkSessionId: text('talkSessionId'),
     talkSeenAt: text('talkSeenAt'),
     roomTitleNote: text('roomTitleNote'),
+    roomDay: text('roomDay'),
   }
 }
 
