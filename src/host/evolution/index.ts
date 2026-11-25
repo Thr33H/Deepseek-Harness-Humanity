@@ -23,9 +23,11 @@
  * @module humanity/evolution
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { defineTool as defineToolType } from '@deepseek-ai/dsh-tools'
 
 import type { DocumentStore } from '../documents.js'
 import { createLlmAccess } from '../llm.js'
+import { loadOptional } from '../optional.js'
 import { appendDiary, buildDiaryPrompt, parseDiary, readDiary, type DayMaterial, type DiaryEntry } from './diary.js'
 import { settleWakeState, sleepGapSeconds } from './lifecycle.js'
 import { installEvolutionSection, type GrowView } from './section.js'
@@ -71,8 +73,12 @@ import {
   SEEN_LIMIT,
   TALK_LINE_CHARS,
   TALK_MAX_LINES,
+  TELL_DELAY_SECONDS,
+  TELL_TASK_TITLE,
   WAKE_MARKER,
 } from './constants.js'
+import { buildTellPrompt, canDeliver, quietEnough, readTell, saveTell } from './tell.js'
+import { defineTellTool } from './tool-tell.js'
 import { presetOfAgent } from '../agent-scope.js'
 import { HUMANITY_PRESET_ID } from '../presets.js'
 import {
@@ -338,6 +344,41 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     busy: () => pausedForBusy,
     readWork: (name) => readWork(roomDeps, name),
   })
+
+  /**
+   * 她的出口：一句话递到他面前（护栏在 `tell.ts`：一天一次、他忙时不送、说了不追问）。
+   *
+   * 与记忆工具同一条纪律：`defineTool` 走 `loadOptional` —— 官方包缺席时**只少这一个工具**，
+   * 其余一切照常（G-002）。注册失败也只记一笔，不影响她的日子。
+   */
+  ctx.effect(
+    () => {
+      const tools = ctx.get('tools') as { register(definition: unknown): () => void } | undefined
+      if (tools === undefined) return () => {}
+      let unregister: (() => void) | undefined
+      let disposed = false
+      void loadOptional<{ defineTool: typeof defineToolType }>('@deepseek-ai/dsh-tools', log)
+        .then((module) => {
+          if (module === undefined || disposed) return
+          unregister = tools.register(defineTellTool(module.defineTool, {
+            documents: deps.documents,
+            timeZone: deps.timeZone,
+            enabled: moduleEnabled,
+          }))
+          log.info('她主动找你的通道已就绪（humanity_tell_him）')
+        })
+        .catch((error: unknown) => log.warn('她主动找你的那个工具没装上（其余照常）', error))
+      return () => {
+        disposed = true
+        try {
+          unregister?.()
+        } catch (error) {
+          log.warn('卸载"她主动找你"的工具失败（继续卸载其余）', error)
+        }
+      }
+    },
+    'humanity: 她主动找你的通道卸载',
+  )
 
   /**
    * 这个上下文里看得见哪些相关服务（排程失败时写进状态文档）。
@@ -780,6 +821,25 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       const sessionId = (session as { id?: string } | undefined)?.id ?? ''
       const documents = deps.documents()
       const roomSessionId = documents === undefined ? '' : readState(documents).roomSessionId
+      /** 这一次事件是发生在"她跟他说话"的那个会话里吗。 */
+      const isTalk = isTalkSession(session, sessionId, roomSessionId)
+      /**
+       * 记下"他最近在哪个会话里跟她说话"。
+       *
+       * 为什么必须落盘：她主动找他的时候要挑一个能送到的会话 —— 送到她的房间没有意义
+       * （他不在那儿）。重启之后这份记忆也得还在，否则她刚想说话就没人可送。
+       * 只在**变了**的时候写，不然每条消息都要重写整份状态。
+       */
+      if (isTalk && documents !== undefined) {
+        const known = readState(documents)
+        if (known.talkSessionId !== sessionId) {
+          void saveState(documents, {
+            ...known,
+            talkSessionId: sessionId,
+            talkSeenAt: new Date().toISOString(),
+          }).catch((error: unknown) => log.warn('没能记下他说话的那个会话', error))
+        }
+      }
       // 单线程：她在别处说话的这一刻，房间的闹钟压下去（安静一阵之后再恢复）。
       if (isBusySession(typed?.type ?? '', sessionId, roomSessionId)) {
         lastBusyAt = Date.now()
@@ -818,7 +878,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
        * 更不该变成她对自己的认识。她自己的房间另算，它走上面`tool/result`那一条。
        */
       if (typed?.type === 'user/message') {
-        if (isTalkSession(session, sessionId, roomSessionId)) {
+        if (isTalk) {
           const said = userSaidOf(typed.data?.message)
           if (said !== '') pushTalk(`他说：${clip(said, TALK_LINE_CHARS)}`)
         }
@@ -841,7 +901,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
           lastSaid.set(sessionId, said)
           // 收账的材料：房间里的是"她自己的时间"，别处的是"你们的对话"。
           if (sessionId === roomSessionId) pushHers(`她说：${said}`)
-          else if (isTalkSession(session, sessionId, roomSessionId)) pushTalk(`她说：${clip(said, TALK_LINE_CHARS)}`)
+          else if (isTalk) pushTalk(`她说：${clip(said, TALK_LINE_CHARS)}`)
         }
       }
       if (typed?.type !== 'assistant/message') return
@@ -1096,7 +1156,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
    * 材料已经落盘不会丢，但没有日记。到点收一次之后，"哪一天算完"由墙钟说了算，
    * 而不是由她下一次开口说了算。
    */
-  const dayTimer = setInterval(() => {
+  const checkDayBoundary = (): void => {
     if (!moduleEnabled()) return
     const documents = deps.documents()
     if (documents === undefined) return
@@ -1108,6 +1168,60 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     void settleDayFor(closing, now, { hers: [...book.hers], talk: [...book.talk] }).catch((error: unknown) => {
       log.warn(`跨天收账失败（${closing}）`, error)
     })
+  }
+
+  /**
+   * 把她留着的那句话送出去。
+   *
+   * 三条护栏在 `tell.ts` 里判（一天一次 / 有话待送 / 有地方可送），这里只负责
+   * "他忙不忙"这个运行时事实，以及真的把调度任务建出来。
+   */
+  const deliverTell = async (): Promise<void> => {
+    if (!moduleEnabled()) return
+    const documents = deps.documents()
+    if (documents === undefined) return
+    const doc = readTell(documents)
+    if (doc.pending === '') return
+    const now = new Date().toISOString()
+    const today = dayKeyOf(now, deps.timeZone())
+    const state = readState(documents)
+    const verdict = canDeliver(doc, today, state.talkSessionId)
+    if (!verdict.ok) {
+      if (verdict.reason !== '') await saveTell(documents, { ...doc, lastReason: verdict.reason })
+      return
+    }
+    // 他还在说话：这一轮不送，下一轮再看。不写原因 —— 这不是故障，是在等。
+    if (!quietEnough(lastBusyAt, Date.now())) return
+
+    const prompt = buildTellPrompt(verdict.text)
+    const reusable = doc.taskId !== '' && doc.taskSession === state.talkSessionId
+    let outcome = reusable
+      ? await reschedule(roomDeps, doc.taskId, TELL_DELAY_SECONDS, prompt)
+      : { ok: false as const, reason: '换了他说话的会话，需要新建一个投递任务' }
+    if (!outcome.ok) {
+      // 任务没了、或者他换了会话：重新建一个（旧的那个发过一次就停着，不会再响）。
+      outcome = await ensureTask(roomDeps, '', state.talkSessionId, TELL_DELAY_SECONDS, prompt, TELL_TASK_TITLE)
+    }
+    if (!outcome.ok) {
+      await saveTell(documents, { ...doc, lastReason: outcome.reason })
+      return
+    }
+    await saveTell(documents, {
+      pending: '',
+      pendingAt: '',
+      lastAt: now,
+      lastDay: today,
+      lastText: verdict.text,
+      lastReason: '',
+      taskId: outcome.room.taskId,
+      taskSession: state.talkSessionId,
+    })
+    log.info(`她主动找他说了一句（约 ${TELL_DELAY_SECONDS} 秒后送到他的会话）`)
+  }
+
+  const dayTimer = setInterval(() => {
+    checkDayBoundary()
+    void deliverTell().catch((error: unknown) => log.warn('她留着的话没能送出去（下一轮再试）', error))
   }, DAY_BOUNDARY_CHECK_MS)
   ;(dayTimer as unknown as { unref?: () => void }).unref?.()
 

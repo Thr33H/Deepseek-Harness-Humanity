@@ -77,6 +77,14 @@ export interface EvolutionStateDoc {
   lastAppraise: string
   /** 上一次尝试排程的时刻（ISO 8601）。 */
   lastAttemptAt: string
+  /**
+   * 他最近在哪个会话里跟她说话（空串 = 还没说过）。
+   *
+   * 「她主动找你说一句」要送到这里：送到她自己的房间没有意义 —— 他不在那儿。
+   */
+  talkSessionId: string
+  /** 那个会话第一次被记下的时刻（ISO 8601）。 */
+  talkSeenAt: string
 }
 
 /** 还没开始过的状态。 */
@@ -98,6 +106,8 @@ export const EMPTY_STATE: EvolutionStateDoc = {
   busySince: '',
   lastAppraise: '',
   lastAttemptAt: '',
+  talkSessionId: '',
+  talkSeenAt: '',
 }
 
 /** 醒来的节奏参数（配置的现读镜像）。 */
@@ -142,6 +152,8 @@ export function readState(documents: DocumentStore | undefined): EvolutionStateD
     lastAppraise: text('lastAppraise'),
     lastTurnTools: typeof raw.lastTurnTools === 'number' && Number.isFinite(raw.lastTurnTools) ? Math.max(0, Math.trunc(raw.lastTurnTools)) : 0,
     lastAttemptAt: text('lastAttemptAt'),
+    talkSessionId: text('talkSessionId'),
+    talkSeenAt: text('talkSeenAt'),
   }
 }
 

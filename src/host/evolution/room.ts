@@ -450,6 +450,7 @@ export async function ensureTask(
   sessionId: string,
   gapSeconds: number,
   prompt: string,
+  title: string = ROOM_TASK_TITLE,
 ): Promise<RoomOutcome> {
   const service = deps.schedule()
   if (service === undefined) return { ok: false, reason: '调度服务不在（DSH 没装或没启用它会话调度）' }
@@ -458,7 +459,7 @@ export async function ensureTask(
   if (existing !== undefined) return { ok: true, room: existing }
   try {
     const created = await service.create({
-      title: ROOM_TASK_TITLE,
+      title,
       prompt,
       timing: { kind: 'after', after_seconds: gapSeconds },
       target: { kind: 'session', sessionId },
