@@ -325,6 +325,19 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   const pushNote = (line: string): void => {
     const key = dayKeyOf(new Date().toISOString(), deps.timeZone())
     if (key !== notesDayKey) {
+      /**
+       * 跨午夜：昨天那批材料要按**昨天**收掉。
+       *
+       * 不然它们只会被清空 —— 她可能整夜都不够累、也没到次数上限，
+       * 那一天就既没睡下、也没日记（真机 2026-11-24 就是这样丢了一整天的本子）。
+       */
+      if (notesDayKey !== '' && dayNotes.length > 0) {
+        const closing = notesDayKey
+        const notes = [...dayNotes]
+        void settleDayFor(closing, new Date().toISOString(), notes).catch((error: unknown) => {
+          log.warn(`跨午夜收账失败（${closing}）`, error)
+        })
+      }
       dayNotes.length = 0
       notesDayKey = key
     }
@@ -779,42 +792,64 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   }
 
   /**
-   * 睡前收账：把这一天收成一篇日记 + 几件事。
+   * 收账（针对**某一天**的材料）。
    *
-   * 触发点只有一处 —— **她刚刚睡下**（精力掉到底线）。这时候一天的材料已经齐了：
-   * 她说过的话、她看到的东西。写完，这一天就算折叠完了，第二天从新的一天开始。
-   * @param at - 睡下的时刻。
+   * 为什么要把"哪一天"和"材料"显式传进来：跨午夜时昨天的材料必须按**昨天**收掉，
+   * 而不是等到"她睡下"——她可能整夜都不够累、也没到次数上限，那一天就那么没了。
+   * 真机 2026-11-24：她当晚醒了 15 次，最后 23:18 那次到顶睡下，第二天 08:00 醒；
+   * 结果日记是空的，而错误字段也是空的 —— 说明它在某个"静默提前返回"里退出了。
+   * @param date - 哪一天（YYYY-MM-DD）。
+   * @param at - 拿什么时刻当"写下来的时刻"。
+   * @param notes - 那天的材料（调用方给快照，避免被清空影响）。
    */
-  const settleDay = async (at: string): Promise<void> => {
+  const settleDayFor = async (date: string, at: string, notes: readonly string[]): Promise<void> => {
     const documents = deps.documents()
     if (documents === undefined) return
     /**
      * 同一时刻只写一次。
      *
-     * 收账现在有三条入口（醒来判定 / 聊天耗尽 / 重排时才发现该睡），它们可能在同一分钟内撞上；
-     * 「已经写过就跳过」是写盘之后才成立的判断，两个并发调用会**都**通过检查、都调一次模型，
-     * 后写的那篇覆盖前一篇。加一道闸，省掉一次白花的调用，也不让本子被覆盖。
+     * 收账现在有多条入口（醒来判定 / 聊天耗尽 / 重排发现 / 跨午夜收尾），它们可能在同一分钟内撞上；
+     * 「已经写过就跳过」是写盘之后才成立的判断，两个并发调用会**都**通过检查、都调一次模型。
      */
     if (settlingDay) return
     settlingDay = true
     try {
-      await settleDayOnce(at)
+      await settleDayOnce(date, at, notes)
     } finally {
       settlingDay = false
     }
   }
 
   /**
-   * 收账的实体（只由 `settleDay` 调用一次）。
+   * 按"现在"给她收账（材料取当天内存里的那份）。
    * @param at - 睡下的时刻。
    */
-  const settleDayOnce = async (at: string): Promise<void> => {
+  const settleDay = async (at: string): Promise<void> => {
+    const date = dayKeyOf(at, deps.timeZone())
+    // 材料属于另一天：交给那个日期自己去收（见 `pushNote` 的跨午夜收尾）。
+    if (notesDayKey !== '' && notesDayKey !== date) return
+    await settleDayFor(date, at, [...dayNotes])
+  }
+
+  /**
+   * 收账的实体（只由 `settleDayFor` 调用一次）。
+   * @param date - 哪一天。
+   * @param at - 写下来的时刻。
+   * @param notes - 那天的材料。
+   */
+  const settleDayOnce = async (date: string, at: string, notes: readonly string[]): Promise<void> => {
     const documents = deps.documents()
     if (documents === undefined) return
-    if (dayNotes.length === 0) return
-    const date = dayKeyOf(at, deps.timeZone())
-    // 材料属于另一天（跨午夜后还留着昨天的）：宁可不写，也不把两天混成一篇。
-    if (notesDayKey !== '' && notesDayKey !== date) return
+    /**
+     * 每一个提前返回都要留原因。
+     *
+     * 真机 2026-11-24：日记没写出来、错误字段却是空的 —— 因为它走了某个静默返回，
+     * 外面完全看不出为什么。宁可多写一行状态，也不要"没有日记也没有理由"。
+     */
+    if (notes.length === 0) {
+      await noteSettleError(documents, `${date} 没有材料（她那天没在房间里留下话），没有写日记`)
+      return
+    }
     // 一天只有一篇：已经写过了就不再写（重启也不该补第二篇）。
     if (readDiary(documents).some((entry) => entry.date === date)) return
     const route = llm.route()
@@ -822,7 +857,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       await noteSettleError(documents, '没有可用的模型，这一天没有写成日记')
       return
     }
-    const { system, text } = buildDiaryPrompt(dayNotes.slice(-40), date)
+    const { system, text } = buildDiaryPrompt(notes.slice(-40), date)
     const result = await llm.streamText({ route, system, text, maxTokens: 1200, timeoutMs: 60_000 })
     const parsed = parseDiary(result.text)
     if (parsed === undefined) {
