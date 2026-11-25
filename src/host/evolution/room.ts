@@ -304,6 +304,8 @@ export async function readThreads(deps: RoomDeps, limit = 8): Promise<string[]> 
       .split('\n')
       .map((line) => line.replace(/^\s*[-*]\s*/, '').trim())
       .filter((line) => line !== '' && !line.startsWith('#'))
+      // 她自己写的分栏标题（"已经做完的："）不是待办 —— 真机 2026-11-25 它被当成一条空事念了出来。
+      .filter((line) => !/[:：]\s*$/.test(line))
       .slice(0, limit)
   } catch {
     return []
