@@ -13,7 +13,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { TELL_DOC_KEY, TELL_MAX_CHARS, TELL_QUIET_MINUTES } from '../lib/evolution/constants.js'
-import { EMPTY_TELL, buildTellPrompt, canDeliver, canQueue, quietEnough, readTell, saveTell } from '../lib/evolution/tell.js'
+import { EMPTY_TELL, buildTellPrompt, canDeliver, canQueue, quietEnough, readTell, saveTell, unreadOf } from '../lib/evolution/tell.js'
 
 /** 只支持读写文档的假文档表。 */
 function fakeDocuments(initial = {}) {
@@ -127,6 +127,14 @@ test('投递提示词：只给东西不说事也要成立', () => {
 test('送话：只给他看东西（没有话）也会送', () => {
   const doc = { ...EMPTY_TELL, pendingShow: 'note.md' }
   assert.deepEqual(canDeliver(doc, TODAY, 'session-1'), { ok: true, text: '', show: 'note.md' })
+})
+
+test('看没看：没送过就不算未读；送过没回过算未读；他之后说过话就算看过', () => {
+  assert.equal(unreadOf(EMPTY_TELL), false, '从没主动过 —— 没有未读')
+  const delivered = { ...EMPTY_TELL, lastAt: '2026-11-25T08:00:00.000Z', lastText: '找你说一句' }
+  assert.equal(unreadOf(delivered), true, '送出去了、他还没说话')
+  assert.equal(unreadOf({ ...delivered, seenAt: '2026-11-25T07:00:00.000Z' }), true, '他在这之前说过话不算看过')
+  assert.equal(unreadOf({ ...delivered, seenAt: '2026-11-25T09:00:00.000Z' }), false, '他之后说过话 —— 看过了')
 })
 
 test('投递记录：存进去读得回来；没存过读成空记录', async () => {

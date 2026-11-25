@@ -108,6 +108,29 @@ export interface GrowView {
   lastRun: { at: string; wrote: string[]; queued: string[]; note: string }
 }
 
+/**
+ * 她主动留给你的东西。
+ *
+ * 为什么要有这一块：她主动说的话落在他那个会话里，他没打开就不知道；
+ * 而他看不见的时候，她能做的只有"说过" —— 这一块把"她说过什么、你还没看"摆出来。
+ */
+export interface TellView {
+  /** 她有一句还没送出去的话（空串 = 没有）。 */
+  pending: string
+  /** 那句话想附带给他看的文件名（空串 = 没带）。 */
+  pendingShow: string
+  /** 上一次真正送出的时刻（空串 = 从没送过）。 */
+  lastAt: string
+  /** 上一次送出的那句。 */
+  lastText: string
+  /** 上一次送出的那样东西。 */
+  lastShow: string
+  /** 他看过了没有（判据：他在这之后说过话）。 */
+  unread: boolean
+  /** 没送成的原因（空串 = 一切正常）。 */
+  lastReason: string
+}
+
 /** 整份投影。 */
 export interface EvolutionDocument {
   status: DayView
@@ -123,6 +146,8 @@ export interface EvolutionDocument {
   threads: string[]
   /** 她自己整理的结果：攒着的候选 + 上次跑完的痕迹。 */
   grow: GrowView
+  /** 她主动留给你的东西：待送的、送过的、你看没看。 */
+  tell: TellView
   /**
    * 一次性的文件传输：客户端点了「下载」才有，下发一次就清掉。
    *
@@ -161,6 +186,7 @@ export function emptyEvolutionDocument(): EvolutionDocument {
     works: [],
     threads: [],
     grow: { candidates: [], lastRun: { at: '', wrote: [], queued: [], note: '' } },
+    tell: { pending: '', pendingShow: '', lastAt: '', lastText: '', lastShow: '', unread: false, lastReason: '' },
     transfer: { name: '', mime: '', base64: '' },
     request: { op: '', date: '' },
     notice: '',
@@ -218,6 +244,15 @@ export const EvolutionDocSchema = Schema.object({
       note: Schema.string().default(''),
     }),
   }),
+  tell: Schema.object({
+    pending: Schema.string().default(''),
+    pendingShow: Schema.string().default(''),
+    lastAt: Schema.string().default(''),
+    lastText: Schema.string().default(''),
+    lastShow: Schema.string().default(''),
+    unread: Schema.boolean().default(false),
+    lastReason: Schema.string().default(''),
+  }),
   works: Schema.array(
     Schema.object({
       name: Schema.string().default(''),
@@ -251,6 +286,8 @@ export interface EvolutionSectionDeps {
    * 由宿主从人格那边读过来（自进化不 import 人格模块）；读不到时给空。
    */
   grow?(): GrowView | undefined
+  /** 她主动留给你的东西（同样由宿主转过来）；读不到时给空。 */
+  tell?(): TellView | undefined
   /** 闹钟是不是因为她正在别处说话而压着（单线程）。 */
   busy?(): boolean
   /** 读一个文件（下载用；不合法时给 undefined）。 */
@@ -343,6 +380,15 @@ function project(
     works: [...works],
     threads: [...threads],
     grow: deps.grow?.() ?? { candidates: [], lastRun: { at: '', wrote: [], queued: [], note: '' } },
+    tell: deps.tell?.() ?? {
+      pending: '',
+      pendingShow: '',
+      lastAt: '',
+      lastText: '',
+      lastShow: '',
+      unread: false,
+      lastReason: '',
+    },
     transfer: transfer ?? { name: '', mime: '', base64: '' },
     request: { op: '', date: '' },
     notice: '',

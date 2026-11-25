@@ -78,7 +78,7 @@ import {
   TELL_TASK_TITLE,
   WAKE_MARKER,
 } from './constants.js'
-import { buildTellPrompt, canDeliver, quietEnough, readTell, saveTell } from './tell.js'
+import { buildTellPrompt, canDeliver, quietEnough, readTell, saveTell, unreadOf } from './tell.js'
 import { defineTellTool } from './tool-tell.js'
 import { presetOfAgent } from '../agent-scope.js'
 import { HUMANITY_PRESET_ID } from '../presets.js'
@@ -342,6 +342,25 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     works: () => listWorks(roomDeps),
     threads: () => readThreads(roomDeps),
     grow: () => deps.growStatus?.(),
+    /**
+     * 她主动留给你的东西（页面上那一块）。
+     *
+     * 读的是 `tell` 那份记录；「看没看」的判据在 `tell.ts` 的 `unreadOf`。
+     */
+    tell: () => {
+      const documents = deps.documents()
+      if (documents === undefined) return undefined
+      const doc = readTell(documents)
+      return {
+        pending: doc.pending,
+        pendingShow: doc.pendingShow,
+        lastAt: doc.lastAt,
+        lastText: doc.lastText,
+        lastShow: doc.lastShow,
+        unread: unreadOf(doc),
+        lastReason: doc.lastReason,
+      }
+    },
     busy: () => pausedForBusy,
     readWork: (name) => readWork(roomDeps, name),
   })
@@ -884,6 +903,20 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         if (isTalk) {
           const said = userSaidOf(typed.data?.message)
           if (said !== '') pushTalk(`他说：${clip(said, TALK_LINE_CHARS)}`)
+          /**
+           * 他说话了 = 她那句"主动找他"他看到过了。
+           *
+           * 为什么用"他说话"当判据，而不是"他打开了工作台"：能说话就说明他在，
+           * 那条消息就在他眼前 —— 这比"页面被打开过"诚实得多。
+           */
+          if (documents !== undefined) {
+            const tell = readTell(documents)
+            if (unreadOf(tell)) {
+              void saveTell(documents, { ...tell, seenAt: new Date().toISOString() })
+                .then(() => section.refresh())
+                .catch((error: unknown) => log.warn('没能记下"他看到了她那句话"', error))
+            }
+          }
         }
         return
       }
@@ -1225,6 +1258,8 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       lastText: verdict.text,
       lastShow: verdict.show,
       lastReason: '',
+      // 新送出去的那句一定是"没看过"的：清掉上一次的"看到了"。
+      seenAt: '',
       taskId: outcome.room.taskId,
       taskSession: state.talkSessionId,
     })

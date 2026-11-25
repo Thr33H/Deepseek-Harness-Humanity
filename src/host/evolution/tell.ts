@@ -37,6 +37,13 @@ export interface TellDoc {
   lastShow: string
   /** 上一次没送成的原因（空串 = 一切正常）。 */
   lastReason: string
+  /**
+   * 他最后一次"看到了"的时刻（ISO 8601；空串 = 还没看过）。
+   *
+   * 判据不是"他点开了页面"，而是**他在那个会话里说过话** —— 他能说话就说明他在，
+   * 那条消息在他面前。比"页面被打开过"诚实。
+   */
+  seenAt: string
   /** 投递用的那个调度任务 id（复用同一个，别一天长一个）。 */
   taskId: string
   /** 那个任务当前指向的会话 id（他换了会话就要新建）。 */
@@ -53,8 +60,22 @@ export const EMPTY_TELL: TellDoc = {
   lastText: '',
   lastShow: '',
   lastReason: '',
+  seenAt: '',
   taskId: '',
   taskSession: '',
+}
+
+/**
+ * 她最近一次主动说的话，他看过了没有。
+ *
+ * 「看过」的判据：他在这之后说过话（`seenAt >= lastAt`）。没有那句话时一律算"没有未读"。
+ * @param doc - 当前记录。
+ * @returns 有没有一条他没看过的。
+ */
+export function unreadOf(doc: TellDoc): boolean {
+  if (doc.lastAt === '') return false
+  if (doc.seenAt === '') return true
+  return Date.parse(doc.seenAt) < Date.parse(doc.lastAt)
 }
 
 /**
@@ -76,6 +97,7 @@ export function readTell(documents: DocumentStore | undefined): TellDoc {
     lastText: text('lastText'),
     lastShow: text('lastShow'),
     lastReason: text('lastReason'),
+    seenAt: text('seenAt'),
     taskId: text('taskId'),
     taskSession: text('taskSession'),
   }

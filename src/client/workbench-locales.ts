@@ -62,6 +62,18 @@ export const workbenchZh = {
   'workbench.evolution.diary.openedAt': '在 {time} 被翻开',
   'workbench.evolution.diary.unnoticed': '她还没发现',
   'workbench.evolution.diary.noticed': '她在 {time} 知道了',
+  // 她留给你的（主动找你说的话）。
+  'workbench.evolution.tell.title': '她留给你的',
+  'workbench.evolution.tell.hint':
+    '她自己待着的时候，可以主动找你说一句（或给你看一样东西）。那句话会送到你们说话的那个会话里；这一块是留底——你没看过的那次会标出来。',
+  'workbench.evolution.tell.pending': '她有一句还没送出去的话（等你闲下来才送）',
+  'workbench.evolution.tell.lastAt': '她在 {time} 找过你',
+  'workbench.evolution.tell.withWork': '还给你看了 {name}',
+  'workbench.evolution.tell.onlyWork': '（没说话，只想让你看样东西）',
+  'workbench.evolution.tell.unread': '你还没看',
+  'workbench.evolution.tell.seen': '你看过了',
+  'workbench.evolution.tell.reason': '没送成：{reason}',
+  'workbench.evolution.tell.empty': '她还没主动找过你。',
   // 她自己整理（信息层）。
   'workbench.evolution.grow.title': '她自己整理',
   'workbench.evolution.grow.hint':
@@ -140,6 +152,17 @@ export const workbenchEn = {
   'workbench.evolution.diary.openedAt': 'opened at {time}',
   'workbench.evolution.diary.unnoticed': 'she has not noticed',
   'workbench.evolution.diary.noticed': 'she found out at {time}',
+  'workbench.evolution.tell.title': 'What she left for you',
+  'workbench.evolution.tell.hint':
+    'When she is on her own she may reach out to say something, or to show you something she made. It is delivered into the session where you talk to her; this is the ledger, and an unread one is marked.',
+  'workbench.evolution.tell.pending': 'She has a sentence waiting (sent once you are quiet)',
+  'workbench.evolution.tell.lastAt': 'She reached out at {time}',
+  'workbench.evolution.tell.withWork': 'and showed you {name}',
+  'workbench.evolution.tell.onlyWork': '(nothing said, she just wanted you to look)',
+  'workbench.evolution.tell.unread': 'you have not read this',
+  'workbench.evolution.tell.seen': 'you have read this',
+  'workbench.evolution.tell.reason': 'Not delivered: {reason}',
+  'workbench.evolution.tell.empty': 'She has not reached out yet.',
   'workbench.evolution.grow.title': 'What she makes of herself',
   'workbench.evolution.grow.hint':
     'After the daily settle she folds the day into her information layer: a request you made in plain words lands the same day, everything else first gathers evidence. This is what she is gathering — it needs enough mentions across enough days to be written in.',

@@ -209,6 +209,44 @@ export function EvolutionPage({ t, controller }: EvolutionPageProps) {
 
       <section style={{ ...panel, marginTop: 16 }}>
         <h2 style={{ ...panelTitle, ...headingWithHint }}>
+          {t('workbench.evolution.tell.title')}
+          <InfoHint label={t('workbench.evolution.tell.hint')} />
+        </h2>
+        {state.doc.tell.pending !== '' ? (
+          <p style={{ margin: '0 0 8px', whiteSpace: 'pre-wrap', lineHeight: 1.75 }}>
+            {t('workbench.evolution.tell.pending')}：{state.doc.tell.pending}
+            {state.doc.tell.pendingShow !== ''
+              ? ` · ${t('workbench.evolution.tell.withWork').replace('{name}', state.doc.tell.pendingShow)}`
+              : ''}
+          </p>
+        ) : null}
+        {state.doc.tell.lastAt !== '' ? (
+          <p style={{ margin: '0 0 4px', whiteSpace: 'pre-wrap', lineHeight: 1.75 }}>
+            {t('workbench.evolution.tell.lastAt').replace('{time}', stamp(state.doc.tell.lastAt))}
+            {'：'}
+            {state.doc.tell.lastText === '' ? t('workbench.evolution.tell.onlyWork') : state.doc.tell.lastText}
+            {state.doc.tell.lastShow !== ''
+              ? ` · ${t('workbench.evolution.tell.withWork').replace('{name}', state.doc.tell.lastShow)}`
+              : ''}
+          </p>
+        ) : null}
+        {state.doc.tell.lastAt !== '' ? (
+          <p style={{ margin: 0, fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
+            {state.doc.tell.unread ? t('workbench.evolution.tell.unread') : t('workbench.evolution.tell.seen')}
+          </p>
+        ) : null}
+        {state.doc.tell.lastReason !== '' ? (
+          <p style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
+            {t('workbench.evolution.tell.reason').replace('{reason}', state.doc.tell.lastReason)}
+          </p>
+        ) : null}
+        {state.doc.tell.lastAt === '' && state.doc.tell.pending === '' ? (
+          <p style={{ margin: 0, color: 'var(--dsw-alias-label-secondary)' }}>{t('workbench.evolution.tell.empty')}</p>
+        ) : null}
+      </section>
+
+      <section style={{ ...panel, marginTop: 16 }}>
+        <h2 style={{ ...panelTitle, ...headingWithHint }}>
           {t('workbench.evolution.diary.title')}
           <InfoHint label={t('workbench.evolution.diary.hint')} />
         </h2>

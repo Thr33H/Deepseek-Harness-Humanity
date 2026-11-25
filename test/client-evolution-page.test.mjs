@@ -102,6 +102,31 @@ test('自进化页：她自己整理的那块要看得见（队列 + 上次写�
   assert.match(html, /workbench\.evolution\.grow\.wrote/, '上次写进了哪一节要显示')
 })
 
+test('自进化页：她留给你的那一块要看得见（待送 / 送过 / 看没看）', async () => {
+  const client = await loadClientBundle()
+  const controller = new client.EvolutionWorkbenchController()
+  controller.attach(fakeChannel({
+    ...BASE,
+    tell: {
+      pending: '还有一句想说',
+      pendingShow: '',
+      lastAt: '2026-11-24T15:00:00.000Z',
+      lastText: '昨天我找过你',
+      lastShow: 'note.md',
+      unread: true,
+      lastReason: '',
+    },
+  }))
+  await settle()
+  const html = render(nodeRequire('react').createElement(client.EvolutionPage, { t, controller }))
+
+  assert.match(html, /workbench\.evolution\.tell\.title/)
+  assert.match(html, /还有一句想说/, '待送的那句要显示')
+  assert.match(html, /昨天我找过你/, '上一次说的话要显示')
+  assert.match(html, /note\.md/, '附带给他看的东西要显示')
+  assert.match(html, /workbench\.evolution\.tell\.unread/, '没看过的要标出来')
+})
+
 test('自进化页：读不到时如实说读不到，不编数字', async () => {
   const client = await loadClientBundle()
   const controller = new client.EvolutionWorkbenchController()

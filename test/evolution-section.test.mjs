@@ -119,11 +119,39 @@ async function mount(overrides = {}) {
     works: async () => [],
     threads: async () => [],
     grow: () => overrides.grow,
+    tell: () => overrides.tell,
     readWork: async () => undefined,
   })
   await section.refresh()
   return { documents, settings, docs, hooks, updates, section }
 }
+
+test('她留给你的：待送的、送过的、看没看都进投影', async () => {
+  const { docs } = await mount({
+    tell: {
+      pending: '有句话想说',
+      pendingShow: '',
+      lastAt: '2026-11-24T15:00:00.000Z',
+      lastText: '昨天那句话',
+      lastShow: 'note.md',
+      unread: true,
+      lastReason: '',
+    },
+  })
+  const view = docs.get('humanity-evolution')
+  assert.equal(view.tell.pending, '有句话想说')
+  assert.equal(view.tell.lastText, '昨天那句话')
+  assert.equal(view.tell.lastShow, 'note.md')
+  assert.equal(view.tell.unread, true)
+})
+
+test('她留给你的：没有记录时给空，不给半个形状', async () => {
+  const { docs } = await mount()
+  const view = docs.get('humanity-evolution')
+  assert.equal(view.tell.lastAt, '')
+  assert.equal(view.tell.pending, '')
+  assert.equal(view.tell.unread, false)
+})
 
 test('她自己整理：队列与上次痕迹会出现在投影里（页面上看得见）', async () => {
   const { docs } = await mount({

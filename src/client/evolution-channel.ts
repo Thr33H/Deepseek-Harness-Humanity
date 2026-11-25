@@ -73,6 +73,24 @@ export interface GrowView {
   lastRun: { at: string; wrote: string[]; queued: string[]; note: string }
 }
 
+/** 她主动留给你的东西。 */
+export interface TellView {
+  /** 有一句还没送出去的话（空串 = 没有）。 */
+  pending: string
+  /** 那句话想附带给他看的文件名。 */
+  pendingShow: string
+  /** 上一次真正送出的时刻（空串 = 从没送过）。 */
+  lastAt: string
+  /** 上一次送出的那句。 */
+  lastText: string
+  /** 上一次送出的那样东西。 */
+  lastShow: string
+  /** 他看过了没有。 */
+  unread: boolean
+  /** 没送成的原因。 */
+  lastReason: string
+}
+
 /** 整份投影。 */
 export interface EvolutionDocument {
   status: DayStatusView
@@ -82,6 +100,8 @@ export interface EvolutionDocument {
   threads: string[]
   /** 她自己整理的结果：攒着的候选 + 上次跑完的痕迹。 */
   grow: GrowView
+  /** 她主动留给你的东西。 */
+  tell: TellView
   /** 一次性文件传输（点了下载才有；下完就空）。 */
   transfer: { name: string; mime: string; base64: string }
   request: { op: string; date: string }
@@ -112,6 +132,7 @@ export function emptyEvolutionDocument(): EvolutionDocument {
     works: [],
     threads: [],
     grow: { candidates: [], lastRun: { at: '', wrote: [], queued: [], note: '' } },
+    tell: { pending: '', pendingShow: '', lastAt: '', lastText: '', lastShow: '', unread: false, lastReason: '' },
     transfer: { name: '', mime: '', base64: '' },
     request: { op: '', date: '' },
     notice: '',
@@ -171,6 +192,7 @@ export function asEvolutionDocument(value: unknown): EvolutionDocument {
     : []
   const lastRunRaw = (typeof growRaw.lastRun === 'object' && growRaw.lastRun !== null ? growRaw.lastRun : {}) as Record<string, unknown>
   const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((line): line is string => typeof line === 'string') : [])
+  const tellRaw = (typeof raw.tell === 'object' && raw.tell !== null ? raw.tell : {}) as Record<string, unknown>
   return {
     status: {
       enabled: status.enabled === true,
@@ -200,6 +222,15 @@ export function asEvolutionDocument(value: unknown): EvolutionDocument {
         queued: strings(lastRunRaw.queued),
         note: typeof lastRunRaw.note === 'string' ? lastRunRaw.note : '',
       },
+    },
+    tell: {
+      pending: typeof tellRaw.pending === 'string' ? tellRaw.pending : '',
+      pendingShow: typeof tellRaw.pendingShow === 'string' ? tellRaw.pendingShow : '',
+      lastAt: typeof tellRaw.lastAt === 'string' ? tellRaw.lastAt : '',
+      lastText: typeof tellRaw.lastText === 'string' ? tellRaw.lastText : '',
+      lastShow: typeof tellRaw.lastShow === 'string' ? tellRaw.lastShow : '',
+      unread: tellRaw.unread === true,
+      lastReason: typeof tellRaw.lastReason === 'string' ? tellRaw.lastReason : '',
     },
     transfer: {
       name: typeof (raw.transfer as { name?: unknown } | undefined)?.name === 'string' ? String((raw.transfer as { name?: unknown }).name) : '',
