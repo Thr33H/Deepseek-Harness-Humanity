@@ -113,6 +113,18 @@ export interface EvolutionDeps {
    * 旧引擎就是"绕过记忆直接 put"，结果时间与感受都是错的。
    */
   remember?(what: string, about: string): Promise<void>
+  /**
+   * 这一天过完，她自己整理一遍信息层。
+   *
+   * 由宿主转到人格模块（自进化不 import 人格）：候选队列、相似合并、门槛与写入都在那边。
+   * 明确要求当天落地；其余观察先进队列攒证据。
+   */
+  grow?(
+    material: { hers: readonly string[]; talk: readonly string[] },
+    date: string,
+    nowIso: string,
+    timeZone?: string,
+  ): Promise<void>
 }
 
 /** 模块句柄。 */
@@ -994,6 +1006,19 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     await appendDiary(documents, { date, text: parsed.diary, createdAt: at, openedAt: '', noticedAt: '' })
     // 她自己的一份副本：设计里"回头重读那一天"要有可读的东西，而她只能读自己的目录。
     await writeOwnFile(roomDeps, `diary-${date}.md`, `# ${date}\n\n${parsed.diary}\n`)
+    /**
+     * 她自己整理一遍信息层：明确要求当天落地，其余观察进候选队列。
+     *
+     * 放在清空材料**之前**：这一步也要读这一天的材料。失败只记一笔 ——
+     * 信息层没更新不该把已经写成的日记也带走。
+     */
+    if (deps.grow !== undefined) {
+      try {
+        await deps.grow({ hers: material.hers, talk: material.talk }, date, at, deps.timeZone())
+      } catch (error) {
+        log.warn(`${date} 的自我整理失败（这一天没有更新信息层）`, error)
+      }
+    }
     /**
      * 本子只在"它仍然是那一天"时清空。
      *

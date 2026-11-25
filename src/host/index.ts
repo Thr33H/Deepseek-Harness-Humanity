@@ -34,6 +34,8 @@ import { createCompatState } from './preset-compat.js'
 import { installSettings, SETTINGS_NAMESPACE } from './settings.js'
 import { installMemory } from './memory/index.js'
 import { installPersona } from './persona/index.js'
+import { growDay } from './persona/grow.js'
+import { createLlmAccess } from './llm.js'
 import { installHumanityStore } from './store.js'
 
 export { Config, MODULE_IDS } from './config.js'
@@ -259,6 +261,21 @@ export function apply(ctx: Context, config: HumanityConfig): void {
   // 它那次 `notifyStoreReady()` 打在一个还是 `undefined` 的 persona 上，等于没打。
   // 所以装配完再看一眼：存储已经就绪就立刻补一次（幂等）。
   if (state.store !== undefined) state.persona.notifyStoreReady()
+  /**
+   * 自我整理（信息层）：她的这一天 → 明确要求当天落地，其余观察进候选队列。
+   *
+   * 为什么由宿主接线而不是塞进某个模块：它横跨两块 —— 材料从自进化来，写入落到人格。
+   * 让宿主转一手，两个模块就不必互相 import（模块隔离）。
+   */
+  const growLlm = createLlmAccess(ctx, log)
+  state.grow = async (material, date, nowIso, timeZone) => {
+    const persona = state.persona
+    if (persona === undefined) return
+    await growDay(
+      { documents: () => state.store?.documents, section: persona.section, llm: growLlm, log },
+      { material, date, nowIso, timeZone },
+    )
+  }
   // 情绪模块：状态 + 存储 + 工作台窗口。**只看存储**，不依赖人格或记忆（模块互相隔离）。
   // 性格漂移：**累积存在人格文档里**（`character.driftPending`），不是内存变量。
   // 真机 2026-11-24：累积器在内存、门槛是"攒够 0.01 且隔 24 小时"，而一天重启十几次

@@ -32,6 +32,18 @@ export interface HostState {
   memory?: MemoryModule
   evolution?: EvolutionModule
   store?: HumanityStore
+  /**
+   * 自我整理（信息层）：由自进化在一次收账后调用。
+   *
+   * 为什么放在状态里而不是模块句柄里：这一件事横跨两块 —— 材料从自进化来，
+   * 写入落到人格。让宿主转一手，两个模块就不必互相 import（ARCHITECTURE 的模块隔离）。
+   */
+  grow?: (
+    material: { hers: readonly string[]; talk: readonly string[] },
+    date: string,
+    nowIso: string,
+    timeZone?: string,
+  ) => Promise<void>
 }
 
 /**
@@ -197,6 +209,10 @@ export function evolutionDeps(
     // 睡前收账记下的事，走记忆模块自己的写入路径（去重、视角归一化）。
     remember: async (what, about) => {
       await state.memory?.remember({ what, about: about as MemoryAbout })
+    },
+    // 这一天过完，她自己整理一遍信息层：明确要求当天落地，观察进候选队列。
+    grow: async (material, date, nowIso, timeZone) => {
+      await state.grow?.(material, date, nowIso, timeZone)
     },
   }
 }
