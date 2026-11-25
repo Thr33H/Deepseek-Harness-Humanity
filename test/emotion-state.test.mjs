@@ -203,17 +203,37 @@ test('四种情绪可以同时并存，且按 kind 合并后各是一条', () =>
   assert.equal(dominantOf(state)?.kind, 'anger')
 })
 
-test('并存上限：八种全加进来时只保留最强的四条', () => {
+test('并存：八种可以同时出现（每种一条），不会被裁掉', () => {
   const state = apply(
     createInitialEmotionState(T0),
-    EMOTION_KINDS.map((kind, index) => ({ kind, delta: 10 + index * 5 })),
+    EMOTION_KINDS.map((kind, index) => ({ kind, delta: 10 + index })),
     T0,
   )
-  assert.equal(state.charges.length, 4, '超过上限要裁剪，不能一条都不丢')
-  // 最强的是最后加进去的那个（delta 最大）。
-  assert.equal(dominantOf(state)?.kind, EMOTION_KINDS[EMOTION_KINDS.length - 1])
-  // 最弱的几种被挤掉：强度条再多也读不懂。
-  assert.equal(state.charges.some((charge) => charge.kind === EMOTION_KINDS[0]), false)
+  // 2026-11-25 实机：旧上限四条会把"每一轮都被判出来"的负面情绪当场裁掉，页面上只剩正面。
+  assert.equal(state.charges.length, EMOTION_KINDS.length, '八种基本情绪应当都能留下')
+  assert.deepEqual(
+    state.charges.map((charge) => charge.kind).sort(),
+    [...EMOTION_KINDS].sort(),
+  )
+  assert.equal(dominantOf(state)?.kind, EMOTION_KINDS[EMOTION_KINDS.length - 1], '最强的那条仍是主导')
+})
+
+test('并存上限：超过八条（同一情绪分给不同对象）时丢掉最弱的那条', () => {
+  const state = apply(
+    createInitialEmotionState(T0),
+    [
+      ...EMOTION_KINDS.map((kind, index) => ({ kind, delta: 20 + index })),
+      // 第九条：同一情绪换个对象，强度最小 ⇒ 该被裁掉。
+      { kind: 'anger', target: 'self', delta: 2 },
+    ],
+    T0,
+  )
+  assert.equal(state.charges.length, 8, '超过上限要裁剪，不能一条都不丢')
+  assert.equal(
+    state.charges.some((charge) => charge.kind === 'anger' && charge.target === 'self'),
+    false,
+    '最弱的那条（愤怒:自己 2 分）该被裁掉',
+  )
 })
 
 test('空变化不算一次变化（updatedAt 不动）', () => {
@@ -318,7 +338,7 @@ test('结算：时区选项可以是任意 IANA 名（不是只认识东八区�
   assert.equal(Math.round(settle(base, now, 'Pacific/Kiritimati').energy), 100)
 })
 test('被裁剪掉的情绪不会留在 lastTouched 里（脏 key）', () => {
-  // 五条同向刺激：超过四条上限时最弱的被裁掉，名单必须跟着清。
+  // 九条刺激：超过八条上限时最弱的被裁掉，名单必须跟着清。
   // 注意本文件的 `apply` 包装器收的是**数组**（它自己包成 pulse），别再套一层。
   const state = apply(
     createInitialEmotionState(T0),
@@ -328,15 +348,20 @@ test('被裁剪掉的情绪不会留在 lastTouched 里（脏 key）', () => {
       { kind: 'sadness', target: 'self', delta: 30 },
       { kind: 'anticipation', target: 'world', delta: 20 },
       { kind: 'anger', target: 'user', delta: 5 },
+      { kind: 'fear', target: 'self', delta: 4 },
+      { kind: 'disgust', target: 'world', delta: 3 },
+      { kind: 'surprise', target: 'user', delta: 2 },
+      // 第九条：愤怒换个对象，强度最小 ⇒ 该被裁掉。
+      { kind: 'anger', target: 'world', delta: 1 },
     ],
     T0,
   )
-  assert.equal(state.charges.length, 4, '上限是四条')
+  assert.equal(state.charges.length, 8, '上限是八条')
   const kept = new Set(state.charges.map((charge) => `${charge.kind}:${charge.target}`))
   for (const key of state.lastTouched) {
     assert.ok(kept.has(key), `lastTouched 里的 ${key} 在 charges 里不存在`)
   }
-  assert.equal(state.lastTouched.includes('anger:user'), false, '被裁掉的愤怒不该留在名单里')
+  assert.equal(state.lastTouched.includes('anger:world'), false, '被裁掉的愤怒不该留在名单里')
 })
 test('边际递减：同样的好话，越到后面推力越小（渐近 100 而不真的到）', () => {
   let state = createInitialEmotionState(T0)

@@ -118,11 +118,35 @@ async function mount(overrides = {}) {
     started: () => true,
     works: async () => [],
     threads: async () => [],
+    grow: () => overrides.grow,
     readWork: async () => undefined,
   })
   await section.refresh()
   return { documents, settings, docs, hooks, updates, section }
 }
+
+test('她自己整理：队列与上次痕迹会出现在投影里（页面上看得见）', async () => {
+  const { docs } = await mount({
+    grow: {
+      candidates: [{ text: '爱吃糖葫芦', about: 'user', section: '关系', count: 2, days: 2 }],
+      lastRun: { at: '2026-11-24T15:00:00.000Z', wrote: ['说话风格'], queued: ['爱吃糖葫芦'], note: '' },
+    },
+  })
+  const view = docs.get('humanity-evolution')
+  assert.equal(view.grow.candidates.length, 1)
+  assert.equal(view.grow.candidates[0].text, '爱吃糖葫芦')
+  assert.equal(view.grow.candidates[0].about, 'user')
+  assert.equal(view.grow.candidates[0].count, 2)
+  assert.equal(view.grow.candidates[0].days, 2)
+  assert.deepEqual(view.grow.lastRun.wrote, ['说话风格'])
+})
+
+test('她自己整理：没有队列时给空，不给半个形状', async () => {
+  const { docs } = await mount()
+  const view = docs.get('humanity-evolution')
+  assert.deepEqual(view.grow.candidates, [])
+  assert.equal(view.grow.lastRun.at, '')
+})
 
 test('工作台首帧：合着的日记不给正文，翻开过的才给', async () => {
   const { docs } = await mount()

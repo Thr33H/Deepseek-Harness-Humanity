@@ -35,6 +35,7 @@ import { installSettings, SETTINGS_NAMESPACE } from './settings.js'
 import { installMemory } from './memory/index.js'
 import { installPersona } from './persona/index.js'
 import { growDay } from './persona/grow.js'
+import { readGrowQueue } from './persona/grow-queue.js'
 import { createLlmAccess } from './llm.js'
 import { installHumanityStore } from './store.js'
 
@@ -275,6 +276,20 @@ export function apply(ctx: Context, config: HumanityConfig): void {
       { documents: () => state.store?.documents, section: persona.section, llm: growLlm, log },
       { material, date, nowIso, timeZone },
     )
+  }
+  // 工作台要看的那份：她正攒着什么、上次整理成了什么（读不到就是空，不抛）。
+  state.growStatus = () => {
+    const queue = readGrowQueue(state.store?.documents)
+    return {
+      candidates: queue.candidates.map((candidate) => ({
+        text: candidate.text,
+        about: candidate.about,
+        section: candidate.section,
+        count: candidate.count,
+        days: candidate.days.length,
+      })),
+      lastRun: queue.lastRun,
+    }
   }
   // 情绪模块：状态 + 存储 + 工作台窗口。**只看存储**，不依赖人格或记忆（模块互相隔离）。
   // 性格漂移：**累积存在人格文档里**（`character.driftPending`），不是内存变量。

@@ -25,7 +25,7 @@ import type { DocumentStore } from '../documents.js'
 import { createLlmAccess } from '../llm.js'
 import { appendDiary, buildDiaryPrompt, parseDiary, readDiary, type DayMaterial, type DiaryEntry } from './diary.js'
 import { settleWakeState, sleepGapSeconds } from './lifecycle.js'
-import { installEvolutionSection } from './section.js'
+import { installEvolutionSection, type GrowView } from './section.js'
 import type { Log } from '../log.js'
 import {
   afterWake,
@@ -61,6 +61,7 @@ import {
 import {
   BUSY_CHECK_MS,
   BUSY_QUIET_MINUTES,
+  DAY_BOUNDARY_CHECK_MS,
   MIN_GAP_SECONDS,
   NOTES_MAX_LINES,
   RETRY_ARM_AFTER_MS,
@@ -125,6 +126,8 @@ export interface EvolutionDeps {
     nowIso: string,
     timeZone?: string,
   ): Promise<void>
+  /** 她自己整理的结果（队列 + 上次痕迹），只给工作台看。 */
+  growStatus?(): GrowView | undefined
 }
 
 /** 模块句柄。 */
@@ -328,6 +331,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     started: () => deps.started(),
     works: () => listWorks(roomDeps),
     threads: () => readThreads(roomDeps),
+    grow: () => deps.growStatus?.(),
     busy: () => pausedForBusy,
     readWork: (name) => readWork(roomDeps, name),
   })
@@ -1045,7 +1049,8 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     log.info(`收账完成（${date}）：日记 ${parsed.diary.length} 字，记下 ${parsed.memories.length} 件事`)
   }
 
-  /** 她聊完了就把房间的闹钟放回去。
+  /**
+   * 她聊完了就把房间的闹钟放回去。
    *
    * 为什么用轮询而不是"最后一条消息之后延时"：会话可能被压缩、重放或中途断开，
    * 事件不一定有收尾；每分钟看一眼"安静了多久"最稳，也不会因为漏掉一条事件就永远压着。
@@ -1068,6 +1073,29 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   }, BUSY_CHECK_MS)
   // 轮询是后台行为：Node 不该因为它而退出（也避免测试进程被挂住）。
   ;(busyTimer as unknown as { unref?: () => void }).unref?.()
+
+  /**
+   * 跨天检查：昨天还没收的账，到点就收。
+   *
+   * 为什么需要它：收账原来只有"她睡下"那三条入口 + "她第二天又留下材料"这一条兜底。
+   * 她要是夜里不开口、又没到次数上限，那一天的本子就一直躺着 ——
+   * 材料已经落盘不会丢，但没有日记。到点收一次之后，"哪一天算完"由墙钟说了算，
+   * 而不是由她下一次开口说了算。
+   */
+  const dayTimer = setInterval(() => {
+    if (!moduleEnabled()) return
+    const documents = deps.documents()
+    if (documents === undefined) return
+    const now = new Date().toISOString()
+    const book = readNotes(documents)
+    // 今天的不在这里收：她还没过完这一天，等睡下再说。
+    if (book.day === '' || book.day === dayKeyOf(now, deps.timeZone()) || isEmptyNotes(book)) return
+    const closing = book.day
+    void settleDayFor(closing, now, { hers: [...book.hers], talk: [...book.talk] }).catch((error: unknown) => {
+      log.warn(`跨天收账失败（${closing}）`, error)
+    })
+  }, DAY_BOUNDARY_CHECK_MS)
+  ;(dayTimer as unknown as { unref?: () => void }).unref?.()
 
   const disposeStep = on('agent/pre-step', async (payload, next) => {
     const decision = (await next()) as { kind?: string; messages?: unknown[] } | null
@@ -1107,6 +1135,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       disposeStep()
       disposeUsage()
       clearInterval(busyTimer)
+      clearInterval(dayTimer)
       if (flushTimer !== undefined) clearTimeout(flushTimer)
       // 房间的句柄**故意不释放**：持有它的所有权，`dispose` 有可能把会话一起撤掉
       // （`core.zh.md` 的创建回滚约定）。插件卸载时只丢引用，让会话留在存储里。

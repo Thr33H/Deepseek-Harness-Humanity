@@ -82,6 +82,26 @@ test('自进化页：没翻开的日记不给正文，翻开过的才给', async
   assert.match(html, /今天我去查了潮汐的事/, '打开过的那篇才显示正文')
 })
 
+test('自进化页：她自己整理的那块要看得见（队列 + 上次写了什么）', async () => {
+  const client = await loadClientBundle()
+  const controller = new client.EvolutionWorkbenchController()
+  controller.attach(fakeChannel({
+    ...BASE,
+    grow: {
+      candidates: [{ text: '爱吃糖葫芦', about: 'user', section: '关系', count: 2, days: 2 }],
+      lastRun: { at: '2026-11-24T15:00:00.000Z', wrote: ['说话风格'], queued: ['爱吃糖葫芦'], note: '' },
+    },
+  }))
+  await settle()
+  const html = render(nodeRequire('react').createElement(client.EvolutionPage, { t, controller }))
+
+  assert.match(html, /workbench\.evolution\.grow\.title/)
+  assert.match(html, /爱吃糖葫芦/, '攒着的候选要列出来')
+  assert.match(html, /workbench\.evolution\.grow\.aboutUser/, '要标出"关于他"')
+  assert.match(html, /workbench\.evolution\.grow\.lastRun/, '上次整理的时刻要显示')
+  assert.match(html, /workbench\.evolution\.grow\.wrote/, '上次写进了哪一节要显示')
+})
+
 test('自进化页：读不到时如实说读不到，不编数字', async () => {
   const client = await loadClientBundle()
   const controller = new client.EvolutionWorkbenchController()

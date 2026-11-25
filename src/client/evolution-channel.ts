@@ -57,6 +57,22 @@ export interface WorkItemView {
   preview: string
 }
 
+/** 她自己整理的一条候选（攒着、还没够次数）。 */
+export interface GrowCandidateView {
+  text: string
+  /** `user` = 关于他；`self` = 关于她自己。 */
+  about: string
+  section: string
+  count: number
+  days: number
+}
+
+/** 她自己整理的结果。 */
+export interface GrowView {
+  candidates: GrowCandidateView[]
+  lastRun: { at: string; wrote: string[]; queued: string[]; note: string }
+}
+
 /** 整份投影。 */
 export interface EvolutionDocument {
   status: DayStatusView
@@ -64,6 +80,8 @@ export interface EvolutionDocument {
   works: WorkItemView[]
   /** 她手上攒着的事（她自己的 todo.md）。 */
   threads: string[]
+  /** 她自己整理的结果：攒着的候选 + 上次跑完的痕迹。 */
+  grow: GrowView
   /** 一次性文件传输（点了下载才有；下完就空）。 */
   transfer: { name: string; mime: string; base64: string }
   request: { op: string; date: string }
@@ -93,6 +111,7 @@ export function emptyEvolutionDocument(): EvolutionDocument {
     diary: [],
     works: [],
     threads: [],
+    grow: { candidates: [], lastRun: { at: '', wrote: [], queued: [], note: '' } },
     transfer: { name: '', mime: '', base64: '' },
     request: { op: '', date: '' },
     notice: '',
@@ -137,6 +156,21 @@ export function asEvolutionDocument(value: unknown): EvolutionDocument {
       })
     : []
   const request = (typeof raw.request === 'object' && raw.request !== null ? raw.request : {}) as Record<string, unknown>
+  const growRaw = (typeof raw.grow === 'object' && raw.grow !== null ? raw.grow : {}) as Record<string, unknown>
+  const candidates = Array.isArray(growRaw.candidates)
+    ? growRaw.candidates.map((item) => {
+        const entry = (typeof item === 'object' && item !== null ? item : {}) as Record<string, unknown>
+        return {
+          text: typeof entry.text === 'string' ? entry.text : '',
+          about: typeof entry.about === 'string' ? entry.about : 'self',
+          section: typeof entry.section === 'string' ? entry.section : '',
+          count: typeof entry.count === 'number' ? entry.count : 0,
+          days: typeof entry.days === 'number' ? entry.days : 0,
+        }
+      })
+    : []
+  const lastRunRaw = (typeof growRaw.lastRun === 'object' && growRaw.lastRun !== null ? growRaw.lastRun : {}) as Record<string, unknown>
+  const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((line): line is string => typeof line === 'string') : [])
   return {
     status: {
       enabled: status.enabled === true,
@@ -158,6 +192,15 @@ export function asEvolutionDocument(value: unknown): EvolutionDocument {
     diary,
     works,
     threads: Array.isArray(raw.threads) ? raw.threads.filter((line) => typeof line === 'string') : [],
+    grow: {
+      candidates,
+      lastRun: {
+        at: typeof lastRunRaw.at === 'string' ? lastRunRaw.at : '',
+        wrote: strings(lastRunRaw.wrote),
+        queued: strings(lastRunRaw.queued),
+        note: typeof lastRunRaw.note === 'string' ? lastRunRaw.note : '',
+      },
+    },
     transfer: {
       name: typeof (raw.transfer as { name?: unknown } | undefined)?.name === 'string' ? String((raw.transfer as { name?: unknown }).name) : '',
       mime: typeof (raw.transfer as { mime?: unknown } | undefined)?.mime === 'string' ? String((raw.transfer as { mime?: unknown }).mime) : '',

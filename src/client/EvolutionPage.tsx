@@ -231,6 +231,40 @@ export function EvolutionPage({ t, controller }: EvolutionPageProps) {
 
       <section style={{ ...panel, marginTop: 16 }}>
         <h2 style={{ ...panelTitle, ...headingWithHint }}>
+          {t('workbench.evolution.grow.title')}
+          <InfoHint label={t('workbench.evolution.grow.hint')} />
+        </h2>
+        {state.doc.grow.lastRun.at !== '' ? (
+          <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
+            {t('workbench.evolution.grow.lastRun').replace('{time}', stamp(state.doc.grow.lastRun.at))}
+            {state.doc.grow.lastRun.wrote.length > 0
+              ? ` · ${t('workbench.evolution.grow.wrote').replace('{list}', state.doc.grow.lastRun.wrote.join('、'))}`
+              : ''}
+            {state.doc.grow.lastRun.note !== '' ? ` · ${state.doc.grow.lastRun.note}` : ''}
+          </p>
+        ) : null}
+        {state.doc.grow.candidates.length === 0 ? (
+          <p style={{ margin: 0, color: 'var(--dsw-alias-label-secondary)' }}>{t('workbench.evolution.grow.empty')}</p>
+        ) : (
+          <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
+            {state.doc.grow.candidates.map((item, index) => (
+              <li key={`${item.text}-${String(index)}`}>
+                {item.text}
+                <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
+                  {item.about === 'user' ? t('workbench.evolution.grow.aboutUser') : t('workbench.evolution.grow.aboutSelf')}
+                  {' · '}
+                  {t('workbench.evolution.grow.count').replace('{count}', String(item.count))}
+                  {' · '}
+                  {t('workbench.evolution.grow.days').replace('{days}', String(item.days))}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section style={{ ...panel, marginTop: 16 }}>
+        <h2 style={{ ...panelTitle, ...headingWithHint }}>
           {t('workbench.evolution.threads.title')}
           <InfoHint label={t('workbench.evolution.threads.hint')} />
         </h2>

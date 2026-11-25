@@ -16,6 +16,7 @@ import type { EmotionDeps, EmotionModule } from './emotion/index.js'
 import { EMOTION_LABELS, type EmotionKind } from './emotion/constants.js'
 import { dominantOf } from './emotion/state.js'
 import type { EvolutionDeps, EvolutionModule } from './evolution/index.js'
+import type { GrowView } from './evolution/section.js'
 import type { MemoryDeps } from './memory/index.js'
 import type { MemoryAbout } from './memory/constants.js'
 import type { MemoryModule } from './memory/index.js'
@@ -44,6 +45,8 @@ export interface HostState {
     nowIso: string,
     timeZone?: string,
   ) => Promise<void>
+  /** 她自己整理的结果（给工作台看的那份投影）。 */
+  growStatus?: () => GrowView | undefined
 }
 
 /**
@@ -214,5 +217,6 @@ export function evolutionDeps(
     grow: async (material, date, nowIso, timeZone) => {
       await state.grow?.(material, date, nowIso, timeZone)
     },
+    growStatus: () => state.growStatus?.(),
   }
 }

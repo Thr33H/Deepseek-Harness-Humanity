@@ -83,6 +83,31 @@ export interface DayView {
   lastAppraise: string
 }
 
+/** 她自己整理的一条候选（攒着、还没够次数）。 */
+export interface GrowCandidateView {
+  /** 一句话观察。 */
+  text: string
+  /** `user` = 关于他；`self` = 关于她自己。 */
+  about: string
+  /** 将来写进哪一节。 */
+  section: string
+  /** 被提到几次。 */
+  count: number
+  /** 跨了几天。 */
+  days: number
+}
+
+/**
+ * 她自己整理的结果。
+ *
+ * 为什么摆到页面上：这一层原来只有"出生"和"你手动改"两个来源，你根本看不见它会不会动。
+ * 队列是"她正在攒什么"，lastRun 是"昨晚那一次到底做了什么、卡在哪"。
+ */
+export interface GrowView {
+  candidates: GrowCandidateView[]
+  lastRun: { at: string; wrote: string[]; queued: string[]; note: string }
+}
+
 /** 整份投影。 */
 export interface EvolutionDocument {
   status: DayView
@@ -96,6 +121,8 @@ export interface EvolutionDocument {
    * 只有让她自己看而你看不到，你就没法知道她"在琢磨什么"。
    */
   threads: string[]
+  /** 她自己整理的结果：攒着的候选 + 上次跑完的痕迹。 */
+  grow: GrowView
   /**
    * 一次性的文件传输：客户端点了「下载」才有，下发一次就清掉。
    *
@@ -133,6 +160,7 @@ export function emptyEvolutionDocument(): EvolutionDocument {
     diary: [],
     works: [],
     threads: [],
+    grow: { candidates: [], lastRun: { at: '', wrote: [], queued: [], note: '' } },
     transfer: { name: '', mime: '', base64: '' },
     request: { op: '', date: '' },
     notice: '',
@@ -173,6 +201,23 @@ export const EvolutionDocSchema = Schema.object({
     base64: Schema.string().default(''),
   }),
   threads: Schema.array(Schema.string()).default([]),
+  grow: Schema.object({
+    candidates: Schema.array(
+      Schema.object({
+        text: Schema.string().default(''),
+        about: Schema.string().default('self'),
+        section: Schema.string().default(''),
+        count: Schema.number().default(0),
+        days: Schema.number().default(0),
+      }),
+    ).default([]),
+    lastRun: Schema.object({
+      at: Schema.string().default(''),
+      wrote: Schema.array(Schema.string()).default([]),
+      queued: Schema.array(Schema.string()).default([]),
+      note: Schema.string().default(''),
+    }),
+  }),
   works: Schema.array(
     Schema.object({
       name: Schema.string().default(''),
@@ -200,6 +245,12 @@ export interface EvolutionSectionDeps {
   works(): Promise<WorkItem[]>
   /** 她手上攒着的事（她自己的 	odo.md，最多几行）。 */
   threads(): Promise<string[]>
+  /**
+   * 她自己整理的结果（队列 + 上次痕迹）。
+   *
+   * 由宿主从人格那边读过来（自进化不 import 人格模块）；读不到时给空。
+   */
+  grow?(): GrowView | undefined
   /** 闹钟是不是因为她正在别处说话而压着（单线程）。 */
   busy?(): boolean
   /** 读一个文件（下载用；不合法时给 undefined）。 */
@@ -291,6 +342,7 @@ function project(
     diary,
     works: [...works],
     threads: [...threads],
+    grow: deps.grow?.() ?? { candidates: [], lastRun: { at: '', wrote: [], queued: [], note: '' } },
     transfer: transfer ?? { name: '', mime: '', base64: '' },
     request: { op: '', date: '' },
     notice: '',

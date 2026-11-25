@@ -157,8 +157,8 @@ test('自己与自己对立度为 0', () => {
   for (const kind of EMOTION_KINDS) assert.equal(oppositionBetween(kind, kind), 0)
 })
 
-test('并存上限是四条（八种同时来也只留四条）', () => {
-  assert.equal(MAX_CHARGES, 4)
+test('并存上限是八条（每种基本情绪都能留一条）', () => {
+  assert.equal(MAX_CHARGES, 8)
 })
 test('本轮刚冒出对立情绪时，复合被否决（被骂"你只是个工具"不该显示「爱」）', () => {
   const joyTrust = [view('joy', 76), view('trust', 52), view('anger', 22)]
