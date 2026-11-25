@@ -47,6 +47,8 @@ export interface HostState {
   ) => Promise<void>
   /** 她自己整理的结果（给工作台看的那份投影）。 */
   growStatus?: () => GrowView | undefined
+  /** 从她的候选队列里删掉一条（工作台的命令）。 */
+  dropCandidate?: (text: string) => Promise<{ ok: boolean; reason?: string }>
 }
 
 /**
@@ -218,5 +220,8 @@ export function evolutionDeps(
       await state.grow?.(material, date, nowIso, timeZone)
     },
     growStatus: () => state.growStatus?.(),
+    dropCandidate: async (text) => (state.dropCandidate === undefined
+      ? { ok: false, reason: '这一版没有接上「删候选」的能力。' }
+      : state.dropCandidate(text)),
   }
 }

@@ -85,6 +85,7 @@ export const workbenchZh = {
   'workbench.evolution.grow.days': '跨 {days} 天',
   'workbench.evolution.grow.aboutUser': '关于他',
   'workbench.evolution.grow.aboutSelf': '关于她自己',
+  'workbench.evolution.grow.drop': '删掉',
   // 她留下的东西。
   'workbench.evolution.threads.title': '她手上攒着的事',
   'workbench.evolution.threads.hint': '她自己写在本子上的待办（她自己目录里的 todo.md）。每次醒来她第一眼看到的就是这些；写不写、划不划掉，都是她的事。',
@@ -173,6 +174,7 @@ export const workbenchEn = {
   'workbench.evolution.grow.days': 'across {days} days',
   'workbench.evolution.grow.aboutUser': 'about him',
   'workbench.evolution.grow.aboutSelf': 'about herself',
+  'workbench.evolution.grow.drop': 'Drop',
   'workbench.evolution.threads.title': 'What she is still chewing on',
   'workbench.evolution.threads.hint': 'Her own list (todo.md in her directory). She sees it first thing every waking; whether she writes or crosses things out is up to her.',
   'workbench.evolution.threads.empty': 'Nothing pending.',

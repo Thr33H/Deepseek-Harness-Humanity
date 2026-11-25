@@ -10,6 +10,13 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { useEffect, useSyncExternalStore } from 'react'
 
 import type { EmotionChargeView } from '../host/emotion/view.js'
+import {
+  EMOTION_TIERS,
+  RENDER_FLOOR,
+  SENSITIVITY_HALF_LIFE_MINUTES,
+  SENSITIVITY_MAX_BOOST,
+  SOOTHE_QUIET_MINUTES,
+} from '../host/emotion/constants.js'
 import type { EmotionWorkbenchController } from './emotion-controller.js'
 import { NS } from './locales.js'
 import { column, hint, page, panel, panelTitle, subtitle, title, titleRow } from './styles.js'
@@ -17,6 +24,15 @@ import { column, hint, page, panel, panelTitle, subtitle, title, titleRow } from
 /** 情绪页属性。 */
 export interface EmotionPageProps extends PropsLocale<typeof NS> {
   controller: EmotionWorkbenchController
+}
+
+/**
+ * 某个档位的分数线（从宿主常量里取，页面不另记一份）。
+ * @param id - 档位名。
+ * @returns 分数线；找不到时给 0（不编数字）。
+ */
+function tierAt(id: 'faint' | 'clear' | 'burst'): number {
+  return EMOTION_TIERS.find((tier) => tier.id === id)?.at ?? 0
 }
 
 /** 强度条的底槽。样式与人格页的性格轨道一致（`CharacterCard.tsx` 的 `track`）。 */
@@ -383,6 +399,28 @@ export function EmotionPage({ t, controller }: EmotionPageProps) {
                 <p style={{ margin: '8px 0 0' }}>{document.perceived}</p>
               </section>
             )}
+
+            <section style={panel}>
+              <h2 style={panelTitle}>{t('emotion.params.title')}</h2>
+              <p style={{ ...meta, marginTop: 0 }}>{t('emotion.params.hint')}</p>
+              <ul style={{ ...meta, margin: '8px 0 0', paddingLeft: 18, lineHeight: 1.8 }}>
+                <li>{t('emotion.params.floor', { floor: RENDER_FLOOR })}</li>
+                <li>
+                  {t('emotion.params.tiers', {
+                    faint: tierAt('faint'),
+                    clear: tierAt('clear'),
+                    burst: tierAt('burst'),
+                  })}
+                </li>
+                <li>
+                  {t('emotion.params.sensitivity', {
+                    boost: (1 + SENSITIVITY_MAX_BOOST).toFixed(1),
+                    hours: Math.round(SENSITIVITY_HALF_LIFE_MINUTES / 60),
+                  })}
+                </li>
+                <li>{t('emotion.params.soothe', { minutes: SOOTHE_QUIET_MINUTES })}</li>
+              </ul>
+            </section>
 
             <p style={{ ...subtitle, marginTop: 16 }}>
               {t('emotion.settledAt', { time: agoText(t, document.settledAt, now) })}

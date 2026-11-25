@@ -35,7 +35,7 @@ import { installSettings, SETTINGS_NAMESPACE } from './settings.js'
 import { installMemory } from './memory/index.js'
 import { installPersona } from './persona/index.js'
 import { growDay } from './persona/grow.js'
-import { readGrowQueue } from './persona/grow-queue.js'
+import { readGrowQueue, removeCandidate, saveGrowQueue } from './persona/grow-queue.js'
 import { createLlmAccess } from './llm.js'
 import { installHumanityStore } from './store.js'
 
@@ -290,6 +290,23 @@ export function apply(ctx: Context, config: HumanityConfig): void {
       })),
       lastRun: queue.lastRun,
     }
+  }
+  /**
+   * 从她的候选队列里删掉一条（工作台上那条「删掉」）。
+   *
+   * 为什么要能删：这些是模型从你们对话里攒出来的观察，攒错一条（把玩笑当喜好）
+   * 会一直挂到它自然过期；看着不对就该能立刻拿掉。
+   */
+  state.dropCandidate = async (text: string) => {
+    const documents = state.store?.documents
+    if (documents === undefined) return { ok: false, reason: '存储还没就绪' }
+    const before = readGrowQueue(documents)
+    const after = removeCandidate(before, text)
+    if (after.candidates.length === before.candidates.length) {
+      return { ok: false, reason: '队列里没有这一条（可能刚变过）' }
+    }
+    await saveGrowQueue(documents, { ...after, lastRun: before.lastRun })
+    return { ok: true }
   }
   // 情绪模块：状态 + 存储 + 工作台窗口。**只看存储**，不依赖人格或记忆（模块互相隔离）。
   // 性格漂移：**累积存在人格文档里**（`character.driftPending`），不是内存变量。

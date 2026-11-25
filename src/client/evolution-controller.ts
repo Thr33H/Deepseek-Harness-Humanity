@@ -111,6 +111,32 @@ function saveTransfer(transfer: { name: string; mime: string; base64: string }):
   }
 
   /**
+   * 从她的候选队列里删掉一条。
+   *
+   * 客户端只写命令；宿主决定能不能删，并把结果写回通知（与"翻开日记""改次数上限"同一条路）。
+   * @param text - 那条观察的原文。
+   * @returns 命令是否写出去。
+   */
+  async dropCandidate(text: string): Promise<boolean> {
+    const channel = this.channel
+    if (channel === undefined || text === '') return false
+    try {
+      await this.load({ quiet: true })
+      const outcome = await channel.replace(
+        EVOLUTION_NAMESPACE,
+        { ...this.state.doc, request: { op: 'grow-drop', date: text }, notice: '' },
+        this.revision,
+      )
+      if (outcome.ok) this.revision = (outcome.value as { value?: { revision?: number } } | undefined)?.value?.revision ?? this.revision
+      if (outcome.ok !== true) return false
+      await this.load({ quiet: true })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
    * 下载她目录里的一个文件。
    *
    * 宿主把字节放进**一次性**的 `transfer` 里下发（数据面只有三个方法，新开一条下载路由要动协议）；

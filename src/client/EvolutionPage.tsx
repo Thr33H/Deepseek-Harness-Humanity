@@ -295,6 +295,13 @@ export function EvolutionPage({ t, controller }: EvolutionPageProps) {
                   {' · '}
                   {t('workbench.evolution.grow.days').replace('{days}', String(item.days))}
                 </span>
+                <button
+                  type="button"
+                  style={{ marginLeft: 8, fontSize: 12 }}
+                  onClick={() => void controller.dropCandidate(item.text)}
+                >
+                  {t('workbench.evolution.grow.drop')}
+                </button>
               </li>
             ))}
           </ul>

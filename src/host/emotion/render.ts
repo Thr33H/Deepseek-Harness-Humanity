@@ -27,6 +27,7 @@ import {
   EMOTION_WORDS,
   ENERGY_EXHAUSTED,
   ENERGY_TIRED,
+  RENDER_FLOOR,
   type EmotionKind,
 } from './constants.js'
 import { tierOf } from './state.js'
@@ -43,9 +44,9 @@ const PERCEIVED_TTL_MINUTES = 90
 /**
  * 低于这个强度就不提。
  *
- * 10 分以下基本是刚冒头或者快退完的一点余波，写进提示词只会把"确实有的那几条"稀释掉。
+ * 数值住在 `constants.ts`（`RENDER_FLOOR`）：工作台会把它写出来，一个数字只能有一处定义。
  */
-const FLOOR = 10
+const FLOOR = RENDER_FLOOR
 
 /** "还压着"最多写几条（再多就不是"还压着"，是清单）。 */
 const SECONDARY_MAX = 2

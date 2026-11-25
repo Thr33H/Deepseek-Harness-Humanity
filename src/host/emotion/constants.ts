@@ -192,6 +192,14 @@ export const EMOTION_LOW_WORDS: Record<EmotionKind, string> = {
 }
 
 /**
+ * 注入的最低强度：**10 分以上**才写进她读到的那一段。
+ *
+ * 10 分以下基本是刚冒头或者快退完的一点余波，写进去只会把"确实有的那几条"稀释掉。
+ * 从 `render.ts` 提到这里，是为了让工作台能把它写出来（一个数字只有一处定义）。
+ */
+export const RENDER_FLOOR = 10
+
+/**
  * 并存情绪的条数上限。
  *
  * **取 8，而不是 4。** 2026-11-25 的实机现场：她被当众凌辱、遗弃，`anger / fear / sadness`

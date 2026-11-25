@@ -120,6 +120,7 @@ async function mount(overrides = {}) {
     threads: async () => [],
     grow: () => overrides.grow,
     tell: () => overrides.tell,
+    dropCandidate: overrides.dropCandidate,
     readWork: async () => undefined,
   })
   await section.refresh()
@@ -233,4 +234,37 @@ test('读不到文件时给原因，不假装下载成功', async () => {
   const view = docs.get('humanity-evolution')
   assert.match(view.notice, /读不到/, '要说清为什么没有文件')
   assert.deepEqual(view.transfer, { name: '', mime: '', base64: '' }, '失败时不该带任何字节')
+})
+
+test('删候选：一条命令过去，宿主转给人格那边执行，并把结果写成通知', async () => {
+  const seen = []
+  const { docs, hooks } = await mount({
+    dropCandidate: async (text) => {
+      seen.push(text)
+      return { ok: true }
+    },
+  })
+  docs.set('humanity-evolution', {
+    ...docs.get('humanity-evolution'),
+    request: { op: 'grow-drop', date: '爱吃糖葫芦' },
+  })
+  hooks.get('humanity-evolution').onChange()
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.deepEqual(seen, ['爱吃糖葫芦'], '交出去的正是那一条')
+  assert.match(docs.get('humanity-evolution').notice, /删掉了/)
+})
+
+test('删候选：宿主说删不了就照实说，不假装删成功', async () => {
+  const { docs, hooks } = await mount({
+    dropCandidate: async () => ({ ok: false, reason: '队列里没有这一条（可能刚变过）' }),
+  })
+  docs.set('humanity-evolution', {
+    ...docs.get('humanity-evolution'),
+    request: { op: 'grow-drop', date: '已经不在了' },
+  })
+  hooks.get('humanity-evolution').onChange()
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  const notice = docs.get('humanity-evolution').notice
+  assert.match(notice, /没删成/)
+  assert.match(notice, /可能刚变过/, '原因要原样带出来')
 })

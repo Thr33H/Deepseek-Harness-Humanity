@@ -127,6 +127,58 @@ test('自进化页：她留给你的那一块要看得见（待送 / 送过 / �
   assert.match(html, /workbench\.evolution\.tell\.unread/, '没看过的要标出来')
 })
 
+test('自进化页：候选队列每条带一个「删掉」', async () => {
+  const client = await loadClientBundle()
+  const controller = new client.EvolutionWorkbenchController()
+  controller.attach(fakeChannel({
+    ...BASE,
+    grow: {
+      candidates: [{ text: '爱吃糖葫芦', about: 'user', section: '关系', count: 2, days: 2 }],
+      lastRun: { at: '', wrote: [], queued: [], note: '' },
+    },
+  }))
+  await settle()
+  const html = render(nodeRequire('react').createElement(client.EvolutionPage, { t, controller }))
+  assert.match(html, /workbench\.evolution\.grow\.drop/, '要有一个能删掉这一条的按钮')
+})
+
+test('情绪页：参数写出来（只读，不当成可调）', async () => {
+  const client = await loadClientBundle()
+  const emotion = new client.EmotionWorkbenchController()
+  emotion.attach({
+    async describe() {
+      return {
+        ok: true,
+        value: {
+          writable: true,
+          namespaces: [{
+            ns: 'humanity-emotion',
+            revision: 1,
+            value: {
+              charges: [],
+              energy: 60,
+              energyLevel: 'fresh',
+              warmth: 50,
+              warmthCause: '',
+              perceived: '',
+              settledAt: '2026-11-25T08:00:00.000Z',
+              sensitivities: [],
+              dominant: '',
+            },
+          }],
+        },
+      }
+    },
+    async replace() {
+      return { ok: true, value: { revision: 2 } }
+    },
+  })
+  await settle()
+  const html = render(nodeRequire('react').createElement(client.EmotionPage, { t, controller: emotion }))
+  assert.match(html, /emotion\.params\.title/)
+  assert.match(html, /emotion\.params\.floor/, '触发线要写出来')
+})
+
 test('自进化页：读不到时如实说读不到，不编数字', async () => {
   const client = await loadClientBundle()
   const controller = new client.EvolutionWorkbenchController()

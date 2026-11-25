@@ -138,6 +138,12 @@ export interface EvolutionDeps {
   ): Promise<void>
   /** 她自己整理的结果（队列 + 上次痕迹），只给工作台看。 */
   growStatus?(): GrowView | undefined
+  /**
+   * 从她的候选队列里删掉一条。
+   *
+   * 由宿主转到人格那边（候选队列是人格的数据）；失败要给出人话原因。
+   */
+  dropCandidate?(text: string): Promise<{ ok: boolean; reason?: string }>
 }
 
 /** 模块句柄。 */
@@ -362,6 +368,9 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       }
     },
     busy: () => pausedForBusy,
+    dropCandidate: async (text: string) => (deps.dropCandidate === undefined
+      ? { ok: false, reason: '这一版没有接上「删候选」的能力。' }
+      : deps.dropCandidate(text)),
     readWork: (name) => readWork(roomDeps, name),
   })
 
@@ -902,19 +911,26 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       if (typed?.type === 'user/message') {
         if (isTalk) {
           const said = userSaidOf(typed.data?.message)
-          if (said !== '') pushTalk(`他说：${clip(said, TALK_LINE_CHARS)}`)
-          /**
-           * 他说话了 = 她那句"主动找他"他看到过了。
-           *
-           * 为什么用"他说话"当判据，而不是"他打开了工作台"：能说话就说明他在，
-           * 那条消息就在他眼前 —— 这比"页面被打开过"诚实得多。
-           */
-          if (documents !== undefined) {
-            const tell = readTell(documents)
-            if (unreadOf(tell)) {
-              void saveTell(documents, { ...tell, seenAt: new Date().toISOString() })
-                .then(() => section.refresh())
-                .catch((error: unknown) => log.warn('没能记下"他看到了她那句话"', error))
+          if (said !== '') {
+            pushTalk(`他说：${clip(said, TALK_LINE_CHARS)}`)
+            /**
+             * 他说话了 = 她那句"主动找他"他看到过了。
+             *
+             * 判据是"他说话"，而不是"页面被打开过" —— 能说话就说明他在，
+             * 那条消息就在他眼前。
+             *
+             * ⚠️ 必须只看**真的他说的**（`said !== ''` 已经挡掉了来源不是 `user` 的消息）：
+             * 真机 2026-11-25 教训——她主动找他那条投递**本身就是一条 user 角色的消息**，
+             * 第一版把"任何 user/message"都算成"他看了"，于是投递后 1 秒就被标成已读，
+             * 未读永远不亮。
+             */
+            if (documents !== undefined) {
+              const tell = readTell(documents)
+              if (unreadOf(tell)) {
+                void saveTell(documents, { ...tell, seenAt: new Date().toISOString() })
+                  .then(() => section.refresh())
+                  .catch((error: unknown) => log.warn('没能记下"他看到了她那句话"', error))
+              }
             }
           }
         }

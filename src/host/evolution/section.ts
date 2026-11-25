@@ -288,6 +288,12 @@ export interface EvolutionSectionDeps {
   grow?(): GrowView | undefined
   /** 她主动留给你的东西（同样由宿主转过来）；读不到时给空。 */
   tell?(): TellView | undefined
+  /**
+   * 从她的候选队列里删掉一条（你自己看到一条明显不对的观察时用）。
+   *
+   * 由宿主转到人格那边（自进化不写别人的数据）；失败要给出人话原因。
+   */
+  dropCandidate?(text: string): Promise<{ ok: boolean; reason?: string }>
   /** 闹钟是不是因为她正在别处说话而压着（单线程）。 */
   busy?(): boolean
   /** 读一个文件（下载用；不合法时给 undefined）。 */
@@ -451,6 +457,24 @@ export function installEvolutionSection(ctx: Context, log: Log, deps: EvolutionS
       } catch (error) {
         await refresh(`没改成（${error instanceof Error ? error.message : String(error)}）；去 DSH 设置里改也一样。`)
       }
+      return
+    }
+    /**
+     * 从她的候选队列里删掉一条。
+     *
+     * 执行权在宿主：这里只把"删哪一条"交出去，真正的读写归人格那边（`grow-queue.ts`）。
+     */
+    if (request.op === 'grow-drop') {
+      const text = request.date
+      if (deps.dropCandidate === undefined) {
+        await refresh('这一版没有接上「删候选」的能力。')
+        return
+      }
+      const outcome = await deps.dropCandidate(text).catch((error: unknown) => ({
+        ok: false,
+        reason: error instanceof Error ? error.message : String(error),
+      }))
+      await refresh(outcome.ok ? `从她的候选队列里删掉了「${text}」。` : `没删成：${outcome.reason ?? '未知原因'}`)
       return
     }
     if (request.op === 'read') {
