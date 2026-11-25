@@ -85,6 +85,14 @@ export interface EvolutionStateDoc {
   talkSessionId: string
   /** 那个会话第一次被记下的时刻（ISO 8601）。 */
   talkSeenAt: string
+  /**
+   * 房间名字最近一次对齐的结果（人话）。
+   *
+   * 为什么要落到状态里：这个部署里插件的日志进不了 `docker logs`，
+   * 而"名字没改成"的三种原因（服务不在 / 会话不活 / 名字非法）下一步完全不同，
+   * 状态文档是外部唯一读得到的地方。
+   */
+  roomTitleNote: string
 }
 
 /** 还没开始过的状态。 */
@@ -108,6 +116,7 @@ export const EMPTY_STATE: EvolutionStateDoc = {
   lastAttemptAt: '',
   talkSessionId: '',
   talkSeenAt: '',
+  roomTitleNote: '',
 }
 
 /** 醒来的节奏参数（配置的现读镜像）。 */
@@ -154,6 +163,7 @@ export function readState(documents: DocumentStore | undefined): EvolutionStateD
     lastAttemptAt: text('lastAttemptAt'),
     talkSessionId: text('talkSessionId'),
     talkSeenAt: text('talkSeenAt'),
+    roomTitleNote: text('roomTitleNote'),
   }
 }
 

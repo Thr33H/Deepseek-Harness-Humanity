@@ -79,6 +79,7 @@ import {
   WAKE_MARKER,
 } from './constants.js'
 import { buildTellPrompt, canDeliver, quietEnough, readTell, saveTell, unreadOf } from './tell.js'
+import { syncRoomTitle, type SessionsSeam, type TitleSeam } from './title.js'
 import { defineTellTool } from './tool-tell.js'
 import { presetOfAgent } from '../agent-scope.js'
 import { HUMANITY_PRESET_ID } from '../presets.js'
@@ -429,6 +430,8 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   let lastBusyAt = 0
   /** 房间闹钟是不是因为"她在别处"而被压着了。 */
   let pausedForBusy = false
+  /** 房间名字最近一次对齐用的是哪个（会话 + 日期）：一天只对一次，别每条消息都追加事件。 */
+  let titleKey = ''
   /** 她在自己房间里看到的东西（醒来后交给情绪评估）。 */
   let seenBuffer = ''
   /** 收账正在进行（防同一分钟里两个入口撞车，见 settleDay）。 */
@@ -646,6 +649,37 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
           await saveState(documents, state)
         }
       }
+      /**
+       * 把房间的名字对齐到"今天"（幂等：名字已经是这个就不动）。
+       *
+       * 为什么要有这一小段：DSH 会自动按对话内容给会话起名（"关于晚饭的讨论"），
+       * 而我们要的是**日期** —— 一年以后能一眼找到"11 月 25 日她做了什么"。
+       * 改名要求会话是活的、并且这一步必须在 `arm` 早退（她在睡、次数到顶）**之前**执行，
+       * 否则一天里有大半时间它根本轮不到（2026-11-25 真机第一次就踩在这里：没改成的直接原因是
+       * 她那会儿正在睡，`arm` 在改名之前就 return 了）。
+       */
+      const syncTitle = (target: string): void => {
+        const outcome = syncRoomTitle(
+          {
+            sessions: () => ctx.get('sessions') as SessionsSeam | undefined,
+            titles: () => ctx.get('sessionTitle') as TitleSeam | undefined,
+          },
+          target,
+          dayKeyOf(now, deps.timeZone()),
+        )
+        const note = outcome.kind === 'skipped'
+          ? `没改成：${outcome.reason}`
+          : `${outcome.kind === 'renamed' ? '改成了' : '本来就是'} ${outcome.title}`
+        if (state.roomTitleNote !== note) {
+          state = { ...state, roomTitleNote: note }
+          void saveState(documents, state).catch(() => {})
+        }
+        if (outcome.kind === 'skipped' && outcome.reason !== '') {
+          log.warn(`房间名字没对上（${outcome.reason}）——不影响她过日子`)
+        }
+      }
+      syncTitle(state.roomSessionId)
+
       const hasFuture =
         state.taskId !== ''
         && state.nextAt !== ''
@@ -703,6 +737,11 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
           if (room.handle !== undefined) roomHandle = room.handle
         }
       }
+      /**
+       * 房间如果是在这一次里刚建出来的，名字要在这里再对齐一次
+       * （上面那次用的是旧状态里的会话 id，那时还没有它）。
+       */
+      syncTitle(sessionId)
       // 提示词里写的是**她醒来那一刻**的时间，不是"现在排程的这一刻"；
       // 尾部接上她上次说到哪儿 —— 每一次醒来都不是空白的一天。
       const nextIso = new Date(Date.parse(now) + gap * 1000).toISOString()
@@ -863,6 +902,36 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     return presetOfAgent({ session }, ctx) === HUMANITY_PRESET_ID
   }
 
+  /**
+   * 把房间的名字对齐到"今天"。
+   *
+   * 为什么不能只在 `arm` 里做：改名要求会话是**活的**（`sessions.get(id)` 拿得到对象），
+   * 而启动那一刻她的会话还没被加载 —— 真机 2026-11-25 第一次验证就卡在这：
+   * `roomTitleNote` 写的是"这个会话这会儿不是活的，改不了名"。
+   * 唯一稳定的"活着"的时刻是**她这一轮真的在跑**（`session/event` 里能收到她的会话事件）。
+   * @param sessionId - 她房间的会话 id。
+   */
+  const publishRoomTitle = (sessionId: string): void => {
+    const documents = deps.documents()
+    if (documents === undefined || sessionId === '') return
+    const outcome = syncRoomTitle(
+      {
+        sessions: () => ctx.get('sessions') as SessionsSeam | undefined,
+        titles: () => ctx.get('sessionTitle') as TitleSeam | undefined,
+      },
+      sessionId,
+      dayKeyOf(new Date().toISOString(), deps.timeZone()),
+    )
+    const note = outcome.kind === 'skipped'
+      ? `没改成：${outcome.reason}`
+      : `${outcome.kind === 'renamed' ? '改成了' : '本来就是'} ${outcome.title}`
+    const current = readState(documents)
+    if (current.roomTitleNote === note) return
+    void saveState(documents, { ...current, roomTitleNote: note }).catch((error: unknown) => {
+      log.warn('没能记下房间名字的结果', error)
+    })
+  }
+
   /** 每一条助手消息都带用量：订阅它，就不必去翻会话文件。 */
   const onEvent = ctx.on as unknown as (
     name: string,
@@ -877,6 +946,18 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       const roomSessionId = documents === undefined ? '' : readState(documents).roomSessionId
       /** 这一次事件是发生在"她跟他说话"的那个会话里吗。 */
       const isTalk = isTalkSession(session, sessionId, roomSessionId)
+      /**
+       * 她的会话里一有动静，就说明它是活的 —— 这是唯一能改名字的时刻。
+       *
+       * 用 `sessionId + 日期` 做记忆键：一天最多对齐一次，不会每条消息都去追加改名事件。
+       */
+      if (documents !== undefined && sessionId !== '' && sessionId === roomSessionId) {
+        const key = `${sessionId}:${dayKeyOf(new Date().toISOString(), deps.timeZone())}`
+        if (titleKey !== key) {
+          titleKey = key
+          publishRoomTitle(sessionId)
+        }
+      }
       /**
        * 记下"他最近在哪个会话里跟她说话"。
        *
