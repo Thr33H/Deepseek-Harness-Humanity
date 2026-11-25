@@ -613,7 +613,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         await saveState(documents, { ...raw, busySince: '' }).catch(() => {})
         raw = { ...raw, busySince: '' }
       }
-      const state = settleAt(raw, now)
+      let state = settleAt(raw, now)
       const timeZone = deps.timeZone()
       if (state.energy !== raw.energy || state.sleepingSince !== raw.sleepingSince || state.energyAt !== raw.energyAt) {
         await saveState(documents, state)
@@ -629,6 +629,22 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
           log.warn('睡前收账失败（这一天没有日记）', error)
           void noteSettleError(documents, error instanceof Error ? error.message : String(error))
         })
+      }
+      /**
+       * 先确认那个房间任务**还在调度里**。
+       *
+       * 真机 2026-11-25：调度存储里它消失了（只剩别的任务），而状态里 `nextAt` 还在未来 ——
+       * 于是下面那段只尝试"改时间"，改不到就 `return`：**每次重启都空转，她再也不醒**。
+       * 任务不在就当没排过：只清 `taskId`（`nextAt` 留着，它仍然说明她本该什么时候醒），
+       * 让下面那段去**重建**一个。
+       */
+      if (state.taskId !== '') {
+        const alive = await inspectRoom(roomDeps, state.taskId).catch(() => undefined)
+        if (alive === undefined) {
+          log.warn(`${reason}：房间任务 ${state.taskId} 已经不在调度里了，重建一个`)
+          state = { ...state, taskId: '' }
+          await saveState(documents, state)
+        }
       }
       const hasFuture =
         state.taskId !== ''
@@ -651,7 +667,14 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
        * 一旦腾出来（安静够了），就按最小间隔尽快让她醒。
        */
       const missed = state.nextAt !== '' && Date.parse(state.nextAt) <= Date.parse(now) - 5 * 60_000
-      const gap = missed ? MIN_GAP_SECONDS : gapSeconds(state, now)
+      /**
+       * 任务被重建时，`nextAt` 仍然是"她本该醒的时刻"：
+       * 还没到就等到那个点，已经过了就尽快补（不推一段新的随机间隔）。
+       */
+      const upcoming = state.taskId === '' && state.nextAt !== '' && Date.parse(state.nextAt) > Date.parse(now)
+        ? Math.max(MIN_GAP_SECONDS, Math.round((Date.parse(state.nextAt) - Date.parse(now)) / 1000))
+        : undefined
+      const gap = upcoming ?? (missed ? MIN_GAP_SECONDS : gapSeconds(state, now))
       if (gap === undefined) {
         await setActive(roomDeps, state.taskId, false)
         return
