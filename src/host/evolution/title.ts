@@ -23,11 +23,6 @@ export function titleFor(dateKey: string): string {
   return dateKey
 }
 
-/** `ctx.get('sessions')` 用到的那一小块。 */
-export interface SessionsSeam {
-  get(sessionId: string): unknown
-}
-
 /** `ctx.get('sessionTitle')` 用到的那一小块。 */
 export interface TitleSeam {
   get(session: unknown): { title?: string } | undefined
@@ -36,7 +31,6 @@ export interface TitleSeam {
 
 /** 改名这一步需要的外部事实。 */
 export interface TitleDeps {
-  sessions(): SessionsSeam | undefined
   titles(): TitleSeam | undefined
 }
 
@@ -47,26 +41,26 @@ export type TitleOutcome =
   | { kind: 'skipped'; reason: string }
 
 /**
- * 把她房间那个会话的名字对齐到"今天"。
+ * 把一个**活的会话**的名字对齐到"今天"。
  *
- * 幂等：名字已经是这个就不动（`arm` 每次启动都会走一遍，不能每次都追加事件）。
+ * ⚠️ 参数必须是会话对象本身，不是 id：真机 2026-11-25 试过用
+ * `ctx.get('sessions').get(id)` 去找它，那条路在插件的作用域里拿不到对象
+ * （一直报"这个会话这会儿不是活的"），而 `session/event` 回调里**本来就把活的会话对象递过来了**。
+ * `sessionTitle.rename` 也要求"是同一个对象"（它内部会断言 `sessions.get(id) === session`）。
+ *
+ * 幂等：名字已经是这个就不动（`arm` 与事件回调都可能走到这里）。
  * 失败不抛 —— 名字没改成不影响她过日子，但要能说清为什么。
- * @param deps - 会话与标题服务。
- * @param sessionId - 她房间的会话 id。
+ * @param deps - 标题服务。
+ * @param session - 活的会话对象（拿不到就传 `undefined`）。
  * @param dateKey - 今天（她的时区）。
  * @returns 结果（`skipped` 时带原因）。
  */
-export function syncRoomTitle(deps: TitleDeps, sessionId: string, dateKey: string): TitleOutcome {
+export function renameSession(deps: TitleDeps, session: unknown, dateKey: string): TitleOutcome {
   const title = titleFor(dateKey)
-  if (sessionId === '' || title === '') return { kind: 'skipped', reason: '没有会话或者没有日期' }
-  const sessions = deps.sessions()
-  if (sessions === undefined) return { kind: 'skipped', reason: '会话服务不在（sessions）' }
+  if (title === '') return { kind: 'skipped', reason: '没有日期' }
+  if (session === undefined || session === null) return { kind: 'skipped', reason: '没有活的会话对象' }
   const titles = deps.titles()
   if (titles === undefined) return { kind: 'skipped', reason: '标题服务不在（sessionTitle）' }
-  const session = sessions.get(sessionId)
-  if (session === undefined || session === null) {
-    return { kind: 'skipped', reason: '这个会话这会儿不是活的，改不了名' }
-  }
   let current: string | undefined
   try {
     current = titles.get(session)?.title

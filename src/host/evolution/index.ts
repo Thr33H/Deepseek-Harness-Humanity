@@ -79,7 +79,7 @@ import {
   WAKE_MARKER,
 } from './constants.js'
 import { buildTellPrompt, canDeliver, quietEnough, readTell, saveTell, unreadOf } from './tell.js'
-import { syncRoomTitle, type SessionsSeam, type TitleSeam } from './title.js'
+import { renameSession, type TitleSeam } from './title.js'
 import { defineTellTool } from './tool-tell.js'
 import { presetOfAgent } from '../agent-scope.js'
 import { HUMANITY_PRESET_ID } from '../presets.js'
@@ -649,37 +649,6 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
           await saveState(documents, state)
         }
       }
-      /**
-       * 把房间的名字对齐到"今天"（幂等：名字已经是这个就不动）。
-       *
-       * 为什么要有这一小段：DSH 会自动按对话内容给会话起名（"关于晚饭的讨论"），
-       * 而我们要的是**日期** —— 一年以后能一眼找到"11 月 25 日她做了什么"。
-       * 改名要求会话是活的、并且这一步必须在 `arm` 早退（她在睡、次数到顶）**之前**执行，
-       * 否则一天里有大半时间它根本轮不到（2026-11-25 真机第一次就踩在这里：没改成的直接原因是
-       * 她那会儿正在睡，`arm` 在改名之前就 return 了）。
-       */
-      const syncTitle = (target: string): void => {
-        const outcome = syncRoomTitle(
-          {
-            sessions: () => ctx.get('sessions') as SessionsSeam | undefined,
-            titles: () => ctx.get('sessionTitle') as TitleSeam | undefined,
-          },
-          target,
-          dayKeyOf(now, deps.timeZone()),
-        )
-        const note = outcome.kind === 'skipped'
-          ? `没改成：${outcome.reason}`
-          : `${outcome.kind === 'renamed' ? '改成了' : '本来就是'} ${outcome.title}`
-        if (state.roomTitleNote !== note) {
-          state = { ...state, roomTitleNote: note }
-          void saveState(documents, state).catch(() => {})
-        }
-        if (outcome.kind === 'skipped' && outcome.reason !== '') {
-          log.warn(`房间名字没对上（${outcome.reason}）——不影响她过日子`)
-        }
-      }
-      syncTitle(state.roomSessionId)
-
       const hasFuture =
         state.taskId !== ''
         && state.nextAt !== ''
@@ -735,13 +704,16 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
           }
           sessionId = room.sessionId
           if (room.handle !== undefined) roomHandle = room.handle
+          /**
+           * 房间刚建出来 —— 名字就在这里对齐（这是唯一能拿到"活的会话对象"的时刻）。
+           *
+           * ⚠️ 必须放在 `ensureRoom` **之后**：真机 2026-11-25 这一行曾被放在建房间之前，
+           * 那时句柄还是空的，等于空转：改名一条都没写成，当次 arm 后面抛错还被兜底吞掉，连状态都没落盘。
+           */
+          if (roomHandle?.agent?.session !== undefined) publishRoomTitle(roomHandle.agent.session)
         }
       }
-      /**
-       * 房间如果是在这一次里刚建出来的，名字要在这里再对齐一次
-       * （上面那次用的是旧状态里的会话 id，那时还没有它）。
-       */
-      syncTitle(sessionId)
+      // 房间如果是在这一次里刚建出来的，名字在 `ensureRoom` 之后已经对齐过（见上面的 `roomHandle`）。
       // 提示词里写的是**她醒来那一刻**的时间，不是"现在排程的这一刻"；
       // 尾部接上她上次说到哪儿 —— 每一次醒来都不是空白的一天。
       const nextIso = new Date(Date.parse(now) + gap * 1000).toISOString()
@@ -887,6 +859,28 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   }
 
   /**
+   * 排程失败时**把原因落进状态**，而不只是写日志。
+   *
+   * 为什么：插件的日志进不了 `docker logs`，而 `arm` 里任何一处抛错都会让"房间建了、任务建了，
+   * 状态却没落盘"这种半截现场出现 —— 外部完全看不出发生了什么（2026-11-25 真机连踩两次）。
+   * @param reason - 这一次是谁触发的排程（写进状态，便于对照）。
+   */
+  const armAndReport = (reason: string): void => {
+    void arm(reason).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error)
+      log.warn(`${reason}：排程抛错——${message}`)
+      const documents = deps.documents()
+      if (documents === undefined) return
+      const current = readState(documents)
+      void saveState(documents, {
+        ...current,
+        lastError: `${reason}：排程抛错——${message}`,
+        lastAttemptAt: new Date().toISOString(),
+      }).catch(() => {})
+    })
+  }
+
+  /**
    * 这个会话是不是"她"的沉浸会话 —— 也就是你们的对话。
    *
    * 判据是**此刻实际跑着的预设**（会话投影优先、会话头兜底，见 `presetOfAgent`），
@@ -911,20 +905,24 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
    * 唯一稳定的"活着"的时刻是**她这一轮真的在跑**（`session/event` 里能收到她的会话事件）。
    * @param sessionId - 她房间的会话 id。
    */
-  const publishRoomTitle = (sessionId: string): void => {
+  const publishRoomTitle = (session: unknown): void => {
     const documents = deps.documents()
-    if (documents === undefined || sessionId === '') return
-    const outcome = syncRoomTitle(
-      {
-        sessions: () => ctx.get('sessions') as SessionsSeam | undefined,
-        titles: () => ctx.get('sessionTitle') as TitleSeam | undefined,
-      },
-      sessionId,
-      dayKeyOf(new Date().toISOString(), deps.timeZone()),
-    )
-    const note = outcome.kind === 'skipped'
-      ? `没改成：${outcome.reason}`
-      : `${outcome.kind === 'renamed' ? '改成了' : '本来就是'} ${outcome.title}`
+    if (documents === undefined) return
+    const stamp = new Date().toISOString().slice(11, 16)
+    let note: string
+    try {
+      const outcome = renameSession(
+        { titles: () => ctx.get('sessionTitle') as TitleSeam | undefined },
+        session,
+        dayKeyOf(new Date().toISOString(), deps.timeZone()),
+      )
+      note = outcome.kind === 'skipped'
+        ? `没改成：${outcome.reason}（${stamp}）`
+        : `${outcome.kind === 'renamed' ? '改成了' : '本来就是'} ${outcome.title}（${stamp}）`
+    } catch (error) {
+      // 服务访问本身可能抛（不是每个部署都注册了它）：把原因落到状态里，别让外层 try 吃掉。
+      note = `没改成：${error instanceof Error ? error.message : String(error)}（${stamp}）`
+    }
     const current = readState(documents)
     if (current.roomTitleNote === note) return
     void saveState(documents, { ...current, roomTitleNote: note }).catch((error: unknown) => {
@@ -954,8 +952,11 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       if (documents !== undefined && sessionId !== '' && sessionId === roomSessionId) {
         const key = `${sessionId}:${dayKeyOf(new Date().toISOString(), deps.timeZone())}`
         if (titleKey !== key) {
+          // 先记号再改：改名抛错时外层 try 会吃掉异常，标记留在这里防止同一轮刷屏；
+          // 真正失败的原因由 `publishRoomTitle` 自己写进状态（`roomTitleNote`）。
           titleKey = key
-          publishRoomTitle(sessionId)
+          // 这里拿到的 `session` 就是活的会话对象 —— 改名只能用它（见 `title.ts` 的说明）。
+          publishRoomTitle(session)
         }
       }
       /**
@@ -1301,7 +1302,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         )
       }
     }
-    void arm('她聊完了').catch((error: unknown) => log.warn('聊天结束后没能恢复排程', error))
+    armAndReport('她聊完了')
   }, BUSY_CHECK_MS)
   // 轮询是后台行为：Node 不该因为它而退出（也避免测试进程被挂住）。
   ;(busyTimer as unknown as { unref?: () => void }).unref?.()
@@ -1415,7 +1416,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       if (state.taskId === '') {
         const last = Date.parse(state.lastAttemptAt)
         if (!Number.isFinite(last) || Date.now() - last >= RETRY_ARM_AFTER_MS) {
-          void arm('重试排程').catch((error: unknown) => log.warn('重试排程失败', error))
+          armAndReport('重试排程')
         }
       }
     }
@@ -1452,7 +1453,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     setEnabled(next) {
       enabled = next
       if (next && moduleEnabled()) {
-        void arm('开关打开').catch((error: unknown) => log.warn('开关打开后没能排程', error))
+        armAndReport('开关打开')
         return
       }
       const documents = deps.documents()
@@ -1462,12 +1463,12 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       }
     },
     reconfigure() {
-      void arm('配置变更').catch((error: unknown) => log.warn('配置变更后没能重排', error))
+      armAndReport('配置变更')
     },
     refresh: () => arm('时间基准变化'),
     notifyStoreReady() {
       section.notifyStoreReady()
-      void arm('存储就绪').catch((error: unknown) => log.warn('存储就绪后没能排程', error))
+      armAndReport('存储就绪')
     },
     energyNow() {
       const documents = deps.documents()
