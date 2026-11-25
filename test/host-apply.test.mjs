@@ -158,6 +158,26 @@ async function boot(config) {
   await ctx.plugin(StorageDomain, { backend: 'json' })
   await ctx.plugin(SettingsFile, { path: path.join(dir, 'settings.yml') })
   await ctx.plugin(Humanity, config)
+  /**
+   * 等命名空间真的注册上再交出去。
+   *
+   * 为什么必须等：本插件是经 `ctx.inject(['settings'], …)` **异步**把命名空间接上的，
+   * `ctx.plugin()` 返回时它可能还没跑（机器负载高时尤其）。不等就开始写，撞的是
+   * "命名空间不在" —— 那不是插件坏了，是测试抢在真实时序前面（真机上用户点按钮时，
+   * 页面早就等到注册完成了）。与 `waitForStoragePayload` 同一条纪律：等**内容**。
+   */
+  await waitFor(
+    () => {
+      try {
+        const settings = ctx.get('settings')
+        return settings !== undefined
+          && settings.describe({ redactSecrets: true }).some((entry) => entry.ns === SETTINGS_NAMESPACE)
+      } catch {
+        return false
+      }
+    },
+    `${SETTINGS_NAMESPACE} 命名空间注册`,
+  )
   return {
     ctx,
     dir,

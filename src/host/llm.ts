@@ -1,7 +1,9 @@
 /**
  * 后台模型调用的 seam 封装：**路由解析 + 单次流式调用**。
  *
- * 两个模块用它：自进化整理（`evolution/analyze.ts`）与情绪评估（`emotion/appraise.ts`）。
+ * 现在有**五处**用它：情绪评估（`emotion/appraise.ts`）、记忆写入（`memory/write.ts`）、
+ * 记忆归拢（`memory/consolidate.ts`）、睡前收账（`evolution/index.ts`）、
+ * 她自己整理信息层（`persona/grow.ts`）。
  * 从 `evolution/llm.ts` 提上来的理由就是第二个使用方出现了 —— 后台调用这件事与"整理会话"
  * 无关，它只关心"用谁的模型、怎么收结果"，留在 evolution 下会让情绪模块反向依赖自进化。
  *

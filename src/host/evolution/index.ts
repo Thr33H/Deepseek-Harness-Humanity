@@ -3,13 +3,16 @@
  *
  * 与人格/记忆同一条约定：宿主只调 `installEvolution(...)` 一行。
  *
- * ### 这一版做了什么（第 0 期）
+ * ### 这一块现在管什么（2026-11-25，0.9.x）
  *
- * 1. 她的房间：一个只属于她的会话（第一次投递时由调度服务自动创建）；
- * 2. 一次一约：每次醒来结束时，把**下一次**排到未来某个随机时刻；
- * 3. 醒来的那一轮，她自己决定做什么（提示词只说清"没有人在等你"）。
+ * 1. **她的房间**：一个只属于她的会话（第一次投递时由会话注册表开出来）+ 一个专属目录；
+ * 2. **一次一约**：每次醒来结束时把**下一次**排到未来的随机时刻（40–150 分钟），一天上限 8 次；
+ * 3. **精力**：按 token 加权记账 + 疲劳递增 + 每次醒来的起动成本；睡够才醒，累了就睡；
+ * 4. **单线程**：她在别处说话时把房间的闹钟压住，安静一阵再恢复，错过的时段尽快补醒；
+ * 5. **材料本子**：两栏（她自己的时间 / 你们的对话），**落盘**，跨重启不丢；
+ * 6. **睡前收账**：一条日记（两栏都读）+ 几件事进记忆 + 她自己整理一次信息层。
  *
- * 还没做：精力（按 token 算累不累）、线索账、睡前收账（日记/记忆/性格）。见设计方案的分期。
+ * 收账的触发有四条：醒来判定到头了 / 被聊天耗尽 / 重启发现该睡 / **跨天检查**（每 5 分钟）。
  *
  * ### 时序纪律（这一条以前踩过三次）
  *
@@ -1008,8 +1011,14 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       return
     }
     await appendDiary(documents, { date, text: parsed.diary, createdAt: at, openedAt: '', noticedAt: '' })
-    // 她自己的一份副本：设计里"回头重读那一天"要有可读的东西，而她只能读自己的目录。
-    await writeOwnFile(roomDeps, `diary-${date}.md`, `# ${date}\n\n${parsed.diary}\n`)
+    /**
+     * 她自己的一份副本：设计里"回头重读那一天"要有可读的东西，而她只能读自己的目录。
+     *
+     * ⚠️ 写不成**必须说出来**（2026-11-25 补）：正文在文档表里还在，工作台能看，
+     * 但**她自己重读不到** —— 那是她那一侧的缺口。原来这个返回值被直接丢掉，
+     * 结果是"页面上看一切正常，她那儿什么都没有"，属于最不该有的那种静默。
+     */
+    const copied = await writeOwnFile(roomDeps, `diary-${date}.md`, `# ${date}\n\n${parsed.diary}\n`)
     /**
      * 她自己整理一遍信息层：明确要求当天落地，其余观察进候选队列。
      *
@@ -1036,7 +1045,12 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         log.warn(`收账后没能清空材料本子（${date}）`, error)
       }
     }
-    await noteSettleError(documents, '')
+    await noteSettleError(
+      documents,
+      copied
+        ? ''
+        : `${date} 的日记写成了，但她在自己目录里的那份副本没写成 —— 她重读不到（正文在工作台上还在）`,
+    )
     for (const memory of parsed.memories) {
       try {
         await deps.remember?.(memory.what, memory.about)

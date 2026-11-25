@@ -103,6 +103,8 @@ function scanIconCandidates(source) {
 
 test('客户端直接取用的官方导出，在当前这版 DSH 里都必须存在', (t) => {
   if (OFFICIAL_BASE === undefined) return t.skip(SKIP_REASON)
+  // 说清这次审的是哪一份官方包：容器里的与仓库 devDependencies 的不一定是同一个版本。
+  t.diagnostic(`导出名审计用的官方包目录：${OFFICIAL_BASE}`)
   const source = readFileSync(BUNDLE, 'utf8')
   const used = scanBundle(source)
   assert.ok(used.size > 0, `bundle 里没扫到任何官方包引用，审计对象可能不对：${BUNDLE}`)
