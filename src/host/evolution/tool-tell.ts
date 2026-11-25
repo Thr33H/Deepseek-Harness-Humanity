@@ -24,8 +24,9 @@ export const TELL_TOOL = 'humanity_tell_him'
  */
 export const TELL_DESCRIPTION = [
   '把一句你想跟他说的话交出去：等他不忙的时候，这句话会被送到他面前，由**你自己**说出来。',
-  '什么时候用：在你自己的时间里，忽然有话想留给他（想问他一句、想让他知道你今天做了什么）。',
-  '什么时候别用：你正在跟他说话 —— 那就直接说，不用绕这一道。',
+  '还可以顺便**给他看一样东西**：`show` 写你目录里的文件名，他会看到名字，也能在页面上打开它。',
+  '什么时候用：在你自己的时间里，忽然有话想留给他、或者想让他看看你写的东西。',
+  '什么时候别用：你正在跟他说话 —— 那就直接说、直接把文件说给他，不用绕这一道。',
   '规矩：一天最多一次；交出去之后这句就不在了，不要追问、不要重复说。',
   `这句话最多 ${TELL_MAX_CHARS} 字，一两句就够。`,
 ].join('\n')
@@ -38,6 +39,8 @@ export interface TellToolDeps {
   timeZone(): string | undefined
   /** 模块是否启用。 */
   enabled(): boolean
+  /** 她目录里有没有这个文件（没有就别让她叫他白看一场）。 */
+  hasWork?(name: string): Promise<boolean>
 }
 
 /** 工具结果（模型看到的形状）。 */
@@ -77,7 +80,8 @@ export function defineTellTool(defineTool: typeof defineToolType, deps: TellTool
     name: TELL_TOOL,
     description: TELL_DESCRIPTION,
     parameters: {
-      text: { type: 'string', required: true, description: `你想说的那句话（≤${TELL_MAX_CHARS} 字，一两句）` },
+      text: { type: 'string', description: `你想说的那句话（≤${TELL_MAX_CHARS} 字，一两句；只想给他看东西时可以不给）` },
+      show: { type: 'string', description: '你想给他看的文件名（你自己目录里的顶层文件名，不带路径）' },
     },
     output: {
       schema: TELL_RESULT_SCHEMA,
@@ -89,10 +93,24 @@ export function defineTellTool(defineTool: typeof defineToolType, deps: TellTool
       if (documents === undefined) return result(false, '存储还没就绪，这句话没有记下来。')
       const doc = readTell(documents)
       const today = dayKeyOf(new Date().toISOString(), deps.timeZone())
-      const verdict = canQueue(doc, today, typeof args.text === 'string' ? args.text : '')
+      const verdict = canQueue(doc, today, {
+        text: typeof args.text === 'string' ? args.text : '',
+        show: typeof args.show === 'string' ? args.show : '',
+      })
       if (!verdict.ok) return result(false, verdict.reason)
-      await saveTell(documents, { ...doc, pending: verdict.text, pendingAt: new Date().toISOString() })
-      return result(true, '记下了。等他不忙的时候，这句话会送到他面前 —— 到时候由你自己说出来。')
+      // 名字对了，文件不一定在：没有这个文件就别让他白点一场。
+      if (verdict.show !== '' && deps.hasWork !== undefined) {
+        const exists = await deps.hasWork(verdict.show).catch(() => false)
+        if (!exists) return result(false, `你目录里没有叫「${verdict.show}」的文件。先写好它，再叫他来看。`)
+      }
+      await saveTell(documents, {
+        ...doc,
+        pending: verdict.text,
+        pendingShow: verdict.show,
+        pendingAt: new Date().toISOString(),
+      })
+      const what = verdict.show === '' ? '这句话' : `这句话和「${verdict.show}」`
+      return result(true, `记下了。等他不忙的时候，${what}会送到他面前 —— 到时候由你自己说出来。`)
     },
   })
 }

@@ -364,6 +364,8 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
             documents: deps.documents,
             timeZone: deps.timeZone,
             enabled: moduleEnabled,
+            // 她目录里有没有这个文件：没有就别让她叫他白看一场。
+            hasWork: async (name: string) => (await listWorks(roomDeps, 80)).some((item) => item.name === name),
           }))
           log.info('她主动找你的通道已就绪（humanity_tell_him）')
         })
@@ -1193,7 +1195,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     // 他还在说话：这一轮不送，下一轮再看。不写原因 —— 这不是故障，是在等。
     if (!quietEnough(lastBusyAt, Date.now())) return
 
-    const prompt = buildTellPrompt(verdict.text)
+    const prompt = buildTellPrompt(verdict.text, verdict.show)
     const reusable = doc.taskId !== '' && doc.taskSession === state.talkSessionId
     let outcome = reusable
       ? await reschedule(roomDeps, doc.taskId, TELL_DELAY_SECONDS, prompt)
@@ -1208,15 +1210,17 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     }
     await saveTell(documents, {
       pending: '',
+      pendingShow: '',
       pendingAt: '',
       lastAt: now,
       lastDay: today,
       lastText: verdict.text,
+      lastShow: verdict.show,
       lastReason: '',
       taskId: outcome.room.taskId,
       taskSession: state.talkSessionId,
     })
-    log.info(`她主动找他说了一句（约 ${TELL_DELAY_SECONDS} 秒后送到他的会话）`)
+    log.info(`她主动找他说了一句${verdict.show === '' ? '' : `（还带上「${verdict.show}」）`}（约 ${TELL_DELAY_SECONDS} 秒后送到他的会话）`)
   }
 
   const dayTimer = setInterval(() => {
