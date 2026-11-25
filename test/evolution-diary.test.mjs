@@ -90,6 +90,18 @@ test('收账输入：两栏材料分开给，并写清"不编"与"不能只写�
   assert.match(text, /糖葫芦/)
 })
 
+test('收账提示词要她写"场景"，不是写流水账', () => {
+  const { system } = buildDiaryPrompt({ hers: ['她说：今天翻了半本书'], talk: ['他说：还没睡？'] }, '2026-11-25')
+  // 2026-11-25 用户明确要求：日记要精细、要具体，不要流水账，也不要像周报。
+  assert.match(system, /500–900 字/, '字数要求要放开（原来 150–400，写出来像摘要）')
+  assert.match(system, /场景/, '要写成场景，不是概括')
+  assert.match(system, /心里冒出来的话/, '每件事后面要有一句当时的心里话')
+  assert.match(system, /至少留一个具体的东西/, '要有具体的时刻/物件/原话')
+  assert.match(system, /不要总结这一天/, '日记不是周报')
+  assert.match(system, /一律不编/, '宁可写短也不许编')
+  assert.doesNotMatch(system, /150–400/, '旧的字数上限必须已经去掉')
+})
+
 test('收账输入：哪一栏空着要明说，别让模型以为那天只有一半', () => {
   const { text } = buildDiaryPrompt({ hers: [], talk: ['他说：在吗'] }, '2026-11-24')
   assert.match(text, /这一天她没有自己的时间/)
@@ -110,6 +122,19 @@ test('收账解析：坏 JSON / 空日记 / 没有日记字段都不算成功', 
   assert.equal(parseDiary('{"diary":""}'), undefined)
   assert.equal(parseDiary('{"memories":[]}'), undefined)
   assert.equal(parseDiary(''), undefined)
+})
+
+test('收账解析：正文里的裸换行 / 输出被截断，也要把日记救回来', () => {
+  // 日记写到 500–900 字之后，模型很容易把真实换行直接写进 JSON 字符串。
+  const broken = '{"diary":"第一行\n第二行还在这儿","memories":[]}'
+  const rescued = parseDiary(broken)
+  assert.ok(rescued !== undefined, '裸换行不该让一整天的日记作废')
+  assert.match(rescued.diary, /第二行还在这儿/)
+
+  // 输出被截断（没有收尾的 `}`）：正文能救多少救多少。
+  const cut = parseDiary('{"diary":"写到一半就断了')
+  assert.ok(cut !== undefined, '截断时也不该整篇丢')
+  assert.match(cut.diary, /写到一半就断了/)
 })
 
 test('她自己会发现"被翻过"：唤醒词里给出日期，但不替她决定反应', async () => {

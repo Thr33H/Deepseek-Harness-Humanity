@@ -1137,7 +1137,9 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       hers: material.hers.slice(-NOTES_MAX_LINES),
       talk: material.talk.slice(-TALK_MAX_LINES),
     }, date)
-    const result = await llm.streamText({ route, system, text, maxTokens: 1200, timeoutMs: 60_000 })
+    // 500–900 字的中文正文 + JSON 外壳：上限要留够，截断会让她的一天停在半句话上
+    // （2026-11-25 把日记要求从 150–400 放开到 500–900，同时把预算加上来）。
+    const result = await llm.streamText({ route, system, text, maxTokens: 2600, timeoutMs: 90_000 })
     const parsed = parseDiary(result.text)
     if (parsed === undefined) {
       // 失败不重试、不补写：宁可这一天没有日记，也不留一篇编的。原因写进状态里（日志看不见）。
