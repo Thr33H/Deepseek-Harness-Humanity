@@ -142,3 +142,22 @@ export function similarity(left: string, right: string): number {
   for (const token of a) if (b.has(token)) shared += 1
   return (2 * shared) / total
 }
+
+/**
+ * 从人格里那一行"对TA的称呼"里挑出**一个名字**。
+ *
+ * 为什么需要：那一行是给人看的短句（`日常：「火火」「主人」`），直接塞进提示词就成了
+ * "「火火」「主人」不在你身边"，读起来像在念清单。
+ * @param raw - 那一行的原文。
+ * @returns 一个名字；取不出来时给空串（调用方退回"他"）。
+ */
+export function pickUserName(raw: string): string {
+  const text = raw.trim()
+  if (text === '') return ''
+  // 优先取引号里的第一个名字：她写这一行时就是用「」把名字圈出来的。
+  const quoted = /[「『"“]([^」』"”]{1,20})[」』"”]/.exec(text)
+  if (quoted?.[1] !== undefined && quoted[1].trim() !== '') return quoted[1].trim()
+  // 否则去掉"日常："这类前缀，再把引号与空白清掉。
+  const after = text.includes('：') ? text.slice(text.indexOf('：') + 1) : text
+  return after.replace(/[「」『』""'']/g, '').replace(/[、，,/\s]+/g, ' ').trim().slice(0, 20)
+}

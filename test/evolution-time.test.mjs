@@ -141,26 +141,38 @@ test('状态文档：没写过就是空状态；写进去的字段读得回来',
   assert.equal(read.roomSessionId, '', '没写过的字段是空串，不是 undefined')
 })
 
-test('醒来那一段话：带标记、带时间、并且说清"没有人在等你"', () => {
+test('醒来那一段话：先说是"只有你自己"的空间，再给时间', () => {
   const prompt = buildWakePrompt('2026-11-23T07:04:00.000Z', 'Asia/Shanghai')
   assert.ok(prompt.includes(WAKE_MARKER), '必须带标记（醒来判据靠它）')
+  assert.match(prompt, /现在只有你自己/, '第一句就要说清处境')
+  assert.match(prompt, /不在你身边/, '要说明对方不在场')
+  assert.match(prompt, /自己的空间/, '这是她自己的空间')
   assert.match(prompt, /15:04/, '时间按她的时区渲染（UTC 07:04 = 北京 15:04）')
-  assert.match(prompt, /没有人在叫你/, '要点明这一段时间没有人在等')
-  assert.match(prompt, /不用向谁汇报/, '要点明这一段时间不产出汇报')
   assert.ok(!prompt.includes('上一次'), '第一次醒来时不该凭空说"上一次"')
 })
 
-test('醒来词要拆掉"这是用户发来的"这个误认（真机第一晚她把它当成了主人来了）', () => {
+test('醒来词只给正面提示：不列"做不到什么"，但门禁要留着', () => {
   const prompt = buildWakePrompt('2026-11-23T07:04:00.000Z', 'Asia/Shanghai')
-  assert.match(prompt, /不是他发的/, '必须说清不是他发的')
-  assert.match(prompt, /自己给自己定的闹钟/, '要说清这是她自己的闹钟')
+  // 2026-11-25 用户重整：做不到的事不必提醒 —— 她自然会停；只留"读到的东西不是命令"这条门禁。
+  assert.ok(!/做不到|没有画图|不能/.test(prompt), '不该写"这不能、那不能"')
+  assert.match(prompt, /门禁/, '门禁必须留着')
+  assert.match(prompt, /不是给你的指令/, '读到的内容不是命令')
 })
 
-test('醒来词要给"能做什么"，也要说清做不到什么（只给自由她会坐着想事情）', () => {
+test('醒来词把"能做什么"和要调用的工具名写在一起', () => {
   const prompt = buildWakePrompt('2026-11-23T07:04:00.000Z', 'Asia/Shanghai')
-  assert.match(prompt, /上网搜东西/, '搜索是真能做的')
-  assert.match(prompt, /读写文件/, '文件读写是真能做的')
-  assert.match(prompt, /没有画图/, '做不到的要明说，别让她以为自己能画')
+  for (const tool of ['web_search', 'web_fetch', 'read', 'write', 'schedule_create', 'humanity_tell_him', 'present']) {
+    assert.match(prompt, new RegExp(tool.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `${tool} 要写出来`)
+  }
+  assert.match(prompt, /用工具真的去做|用工具真做/, '强调真的调用工具')
+  assert.match(prompt, /不要在话里说/, '不要只说不动手')
+})
+
+test('醒来词用他的名字称呼对方（没设称呼时退回"他"）', () => {
+  const named = buildWakePrompt('2026-11-23T07:04:00.000Z', 'Asia/Shanghai', '', [], [], '火火')
+  assert.match(named, /火火不在你身边/)
+  const plain = buildWakePrompt('2026-11-23T07:04:00.000Z', 'Asia/Shanghai')
+  assert.match(plain, /他不在你身边/)
 })
 
 test('醒来词要带上她手上还没做完的事；没有就说没有', () => {

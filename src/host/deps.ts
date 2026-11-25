@@ -15,6 +15,7 @@ import type { DocumentStore } from './documents.js'
 import type { EmotionDeps, EmotionModule } from './emotion/index.js'
 import { EMOTION_LABELS, type EmotionKind } from './emotion/constants.js'
 import { dominantOf } from './emotion/state.js'
+import { pickUserName } from './text.js'
 import type { EvolutionDeps, EvolutionModule } from './evolution/index.js'
 import type { GrowView } from './evolution/section.js'
 import type { MemoryDeps } from './memory/index.js'
@@ -159,7 +160,7 @@ export function memoryDeps(settings: SettingsBridge, state: HostState, clock?: C
     userName: () => {
       const doc = state.persona?.section.read()
       const target = doc?.mutableLayer?.sections?.find((section) => section.title === '对TA的称呼')
-      return target?.items?.[0]?.trim() ?? ''
+      return pickUserName(target?.items?.[0] ?? '')
     },
     // 她的性格：被窥探之后的反应强度由这两根轴定（见 `memory/reaction.ts`）。
     // 人格模块没开、或性格还没初始化时返回 undefined —— 记忆侧退回基准反应，
@@ -209,6 +210,12 @@ export function evolutionDeps(
     timeZone: () => clock?.report().effective,
     homeDir: () => homeDir?.(),
     started: () => humanityStarted(state),
+    // 对方叫什么：醒来那段话要直接叫名字（"他自己不在你身边"读起来像在说旁人）。
+    userName: () => {
+      const doc = state.persona?.section.read()
+      const target = doc?.mutableLayer?.sections?.find((section) => section.title === '对TA的称呼')
+      return pickUserName(target?.items?.[0] ?? '')
+    },
     // 她自己的见闻交给情绪模块评估（只产出"对事/对自己"的情绪）。
     appraiseOwn: async (text) => state.emotion?.appraiseOwn(text),
     // 睡前收账记下的事，走记忆模块自己的写入路径（去重、视角归一化）。

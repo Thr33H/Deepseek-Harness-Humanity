@@ -110,6 +110,8 @@ export interface EvolutionDeps {
   timeZone(): string | undefined
   /** 人格是否已封存（她"开机"了没有）。 */
   started(): boolean
+  /** 对方叫什么（人格里"对TA的称呼"；空串时提示词写"他"）。 */
+  userName?(): string
   /** `$DSH_HOME`（房间目录要用）。 */
   homeDir(): string | undefined
   /**
@@ -659,7 +661,23 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         // 用"重排到剩下的时间"来恢复，而不是只改 active：真机上只改 active 时任务仍是 paused，
         // 她因此会一直不醒（2026-11-24 抓到）。重排会同时把 timing 与 active 一起写。
         const remain = Math.max(60, Math.round((Date.parse(state.nextAt) - Date.parse(now)) / 1000))
-        const resumed = await reschedule(roomDeps, state.taskId, remain)
+        /**
+         * ⚠️ 重排时必须**连提示词一起重写**。
+         *
+         * 真机 2026-11-25：改完醒来词的文案、重启之后，任务里念的还是旧的那段 ——
+         * 因为这条分支只改了时间。她醒来看到的应该是当前版本的提示词，不是上次排程时的那一份。
+         */
+        const resumedThreads = await readThreads(roomDeps)
+        const resumedUnseen = unnoticedDiary(documents)
+        const resumedPrompt = buildWakePrompt(
+          state.nextAt,
+          timeZone,
+          lastSaid.get(state.roomSessionId) ?? '',
+          resumedThreads,
+          resumedUnseen.map((entry) => entry.date),
+          deps.userName?.() ?? '',
+        )
+        const resumed = await reschedule(roomDeps, state.taskId, remain, resumedPrompt)
         if (!resumed.ok) log.warn(`${reason}：恢复房间闹钟失败——${resumed.reason}`)
         return
       }
@@ -755,7 +773,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       const nextIso = new Date(Date.parse(now) + gap * 1000).toISOString()
       const threads = await readThreads(roomDeps)
       const unseen = unnoticedDiary(documents)
-      const prompt = buildWakePrompt(nextIso, timeZone, lastSaid.get(sessionId) ?? '', threads, unseen.map((entry) => entry.date))
+      const prompt = buildWakePrompt(nextIso, timeZone, lastSaid.get(sessionId) ?? '', threads, unseen.map((entry) => entry.date), deps.userName?.() ?? '')
       const outcome = adopted !== undefined
         ? { ok: true as const, room: { taskId: adopted.taskId, sessionId: adopted.sessionId, nextAt: adopted.nextAt, active: true } }
         : state.taskId === ''
@@ -853,6 +871,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         lastSaid.get(after.roomSessionId) ?? '',
         await readThreads(roomDeps),
         unseen.map((entry) => entry.date),
+        deps.userName?.() ?? '',
       ),
     )
     // 提醒已经排进下一次唤醒词：从现在起她知道这件事了（不再天天念）。

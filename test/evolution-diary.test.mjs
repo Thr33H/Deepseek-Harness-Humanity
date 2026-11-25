@@ -143,7 +143,7 @@ test('她自己会发现"被翻过"：唤醒词里给出日期，但不替她决
   assert.match(prompt, /留着被人翻过的痕迹/)
   assert.match(prompt, /2026-11-23/)
   assert.match(prompt, /说不说、在不在意，你自己定/, '反应由她自己定，提示词不许替她决定')
-  assert.match(prompt, /也会被看到/, '她目录里的东西会被看到，必须如实告诉她')
+  assert.match(prompt, /会留下，他看得到/, '她目录里的东西会被看到，必须如实告诉她')
   const clean = buildWakePrompt('2026-11-24T04:00:00.000Z', 'Asia/Shanghai')
   assert.ok(!clean.includes('被翻过'), '没有这种事时不该凭空出现')
 })
