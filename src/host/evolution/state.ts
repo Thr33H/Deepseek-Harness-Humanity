@@ -100,6 +100,13 @@ export interface EvolutionStateDoc {
    * 靠它判断"今天要不要开新会话"，以及"旧的那个该结束了"。
    */
   roomDay: string
+  /**
+   * 她上次真正可见的工具名（醒来词里"你能做的事"由它渲染）。
+   *
+   * 为什么要落盘：启动时没有活的会话（`agent.ctx` 拿不到），而那时就要把下一次唤醒词排好。
+   * 缓存上次看到的清单，装什么就用什么；一次都没见过时清单为空，那一段就不出现。
+   */
+  capabilities: string[]
 }
 
 /** 还没开始过的状态。 */
@@ -125,6 +132,7 @@ export const EMPTY_STATE: EvolutionStateDoc = {
   talkSeenAt: '',
   roomTitleNote: '',
   roomDay: '',
+  capabilities: [],
 }
 
 /** 醒来的节奏参数（配置的现读镜像）。 */
@@ -173,6 +181,9 @@ export function readState(documents: DocumentStore | undefined): EvolutionStateD
     talkSeenAt: text('talkSeenAt'),
     roomTitleNote: text('roomTitleNote'),
     roomDay: text('roomDay'),
+    capabilities: Array.isArray(raw.capabilities)
+      ? raw.capabilities.filter((item): item is string => typeof item === 'string' && item.trim() !== '')
+      : [],
   }
 }
 

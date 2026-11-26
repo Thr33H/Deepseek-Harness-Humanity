@@ -257,7 +257,17 @@ export function apply(ctx: Context, config: HumanityConfig): void {
   // （2026-09-23 真机事故）。preset 兼容性：注入在**首次主 Agent 装配**时用自己的作用域探测
   // 本段是否被 complete 吞掉；探测完成要让工作台重新投影一次，否则警告条要等下一次操作才出现。
   const compat = createCompatState()
-  state.persona = installPersona(ctx, log, personaDeps(settings, state), compat, () => void state.memory?.refresh())
+  state.persona = installPersona(ctx, log, personaDeps(settings, state), compat, () => {
+    void state.memory?.refresh()
+    /**
+     * 人格一变（出生、改底色、封存），她的唤醒词要跟着重排。
+     *
+     * 为什么必须在这里：唤醒词是**排队那一刻就写好**的（调度消息是一次性内容）。
+     * 真机 2026-11-25：她封存之后，已经排上的那条唤醒词里还是"对方"——因为那份是
+     * 封存之前渲染的，名字还没写进人格。不让自进化重排一次，她就得带着旧称呼醒第一觉。
+     */
+    void state.evolution?.refresh().catch((error: unknown) => log.warn('人格变化后的重排失败（下一次醒来会纠回来）', error))
+  })
   // 补齐竞态：`openStore` 在上面（第 223 行）就先跑起来了，存储若开得**比这一行快**，
   // 它那次 `notifyStoreReady()` 打在一个还是 `undefined` 的 persona 上，等于没打。
   // 所以装配完再看一眼：存储已经就绪就立刻补一次（幂等）。

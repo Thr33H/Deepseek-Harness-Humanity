@@ -363,7 +363,7 @@ test('V8 注入：原生 4 节 + 自定义节都进提示词，原生在前；�
 
 test('文案里不许出现"这个 AI"这类第三人称措辞（2026-11-15 真机：模型照抄它写进了记忆）', async () => {
   // 事故形态：init 工具描述写着「底色只放"这个 AI 是什么"的稳定事实」，模型据此写下
-  // 「对方自称火火；**为这个AI定下设定**：陆衔清…」——把自己的身份说成"给一个 AI 做配置"。
+  // 「对方自称小明；**为这个AI定下设定**：陆衔清…」——把自己的身份说成"给一个 AI 做配置"。
   // 提示词/工具描述里描述"你"时，一律用"你"，不许用"这个 AI / AI 助手"。
   const { INIT_DESCRIPTION } = await import('../lib/persona/init.js')
   const { UPDATE_DESCRIPTION } = await import('../lib/persona/update.js')

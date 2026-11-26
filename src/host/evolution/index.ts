@@ -29,6 +29,7 @@ import type { DocumentStore } from '../documents.js'
 import { createLlmAccess } from '../llm.js'
 import { loadOptional } from '../optional.js'
 import { appendDiary, buildDiaryPrompt, parseDiary, readDiary, type DayMaterial, type DiaryEntry } from './diary.js'
+import { capabilityLines, describeCapabilities, toolNamesOf, visibleToolDefinitions, visibleToolNames } from './capabilities.js'
 import { settleWakeState, sleepGapSeconds } from './lifecycle.js'
 import { installEvolutionSection, type GrowView } from './section.js'
 import type { Log } from '../log.js'
@@ -676,6 +677,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
           resumedThreads,
           resumedUnseen.map((entry) => entry.date),
           deps.userName?.() ?? '',
+          describeCapabilities(state.capabilities, deps.userName?.() ?? ''),
         )
         const resumed = await reschedule(roomDeps, state.taskId, remain, resumedPrompt)
         if (!resumed.ok) log.warn(`${reason}：恢复房间闹钟失败——${resumed.reason}`)
@@ -723,6 +725,15 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
           }
           sessionId = room.sessionId
           if (room.handle !== undefined) roomHandle = room.handle
+          /**
+           * 趁她这间房刚建好，把**她真正能用的工具**取下来。
+           *
+           * 为什么要在这里取：唤醒词是排队那一刻就写好的，而启动时没有活的 agent。
+           * 不在这里取，她第一次醒来的唤醒词里就**没有"你能做的事"这一段**
+           * （真机 2026-11-25 就是这样：新装的第一觉，清单是空的）。
+           */
+          const createdNames = visibleToolNames(ctx.get('tools'), roomHandle)
+          if (createdNames.length > 0) state = { ...state, capabilities: createdNames }
           /**
            * 房间刚建出来 —— 名字就在这里对齐（这是唯一能拿到"活的会话对象"的时刻）。
            *
@@ -773,7 +784,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       const nextIso = new Date(Date.parse(now) + gap * 1000).toISOString()
       const threads = await readThreads(roomDeps)
       const unseen = unnoticedDiary(documents)
-      const prompt = buildWakePrompt(nextIso, timeZone, lastSaid.get(sessionId) ?? '', threads, unseen.map((entry) => entry.date), deps.userName?.() ?? '')
+      const prompt = buildWakePrompt(nextIso, timeZone, lastSaid.get(sessionId) ?? '', threads, unseen.map((entry) => entry.date), deps.userName?.() ?? '', describeCapabilities(state.capabilities, deps.userName?.() ?? ''))
       const outcome = adopted !== undefined
         ? { ok: true as const, room: { taskId: adopted.taskId, sessionId: adopted.sessionId, nextAt: adopted.nextAt, active: true } }
         : state.taskId === ''
@@ -814,7 +825,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
    * 而"下一次该来"是必须成立的承诺 —— 宁可早排（多一次醒来），不可漏排（她从此不再醒）。
    * @param at - 醒来的时刻。
    */
-  const settleWake = async (at: string): Promise<void> => {
+  const settleWake = async (at: string, agent?: unknown): Promise<void> => {
     const documents = deps.documents()
     if (documents === undefined) return
     await flushTokens(at)
@@ -850,6 +861,14 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         void noteSettleError(documents, error instanceof Error ? error.message : String(error))
       })
     }
+    /**
+     * 她这一轮真正能用的工具：从 agent 的作用域里现取，并记进状态。
+     *
+     * 启动时没有活的会话（`agent.ctx` 拿不到），只能靠这份缓存把下一次唤醒词排好；
+     * 取不到就沿用上一次的 —— 清单永远反映"实际装了什么"，不是我们写死的那几个。
+     */
+    const liveTools = visibleToolNames(ctx.get('tools'), agent)
+    if (liveTools.length > 0) after.capabilities = liveTools
     // 这一轮她动了几次手：写进状态（工作台据此如实显示），然后清零。
     after.lastTurnTools = roomToolUses
     roomToolUses = 0
@@ -872,6 +891,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         await readThreads(roomDeps),
         unseen.map((entry) => entry.date),
         deps.userName?.() ?? '',
+        describeCapabilities(after.capabilities, deps.userName?.() ?? ''),
       ),
     )
     // 提醒已经排进下一次唤醒词：从现在起她知道这件事了（不再天天念）。
@@ -1273,7 +1293,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     const { system, text } = buildDiaryPrompt({
       hers: material.hers.slice(-NOTES_MAX_LINES),
       talk: material.talk.slice(-TALK_MAX_LINES),
-    }, date)
+    }, date, deps.userName?.() ?? '')
     // 500–900 字的中文正文 + JSON 外壳：上限要留够，截断会让她的一天停在半句话上
     // （2026-11-25 把日记要求从 150–400 放开到 500–900，同时把预算加上来）。
     const result = await llm.streamText({ route, system, text, maxTokens: 2600, timeoutMs: 90_000 })
@@ -1450,6 +1470,33 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   }, DAY_BOUNDARY_CHECK_MS)
   ;(dayTimer as unknown as { unref?: () => void }).unref?.()
 
+  /**
+   * 造一条注入消息（形状与第一方 time-context / 情绪注入一致）。
+   *
+   * 为什么要注入而不是只写在唤醒词里：唤醒词是**排队那一刻**写死的快照，
+   * 而"她能做什么"取决于那一刻真实装了什么工具。只有在她真正开跑的这一步现取，
+   * 清单才永远准（真机 2026-11-25：新装的第一觉，排程里那份清单是空的）。
+   */
+  let messageFactory: ((input: unknown) => unknown) | undefined
+  void loadOptional<{ createUserMessage(input: unknown): unknown }>('@deepseek-ai/dsh-llm', log)
+    .then((module) => {
+      messageFactory = module?.createUserMessage
+    })
+    .catch(() => {})
+
+  const capabilityMessage = (agent: unknown): unknown | undefined => {
+    if (messageFactory === undefined) return undefined
+    const names = visibleToolNames(ctx.get('tools'), agent)
+    if (names.length === 0) return undefined
+    const lines = capabilityLines(describeCapabilities(names, deps.userName?.() ?? ''))
+    const text = ['你能做的事（用工具真的去做）：', ...lines].join('\n')
+    const body = `<system-reminder>\n${text}\n</system-reminder>`
+    return messageFactory({
+      content: [{ type: 'text', text: body }],
+      source: { kind: 'humanity-evolution', form: 'snapshot', sections: [{ name: 'humanity-evolution', text: body }] },
+    })
+  }
+
   const disposeStep = on('agent/pre-step', async (payload, next) => {
     const decision = (await next()) as { kind?: string; messages?: unknown[] } | null
     if (decision === null || decision.kind !== 'enter') return decision
@@ -1465,8 +1512,15 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     const decided = cleaned === messages ? decision : { ...decision, messages: cleaned }
     // 以下只关心"一次醒来"：一次醒来是一轮对话，不是每一步都要记一次。
     if (step !== 1) return decided
-    // 房间还没排上就借这一轮再试：会话服务可能比我们挂得晚（失败原因已写在状态文档里）。
-    if (documents !== undefined) {
+    /**
+     * 这一次是不是"她醒来"？
+     *
+     * 必须先算出来：醒来和"重排"不能同时干 —— 真机 2026-11-26 抓到，两者并发时
+     * 重排那份**旧快照**会把记账写下的"今天第几次 / 上一次醒"整个盖掉（她醒了，账没记上）。
+     */
+    const isWake = cleaned.some(isWakeMessage)
+    if (!isWake && documents !== undefined) {
+      // 房间还没排上就借这一轮再试：会话服务可能比我们挂得晚（失败原因已写在状态文档里）。
       const state = readState(documents)
       if (state.taskId === '') {
         const last = Date.parse(state.lastAttemptAt)
@@ -1475,12 +1529,37 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         }
       }
     }
-    if (!cleaned.some(isWakeMessage)) return decided
-    // 落账放在异步尾巴上：她这一轮不必等一次调度写入。
-    void settleWake(new Date().toISOString()).catch((error: unknown) => {
-      log.warn('醒来之后没能排下一次（这一次不影响对话）', error)
-    })
-    return decided
+    if (isWake) {
+      // 落账放在异步尾巴上：她这一轮不必等一次调度写入。
+      void settleWake(new Date().toISOString(), agent).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error)
+        log.warn('醒来之后没能排下一次（这一次不影响对话）', error)
+        // 日志进不了 docker logs：这一次记账失败必须能被外部看到。
+        if (documents !== undefined) {
+          const latest = readState(documents)
+          void saveState(documents, { ...latest, lastError: `记账失败：${message}` }).catch(() => {})
+        }
+      })
+    }
+    /**
+     * 她的房间：把"此刻真实能用的工具"补进这一轮。
+     *
+     * 唤醒词里那份是**排程那一刻**的快照；只有在她真正开跑的这一步现取，清单才永远准。
+     * 注入失败只影响这一段文字，不许影响别的（见上面的教训）。
+     */
+    if (!inRoom) return decided
+    try {
+      const injected = capabilityMessage(agent)
+      if (injected === undefined) return decided
+      const list = Array.isArray((decided as { messages?: unknown[] }).messages)
+        ? [...((decided as { messages: unknown[] }).messages)]
+        : []
+      list.push(injected)
+      return { ...(decided as object), messages: list } as typeof decided
+    } catch (error) {
+      log.warn('这一轮没能把"能做什么"补进提示词（不影响她做事）', error)
+      return decided
+    }
   })
 
   ctx.effect(

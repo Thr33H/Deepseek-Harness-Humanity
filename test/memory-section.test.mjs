@@ -98,7 +98,7 @@ function storeOf(records = []) {
 test('被窥探：看穿之后，那条秘密的代价归零，而且她记下了这件事', async () => {
   const secret = createMemoryRecord({ what: '我一直没敢说的那件事', about: 'self', certain: 'witnessed', cost: 0.9 })
   const { store, table } = storeOf([secret])
-  const notice = await reveal(store, secret.id, '火火', new Date('2026-11-21T12:00:00.000Z'))
+  const notice = await reveal(store, secret.id, '小明', new Date('2026-11-21T12:00:00.000Z'))
 
   assert.match(notice, /她记得你看了/)
 
@@ -112,21 +112,21 @@ test('被窥探：看穿之后，那条秘密的代价归零，而且她记下�
   // 如果它也带秘密标记，界面上就会永远有新 🔒 可点，越点越多（2026-11-21 真机的死循环）。
   const added = [...table.values()].filter((record) => record.id !== secret.id)
   assert.equal(added.length, 1)
-  assert.match(added[0].what, /火火.*看了/, '用名字，不用"他/对方"')
+  assert.match(added[0].what, /小明.*看了/, '用名字，不用"他/对方"')
   assert.ok(added[0].cost < 0.5, '这条不该再是一个秘密')
 })
 
 test('被窥探：本来就说得出的一条，不该被这样看', async () => {
   const open = createMemoryRecord({ what: '一件普通的事', about: 'user', certain: 'told', cost: 0.1 })
   const { store, table } = storeOf([open])
-  const notice = await reveal(store, open.id, '火火', new Date())
+  const notice = await reveal(store, open.id, '小明', new Date())
   assert.match(notice, /本来就说得出/)
   assert.equal(table.size, 1, '不该写任何东西')
 })
 
 test('被窥探：那条已经不在了', async () => {
   const { store } = storeOf([])
-  const notice = await reveal(store, 'nope', '火火', new Date())
+  const notice = await reveal(store, 'nope', '小明', new Date())
   assert.match(notice, /已经不在了/)
 })
 
@@ -168,7 +168,7 @@ test('被窥探：两个端点都在可读的范围里（15 / 75，不贴 0 和 
 test('被窥探：她记下的那一笔带着性格算出来的反应', async () => {
   const secret = createMemoryRecord({ what: '我一直没说的事', about: 'self', certain: 'witnessed', cost: 0.9 })
   const { store, table } = storeOf([secret])
-  await reveal(store, secret.id, '火火', new Date(), { stability: 0.1, agreeableness: 0.2 })
+  await reveal(store, secret.id, '小明', new Date(), { stability: 0.1, agreeableness: 0.2 })
 
   const added = [...table.values()].find((record) => record.id !== secret.id)
   assert.equal(added.felt.intensity, 69)

@@ -35,7 +35,7 @@ const persona = () => ({
   },
   mutableLayer: {
     sections: [
-      { title: '对TA的称呼', items: ['火火'] },
+      { title: '对TA的称呼', items: ['小明'] },
       { title: '说话风格', items: ['句子短，语气松。'] },
       { title: '行为边界', items: [] },
       { title: '关系', items: ['第一次见面，还在互相摸脾气'] },
@@ -62,7 +62,7 @@ test('读得出那几样：性格、人格偏好、自定义字段、底线、�
   assert.equal(stance.traits.some((entry) => entry.key === '姓名'), false)
   assert.deepEqual(stance.boundaries, [], '空的行为边界就是"没写明"，不要编')
   assert.deepEqual(stance.relation, ['第一次见面，还在互相摸脾气'])
-  assert.deepEqual(stance.address, ['火火'])
+  assert.deepEqual(stance.address, ['小明'])
   // 非原生小节进"其他设定"（说话风格是"怎么表达"，不是"什么有意思"，不进）。
   assert.deepEqual(stance.sections, [{ title: '雷区', items: ['别拿家人开玩笑'] }])
   assert.deepEqual(stance.custom, [{ key: '咖啡', value: '不加糖' }])
@@ -90,7 +90,7 @@ test('渲染：第二人称、开头点明"以你的立场为准"，底线为空
   assert.match(text, /- 你的特殊癖好：被打屁股/, '自定义底色字段要进立场')
   assert.match(text, /- 你的底线：没有特别写明/)
   assert.match(text, /- 你和对方的关系：第一次见面/)
-  assert.match(text, /- 你叫对方：火火/)
+  assert.match(text, /- 你叫对方：小明/)
   assert.match(text, /- 你的雷区：别拿家人开玩笑/, '非原生小节也要进')
   assert.match(text, /- 你的咖啡：不加糖/)
   assert.equal(text.includes('说话风格'), false, '说话风格不参与"意义判断"')

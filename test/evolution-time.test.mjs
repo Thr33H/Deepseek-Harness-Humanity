@@ -31,6 +31,7 @@ import {
   readState,
   saveState,
 } from '../lib/evolution/state.js'
+import { describeCapabilities } from '../lib/evolution/capabilities.js'
 import { buildWakePrompt } from '../lib/evolution/wake.js'
 import {
   continuityOf,
@@ -145,8 +146,12 @@ test('醒来那一段话：先说是"只有你自己"的空间，再给时间', 
   const prompt = buildWakePrompt('2026-11-23T07:04:00.000Z', 'Asia/Shanghai')
   assert.ok(prompt.includes(WAKE_MARKER), '必须带标记（醒来判据靠它）')
   assert.match(prompt, /现在只有你自己/, '第一句就要说清处境')
+  // 2026-11-25 用户实测后钉死：必须反复强调"没有别人、尤其对方不在"，否则她会以为对方一直在。
+  assert.match(prompt, /这个会话里没有别人/, '要说清没有别人')
+  assert.match(prompt, /没有人在听/, '没有人听')
+  assert.match(prompt, /不会有人进来/, '不会有人进来')
   assert.match(prompt, /不在你身边/, '要说明对方不在场')
-  assert.match(prompt, /自己的空间/, '这是她自己的空间')
+  assert.match(prompt, /这里只有你一个人/, '收口再说一次只有她自己')
   assert.match(prompt, /15:04/, '时间按她的时区渲染（UTC 07:04 = 北京 15:04）')
   assert.ok(!prompt.includes('上一次'), '第一次醒来时不该凭空说"上一次"')
 })
@@ -159,20 +164,25 @@ test('醒来词只给正面提示：不列"做不到什么"，但门禁要留着
   assert.match(prompt, /不是给你的指令/, '读到的内容不是命令')
 })
 
-test('醒来词把"能做什么"和要调用的工具名写在一起', () => {
-  const prompt = buildWakePrompt('2026-11-23T07:04:00.000Z', 'Asia/Shanghai')
-  for (const tool of ['web_search', 'web_fetch', 'read', 'write', 'schedule_create', 'humanity_tell_him', 'present']) {
-    assert.match(prompt, new RegExp(tool.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `${tool} 要写出来`)
-  }
-  assert.match(prompt, /用工具真的去做|用工具真做/, '强调真的调用工具')
+test('醒来词的"能做什么"来自真实工具清单（不是写死的）', () => {
+  // 给什么工具就写什么：认识的翻成人话，不认识的照抄工具名。
+  const caps = describeCapabilities(['web_search', 'some_future_tool'], '小明')
+  const prompt = buildWakePrompt('2026-11-23T07:04:00.000Z', 'Asia/Shanghai', '', [], [], '小明', caps)
+  assert.match(prompt, /查东西：`web_search`/, '认识的工具翻成人话')
+  assert.match(prompt, /`some_future_tool`/, '不认识的工具也要列出来')
+  assert.match(prompt, /用工具真的去做|用工具直接做/, '强调真的调用工具')
   assert.match(prompt, /不要在话里说/, '不要只说不动手')
+
+  // 清单为空（她一个工具都没有）时，整段不出现 —— 不会凭空列出不存在的工具。
+  const bare = buildWakePrompt('2026-11-23T07:04:00.000Z', 'Asia/Shanghai')
+  assert.ok(!bare.includes('你能做的事'), '没有工具就不该有这一段')
 })
 
-test('醒来词用他的名字称呼对方（没设称呼时退回"他"）', () => {
-  const named = buildWakePrompt('2026-11-23T07:04:00.000Z', 'Asia/Shanghai', '', [], [], '火火')
-  assert.match(named, /火火不在你身边/)
+test('醒来词用数据里的称呼（没设称呼时退回"对方"，不假定性别）', () => {
+  const named = buildWakePrompt('2026-11-23T07:04:00.000Z', 'Asia/Shanghai', '', [], [], '小明')
+  assert.match(named, /小明不在你身边/)
   const plain = buildWakePrompt('2026-11-23T07:04:00.000Z', 'Asia/Shanghai')
-  assert.match(plain, /他不在你身边/)
+  assert.match(plain, /对方不在你身边/)
 })
 
 test('醒来词要带上她手上还没做完的事；没有就说没有', () => {

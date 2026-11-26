@@ -43,9 +43,9 @@ function personaDoc() {
     identityCard: { fields: [], initializedAt: '2026-11-20T00:00:00.000Z', sealedAt: '2026-11-20T00:00:00.000Z' },
     mutableLayer: {
       sections: [
-        { title: '对TA的称呼', items: ['「火火」'] },
+        { title: '对TA的称呼', items: ['「小明」'] },
         { title: '说话风格', items: ['不使用官腔官话'] },
-        { title: '关系', items: ['火火是我的主人'] },
+        { title: '关系', items: ['小明是我的主人'] },
       ],
       userDefined: [],
     },
@@ -148,7 +148,7 @@ test('写入：正常合并（变长）会写进去', () => {
   assert.deepEqual(rejected, [])
   assert.deepEqual(next.mutableLayer.sections[1].items, ['不使用官腔官话，也不用「我认」「明白了」', '喜欢反问'])
   // 别的小节原样不动
-  assert.deepEqual(next.mutableLayer.sections[0].items, ['「火火」'])
+  assert.deepEqual(next.mutableLayer.sections[0].items, ['「小明」'])
 })
 
 test('写入：会丢旧条目 / 新造小节 / 交空 —— 整节不写', () => {
@@ -174,7 +174,7 @@ test('写入：一节里加太多条也拒（这不是整理，是重写）', ()
 test('解析：坏 JSON / 空对象都不算成功', () => {
   assert.equal(parseGrow('这不是 JSON'), undefined)
   assert.deepEqual(parseGrow('{}'), { sections: [], candidates: [] })
-  const parsed = parseGrow('{"sections":[{"title":"关系","items":["火火是我的主人"]}],"candidates":[{"about":"user","section":"关系","text":"爱吃糖葫芦"}]}')
+  const parsed = parseGrow('{"sections":[{"title":"关系","items":["小明是我的主人"]}],"candidates":[{"about":"user","section":"关系","text":"爱吃糖葫芦"}]}')
   assert.equal(parsed.sections.length, 1)
   assert.equal(parsed.candidates[0].text, '爱吃糖葫芦')
 })
@@ -223,7 +223,7 @@ test('整理一次：到期的那条写进去之后从队列里消失', async ()
   })
   const section = fakeSection(personaDoc())
   const llm = fakeLlm(JSON.stringify({
-    sections: [{ title: '关系', items: ['火火是我的主人', '想去看海'] }],
+    sections: [{ title: '关系', items: ['小明是我的主人', '想去看海'] }],
     candidates: [],
   }))
   await growDay({ documents: () => documents, section, llm, log: { info() {}, warn() {} } }, {

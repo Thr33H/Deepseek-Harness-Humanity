@@ -137,8 +137,8 @@ test('直接记住：同一件事再记一次不新增，只把旧的那条加�
   // 真机（2026-11-22）："想有人陪"三天里被记了三遍 —— 模型每次觉得重要就记一次，
   // 而工具这条路原来没有去重。人的做法是"再提一遍就记得更牢"，不是在本子上抄三行。
   const store = createMemoryStore(fakeTable())
-  const first = await remember(store, { what: '火火说找我主要是想有人陪，以后可能也会要我帮忙', about: 'user', certain: 'told' })
-  const again = await remember(store, { what: '火火说找我主要是想有人陪，以后可能也会要我帮忙。', about: 'user', certain: 'told' })
+  const first = await remember(store, { what: '小明说找我主要是想有人陪，以后可能也会要我帮忙', about: 'user', certain: 'told' })
+  const again = await remember(store, { what: '小明说找我主要是想有人陪，以后可能也会要我帮忙。', about: 'user', certain: 'told' })
 
   assert.equal(again.duplicate, true, '必须告诉调用方"这次没有新增"')
   assert.equal(store.all().length, 1, '库里还是只有一条')
@@ -151,8 +151,8 @@ test('直接记住：极性相反的两句不是重复（不能替对方改意�
   // "喜欢下雨" vs "不喜欢下雨"：只差一个字，Dice 很高，但这是两件事 ——
   // 合并等于把对方的偏好反过来说。人格去重早就守着这条，记忆这里也要守。
   const store = createMemoryStore(fakeTable())
-  const like = await remember(store, { what: '火火喜欢下雨天', about: 'user', certain: 'told' })
-  const dislike = await remember(store, { what: '火火不喜欢下雨天', about: 'user', certain: 'told' })
+  const like = await remember(store, { what: '小明喜欢下雨天', about: 'user', certain: 'told' })
+  const dislike = await remember(store, { what: '小明不喜欢下雨天', about: 'user', certain: 'told' })
 
   assert.equal(like.duplicate, false)
   assert.equal(dislike.duplicate, false)
@@ -162,11 +162,11 @@ test('直接记住：极性相反的两句不是重复（不能替对方改意�
 test('整合：极性相反也不算重复（去重判据两边共用一套）', async () => {
   const store = createMemoryStore(fakeTable())
   await integrate(store, events, {
-    llm: fakeLlm('[{"what":"火火喜欢下雨天","about":"user","certain":"told"}]'),
+    llm: fakeLlm('[{"what":"小明喜欢下雨天","about":"user","certain":"told"}]'),
     log: quietLog,
   })
   const changed = await integrate(store, events, {
-    llm: fakeLlm('[{"what":"火火不喜欢下雨天","about":"user","certain":"told"}]'),
+    llm: fakeLlm('[{"what":"小明不喜欢下雨天","about":"user","certain":"told"}]'),
     log: quietLog,
   })
   assert.equal(changed.length, 1, '偏好反过来了，这是新的一条')
@@ -175,12 +175,12 @@ test('整合：极性相反也不算重复（去重判据两边共用一套）',
 
 test('视角：模型写下"对方/用户"时换成人名（只换这两个词）', () => {
   // 真机库里真有一条写成「我和对方在园子里散步」——提示词管不住的那部分，用一行确定的替换兜住。
-  assert.equal(normalizePerspective('我和对方在园子里散步', '火火'), '我和火火在园子里散步')
-  assert.equal(normalizePerspective('用户说他喜欢下雨', '火火'), '火火说他喜欢下雨')
-  // "你"不能换：换成"火火记得…"语气就变了，那是另一句话。
-  assert.equal(normalizePerspective('你还记得那天吗', '火火'), '你还记得那天吗')
+  assert.equal(normalizePerspective('我和对方在园子里散步', '小明'), '我和小明在园子里散步')
+  assert.equal(normalizePerspective('用户说他喜欢下雨', '小明'), '小明说他喜欢下雨')
+  // "你"不能换：换成"小明记得…"语气就变了，那是另一句话。
+  assert.equal(normalizePerspective('你还记得那天吗', '小明'), '你还记得那天吗')
   // "他"可能是第三个人，换了就是篡改。
-  assert.equal(normalizePerspective('他说他会来', '火火'), '他说他会来')
+  assert.equal(normalizePerspective('他说他会来', '小明'), '他说他会来')
   // 没有名字时一个字都不动。
   assert.equal(normalizePerspective('对方来了', ''), '对方来了')
 })
@@ -190,9 +190,9 @@ test('直接记住：写入时把"对方"换成人名', async () => {
   const { record } = await remember(
     store,
     { what: '我和对方在园子里散步', about: 'us', certain: 'witnessed' },
-    { userName: '火火' },
+    { userName: '小明' },
   )
-  assert.equal(record.what, '我和火火在园子里散步')
+  assert.equal(record.what, '我和小明在园子里散步')
 })
 
 test('整合：带上当时的感觉，并把"对方"换成人名（这条线原来两样都缺）', async () => {
@@ -202,10 +202,10 @@ test('整合：带上当时的感觉，并把"对方"换成人名（这条线原
   const written = await integrate(store, events, {
     llm: fakeLlm('[{"what":"对方说他下周三要去医院复查","about":"user","certain":"told"}]'),
     feeling: () => ({ kind: 'trust', intensity: 60 }),
-    userName: () => '火火',
+    userName: () => '小明',
     log: quietLog,
   })
-  assert.equal(written[0].what, '火火说他下周三要去医院复查')
+  assert.equal(written[0].what, '小明说他下周三要去医院复查')
   assert.deepEqual(written[0].felt, { kind: 'trust', intensity: 60 })
 })
 
@@ -214,13 +214,13 @@ test('整合：同一件事被相邻两个窗口各抽一遍时，只留一条',
   // 同一件事的两种说法，但整合每次只看最近几条消息，跨窗口就抽了两遍。
   const store = createMemoryStore(fakeTable())
   const first = await integrate(store, events, {
-    llm: fakeLlm('[{"what":"火火告诉我他叫火火、是男生，希望我是女生，其余让我自己决定。","about":"user","certain":"told"}]'),
+    llm: fakeLlm('[{"what":"小明告诉我他叫小明、是男生，希望我是女生，其余让我自己决定。","about":"user","certain":"told"}]'),
     log: quietLog,
   })
   assert.equal(first.length, 1)
 
   const second = await integrate(store, events, {
-    llm: fakeLlm('[{"what":"我认识了火火，他告诉我他是男生，并希望我是女生，其余由我自己决定。","about":"user","certain":"told"}]'),
+    llm: fakeLlm('[{"what":"我认识了小明，他告诉我他是男生，并希望我是女生，其余由我自己决定。","about":"user","certain":"told"}]'),
     log: quietLog,
   })
   assert.equal(second.length, 0, '同一件事不该再留一条')
@@ -230,11 +230,11 @@ test('整合：同一件事被相邻两个窗口各抽一遍时，只留一条',
 test('整合：不同的事照常写入（去重不能误杀）', async () => {
   const store = createMemoryStore(fakeTable())
   await integrate(store, events, {
-    llm: fakeLlm('[{"what":"火火告诉我他叫火火、是男生，希望我是女生。","about":"user","certain":"told"}]'),
+    llm: fakeLlm('[{"what":"小明告诉我他叫小明、是男生，希望我是女生。","about":"user","certain":"told"}]'),
     log: quietLog,
   })
   const another = await integrate(store, events, {
-    llm: fakeLlm('[{"what":"火火说找我主要是想有人陪，以后可能也会要我帮忙。","about":"user","certain":"told"}]'),
+    llm: fakeLlm('[{"what":"小明说找我主要是想有人陪，以后可能也会要我帮忙。","about":"user","certain":"told"}]'),
     log: quietLog,
   })
   assert.equal(another.length, 1, '两件不同的事，相似度只有 0.044')
@@ -289,7 +289,7 @@ const REMINDER_TEXT = [
   'This is a scheduled reminder you set earlier.',
   'schedule_id_json: "a3f1"',
   'occurrence_at: 2026-11-21T07:00:00.000Z',
-  'reminder_prompt_json: "提醒火火吃药"',
+  'reminder_prompt_json: "提醒小明吃药"',
 ].join('\n')
 
 /**
@@ -300,20 +300,20 @@ const REMINDER_TEXT = [
 const BATCH_TEXT = [
   '[SCHEDULE REMINDER BATCH]',
   'This is a scheduled message from the user',
-  'reminders_json: [{"schedule_id":"schedule-bd4c","occurrence_at":"2026-11-21T14:35:20.000Z","reminder_prompt":"提醒火火喝水"}]',
+  'reminders_json: [{"schedule_id":"schedule-bd4c","occurrence_at":"2026-11-21T14:35:20.000Z","reminder_prompt":"提醒小明喝水"}]',
 ].join('\n')
 
 test('定时提醒：单条格式能读出来', () => {
   const fired = parseScheduleReminders(REMINDER_TEXT)
   assert.equal(fired.length, 1)
-  assert.equal(fired[0].prompt, '提醒火火吃药')
+  assert.equal(fired[0].prompt, '提醒小明吃药')
   assert.equal(fired[0].at, '2026-11-21T07:00:00.000Z')
 })
 
 test('定时提醒：批量格式也能读出来（真机发的是这个）', () => {
   const fired = parseScheduleReminders(BATCH_TEXT)
   assert.equal(fired.length, 1)
-  assert.equal(fired[0].prompt, '提醒火火喝水')
+  assert.equal(fired[0].prompt, '提醒小明喝水')
   assert.equal(fired[0].at, '2026-11-21T14:35:20.000Z')
 })
 
@@ -454,7 +454,7 @@ test('整合：两段并发整合不会写出两条一模一样的记忆（先�
   // 真机 2026-11-22：同一分钟出现两条一字不差的记忆。整合是后台 void 出去的，
   // 上一段没写完、下一段就开始查重 —— 谁也看不见对方刚写的那条。现在排队串行。
   const store = createMemoryStore(fakeTable())
-  const reply = '[{"what":"火火说找我主要是想有人陪","about":"user","certain":"told"}]'
+  const reply = '[{"what":"小明说找我主要是想有人陪","about":"user","certain":"told"}]'
   await Promise.all([
     integrate(store, events, { llm: fakeLlm(reply), log: quietLog }),
     integrate(store, events, { llm: fakeLlm(reply), log: quietLog }),

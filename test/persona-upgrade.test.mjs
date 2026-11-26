@@ -40,7 +40,7 @@ function sealedWithLegacyData() {
   doc.identityCard.initializedAt = '2026-11-01T00:00:00.000Z'
   doc.identityCard.sealedAt = '2026-11-01T00:00:00.000Z'
   doc.identityCard.fields[0].value = '溟澜'
-  doc.identityCard.fields.push({ key: '与火火的关系', value: '恋人', custom: true })
+  doc.identityCard.fields.push({ key: '与小明的关系', value: '恋人', custom: true })
   doc.identityCard.fields.push({ key: '身份', value: '昭朝通政使', custom: true })
   // 旧卡片里「交付格式」还在（现在是退役槽位）。
   doc.mutableLayer.sections.push({ title: '交付格式', items: ['先给结论，再给依据'] })
@@ -59,7 +59,7 @@ test('搬家：底色里的「与X的关系」进信息「关系」节，并从�
   assert.deepEqual(
     next.identityCard.fields.map((field) => field.key),
     ['姓名', '性别', '人格偏好', '主语言', '身份'],
-    '「与火火的关系」必须离开底色，「身份」必须留下',
+    '「与小明的关系」必须离开底色，「身份」必须留下',
   )
   const relationship = next.mutableLayer.sections.find((item) => item.title === '关系')
   assert.ok(relationship !== undefined, '信息里要有「关系」这一节')

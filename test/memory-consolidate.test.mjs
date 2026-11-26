@@ -215,9 +215,9 @@ test('合成：代价取最贵、感受取最强、时间取最新、确定度�
 /* ───────────────────────── 整条路 ───────────────────────── */
 
 test('归拢：三条同类 → 一条概括，原来那几条不再单独出现在回忆里', async () => {
-  const a = episode('我和火火在园子里散步')
-  const b = episode('我和火火又去园子里散步')
-  const c = episode('我和火火还是在园子里散步')
+  const a = episode('我和小明在园子里散步')
+  const b = episode('我和小明又去园子里散步')
+  const c = episode('我和小明还是在园子里散步')
   const { store, table } = storeOf([a, b, c])
   const { llm, calls } = llmOf([JSON.stringify([{ ids: ['1', '2', '3'], what: '那阵子我们常在园子里散步', about: 'us' }])])
 
@@ -228,7 +228,7 @@ test('归拢：三条同类 → 一条概括，原来那几条不再单独出现
   assert.equal(table.size, 4, '原来的三条还在（不删），多了一条概括')
 
   // 回忆只给概括：那三条已经被它代表了。
-  const hits = recall(store.all(), '火火 散步', { now: NOW })
+  const hits = recall(store.all(), '小明 散步', { now: NOW })
   assert.equal(hits.length, 1)
   assert.equal(hits[0].record.id, written[0].id)
 

@@ -187,7 +187,7 @@ test('检索：长句子里接住够多的词就该想起 —— 不被句子的
   // 真机（2026-11-22）：这句切出十几个词，接住了"园子/子里/散步/念树/树牌"五个，
   // 比值只有 0.28，被 0.3 挡在门外 —— 明明就是同一件事。错在算法，不在用户。
   const record = createMemoryRecord({
-    what: '我和火火在冬天的园子里一起散步，踩着脆脆的落叶，一路念树牌上的名字',
+    what: '我和小明在冬天的园子里一起散步，踩着脆脆的落叶，一路念树牌上的名字',
     about: 'us',
     certain: 'witnessed',
   })
@@ -197,7 +197,7 @@ test('检索：长句子里接住够多的词就该想起 —— 不被句子的
 })
 
 test('检索：长句子只接住一两个泛词时仍然不给（新那条线不能变成后门）', () => {
-  const record = createMemoryRecord({ what: '我和火火在冬天的园子里一起散步', about: 'us', certain: 'witnessed' })
+  const record = createMemoryRecord({ what: '我和小明在冬天的园子里一起散步', about: 'us', certain: 'witnessed' })
   const hits = recall([record], '我们那天在小区吃饭，你还记得那家店后来关门了吗')
   assert.deepEqual(hits, [], '只有"我们/那天"这种泛词对得上，不算相关')
 })

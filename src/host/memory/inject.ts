@@ -73,7 +73,7 @@ export interface FiredReminder {
  * ```
  * [SCHEDULE REMINDER]              ← 单条
  * occurrence_at: 2026-11-21T07:00:00.000Z
- * reminder_prompt_json: "提醒火火吃药"
+ * reminder_prompt_json: "提醒小明吃药"
  *
  * [SCHEDULE REMINDER BATCH]        ← 批量（哪怕只有一条也走这个）
  * reminders_json: [{"schedule_id":"…","occurrence_at":"…","reminder_prompt":"…"}]
