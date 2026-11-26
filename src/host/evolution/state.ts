@@ -107,6 +107,13 @@ export interface EvolutionStateDoc {
    * 缓存上次看到的清单，装什么就用什么；一次都没见过时清单为空，那一段就不出现。
    */
   capabilities: string[]
+  /**
+   * 正在等她自己写日记的那一天（YYYY-MM-DD；空串 = 没有在等）。
+   *
+   * 收账已经**交还给她**：插件只把材料递过去、投一句"写吧"，然后等她写完这个文件。
+   * 靠它判断"投过了、别再投"以及"这一天怎么算完"。
+   */
+  settling: string
 }
 
 /** 还没开始过的状态。 */
@@ -133,6 +140,7 @@ export const EMPTY_STATE: EvolutionStateDoc = {
   roomTitleNote: '',
   roomDay: '',
   capabilities: [],
+  settling: '',
 }
 
 /** 醒来的节奏参数（配置的现读镜像）。 */
@@ -181,6 +189,7 @@ export function readState(documents: DocumentStore | undefined): EvolutionStateD
     talkSeenAt: text('talkSeenAt'),
     roomTitleNote: text('roomTitleNote'),
     roomDay: text('roomDay'),
+    settling: text('settling'),
     capabilities: Array.isArray(raw.capabilities)
       ? raw.capabilities.filter((item): item is string => typeof item === 'string' && item.trim() !== '')
       : [],

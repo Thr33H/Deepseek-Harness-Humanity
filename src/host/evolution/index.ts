@@ -28,7 +28,17 @@ import type { defineTool as defineToolType } from '@deepseek-ai/dsh-tools'
 import type { DocumentStore } from '../documents.js'
 import { createLlmAccess } from '../llm.js'
 import { loadOptional } from '../optional.js'
-import { appendDiary, buildDiaryPrompt, parseDiary, readDiary, type DayMaterial, type DiaryEntry } from './diary.js'
+import {
+  appendDiary,
+  buildCollectPrompt,
+  decodeBase64Text,
+  diaryFileName,
+  materialFileText,
+  materialFileName,
+  readDiary,
+  type DayMaterial,
+  type DiaryEntry,
+} from './diary.js'
 import { capabilityLines, describeCapabilities, toolNamesOf, visibleToolDefinitions, visibleToolNames } from './capabilities.js'
 import { settleWakeState, sleepGapSeconds } from './lifecycle.js'
 import { installEvolutionSection, type GrowView } from './section.js'
@@ -69,6 +79,7 @@ import {
 import {
   BUSY_CHECK_MS,
   BUSY_QUIET_MINUTES,
+  COLLECT_DELAY_SECONDS,
   DAY_BOUNDARY_CHECK_MS,
   MIN_GAP_SECONDS,
   NOTES_MAX_LINES,
@@ -626,6 +637,21 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         await saveState(documents, state)
       }
       /**
+       * 正在等她自己写日记：这段时间**不排"她自己的时间"**。
+       *
+       * 收账一天的收尾，她已经收到"写吧"那条消息了；这时再叫醒她去干别的，
+       * 等于打断她写日记。写好（或这一天放弃）之后自然恢复。
+       */
+      if (state.settling !== '') {
+        const harvested = await harvestDiary(documents, state.settling)
+        if (!harvested) {
+          await setActive(roomDeps, state.taskId, false)
+          return
+        }
+        // 收进来了：往下走，按正常节奏排明天的。
+        state = readState(documents)
+      }
+      /**
        * 启动/重排时才发现"她其实已经该睡了"，同样要收账。
        *
        * 这是收账的最后一条漏路：之前只有"醒来时判定"与"聊天耗尽"两条，若她在容器停机期间
@@ -1136,6 +1162,20 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
           else if (isTalk) pushTalk(`她说：${clip(said, TALK_LINE_CHARS)}`)
         }
       }
+      /**
+       * 她那一轮跑完了：看看日记是不是已经写好了。
+       *
+       * 判定放在这里而不是"她说写完了"：文件里真有正文才算写成（判据见 `harvestDiary`）。
+       * 只在她房间、且正在等某一天收账时才去读文件。
+       */
+      if (typed?.type === 'turn/end' && documents !== undefined && sessionId !== '' && sessionId === roomSessionId) {
+        const waiting = readState(documents).settling
+        if (waiting !== '') {
+          void harvestDiary(documents, waiting).catch((error: unknown) => {
+            log.warn(`${waiting} 的日记没能收进档案（下一轮再试）`, error)
+          })
+        }
+      }
       if (typed?.type !== 'assistant/message') return
       const messageId = (typed.data?.message as { id?: unknown } | undefined)?.id
       if (typeof messageId === 'string' && messageId !== '') {
@@ -1270,6 +1310,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   const settleDayOnce = async (date: string, at: string, material: DayMaterial): Promise<void> => {
     const documents = deps.documents()
     if (documents === undefined) return
+    const state = readState(documents)
     /**
      * 每一个提前返回都要留原因。
      *
@@ -1285,39 +1326,41 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     }
     // 一天只有一篇：已经写过了就不再写（重启也不该补第二篇）。
     if (readDiary(documents).some((entry) => entry.date === date)) return
-    const route = llm.route()
-    if (route === undefined) {
-      await noteSettleError(documents, '没有可用的模型，这一天没有写成日记')
-      return
-    }
-    const { system, text } = buildDiaryPrompt({
-      hers: material.hers.slice(-NOTES_MAX_LINES),
-      talk: material.talk.slice(-TALK_MAX_LINES),
-    }, date, deps.userName?.() ?? '')
-    // 500–900 字的中文正文 + JSON 外壳：上限要留够，截断会让她的一天停在半句话上
-    // （2026-11-25 把日记要求从 150–400 放开到 500–900，同时把预算加上来）。
-    const result = await llm.streamText({ route, system, text, maxTokens: 2600, timeoutMs: 90_000 })
-    const parsed = parseDiary(result.text)
-    if (parsed === undefined) {
-      // 失败不重试、不补写：宁可这一天没有日记，也不留一篇编的。原因写进状态里（日志看不见）。
-      log.warn(`收账的输出无法使用（${date} 这一天没有日记）：${result.text.slice(0, 200)}`)
-      await noteSettleError(documents, '收账的输出没法用（模型没按格式回），这一天没有日记')
-      return
-    }
-    await appendDiary(documents, { date, text: parsed.diary, createdAt: at, openedAt: '', noticedAt: '' })
     /**
-     * 她自己的一份副本：设计里"回头重读那一天"要有可读的东西，而她只能读自己的目录。
+     * **不再由插件代写日记**（2026-11-26 用户定）。
      *
-     * ⚠️ 写不成**必须说出来**（2026-11-25 补）：正文在文档表里还在，工作台能看，
-     * 但**她自己重读不到** —— 那是她那一侧的缺口。原来这个返回值被直接丢掉，
-     * 结果是"页面上看一切正常，她那儿什么都没有"，属于最不该有的那种静默。
+     * 理由：日记是她的东西，别人写的就不是她的。插件只做两件事：
+     * 把这一天整理成材料文件递过去，投一句"写吧"，然后等她写完。
+     * 她写多长、写成什么样，是她的事；写不出来就不勉强（无日记也是一天）。
      */
-    const copied = await writeOwnFile(roomDeps, `diary-${date}.md`, `# ${date}\n\n${parsed.diary}\n`)
+    const materialName = materialFileName(date)
+    const diaryName = diaryFileName(date)
+    const wrote = await writeOwnFile(roomDeps, materialName, materialFileText(material, date))
+    if (!wrote) {
+      await noteSettleError(documents, `${date} 的材料没能写进她的目录（她不会看到这一天）`)
+      return
+    }
+    /**
+     * 投递到她的房间：稍等一下再送（刚投完一次就排第二次，会显得像连珠炮）。
+     * 投完把 `settling` 记下来：这一天算"交给她了"，不再安排别的唤醒。
+     */
+    const delivered = await reschedule(
+      roomDeps,
+      state.taskId,
+      COLLECT_DELAY_SECONDS,
+      buildCollectPrompt(date, materialName, diaryName, deps.userName?.() ?? ''),
+    )
+    if (!delivered.ok) {
+      await noteSettleError(documents, `${date} 没能把"该写日记了"投给她：${delivered.reason}`)
+      return
+    }
+    await saveState(documents, { ...state, settling: date, nextAt: delivered.room.nextAt, lastError: '' })
+    log.info(`收账交给了她自己（${date}）：材料 ${materialName}，日记写进 ${diaryName}`)
     /**
      * 她自己整理一遍信息层：明确要求当天落地，其余观察进候选队列。
      *
-     * 放在清空材料**之前**：这一步也要读这一天的材料。失败只记一笔 ——
-     * 信息层没更新不该把已经写成的日记也带走。
+     * 这一步仍然是后台调用（它读的是材料，不是她的日记）。失败只记一笔 ——
+     * 信息层没更新不该影响她写日记。
      */
     if (deps.grow !== undefined) {
       try {
@@ -1326,35 +1369,48 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         log.warn(`${date} 的自我整理失败（这一天没有更新信息层）`, error)
       }
     }
-    /**
-     * 本子只在"它仍然是那一天"时清空。
-     *
-     * 跨午夜收昨天的时候，昨天的收账是异步跑的，而今天的第一行材料可能已经进来了 ——
-     * 无条件清空会把它连昨天的一起抹掉（收昨天、丢今天）。
-     */
+    // 材料本子**先不清**：她写日记时要用它（写完之后由 `harvestDiary` 清）。
+    void section.refresh()
+  }
+
+  /**
+   * 把**她自己写好的日记**收进档案。
+   *
+   * 收账那天把材料递给她、投一句"写吧"；这一个函数负责"她写完了没有"：
+   * - 文件在、且不是空的 → 存进日记本（工作台读的那份就是它）→ 清材料本子 → 这一天算完；
+   * - 还没写 → 什么也不做（她可能正在写，也可能不写；不勉强）。
+   * 判定用**文件存在 + 有正文**，不用"她说了什么"：她说"写完了"不等于写完了。
+   * @param documents - 文档表。
+   * @param date - 哪一天。
+   */
+  const harvestDiary = async (documents: DocumentStore, date: string): Promise<boolean> => {
+    if (date === '') return false
+    if (readDiary(documents).some((entry) => entry.date === date)) return false
+    const file = await readWork(roomDeps, diaryFileName(date))
+    // `readWork` 给的是字节（base64）：日记是文本，解出来再判断有没有内容。
+    // 用 `atob` 而不是 `Buffer`：宿主侧的 tsconfig 里没有 node 类型，而这里只需要解码。
+    const text = file === undefined ? '' : decodeBase64Text(file.base64).trim()
+    if (text === '') return false
+    await appendDiary(documents, {
+      date,
+      text,
+      createdAt: new Date().toISOString(),
+      openedAt: '',
+      noticedAt: '',
+    })
+    // 她自己写的那份文件就是原本（不再另存副本）。
     if (readNotes(documents).day === date) {
       try {
-        await saveNotes(documents, { day: '', hers: [], talk: [], lastAt: '' })
+        await saveNotes(documents, EMPTY_NOTES)
       } catch (error) {
-        log.warn(`收账后没能清空材料本子（${date}）`, error)
+        log.warn(`写完日记后没能清空材料本子（${date}）`, error)
       }
     }
-    await noteSettleError(
-      documents,
-      copied
-        ? ''
-        : `${date} 的日记写成了，但她在自己目录里的那份副本没写成 —— 她重读不到（正文在工作台上还在）`,
-    )
-    for (const memory of parsed.memories) {
-      try {
-        await deps.remember?.(memory.what, memory.about)
-      } catch (error) {
-        // 某一条没记上只影响那一条。
-        log.warn('收账时有一条没能写进记忆', error)
-      }
-    }
+    const latest = readState(documents)
+    await saveState(documents, { ...latest, settling: '', lastSettleError: '' })
     void section.refresh()
-    log.info(`收账完成（${date}）：日记 ${parsed.diary.length} 字，记下 ${parsed.memories.length} 件事`)
+    log.info(`她自己写完了 ${date} 的日记（${text.length} 字）`)
+    return true
   }
 
   /**
@@ -1467,6 +1523,15 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   const dayTimer = setInterval(() => {
     checkDayBoundary()
     void deliverTell().catch((error: unknown) => log.warn('她留着的话没能送出去（下一轮再试）', error))
+    /**
+     * 收账的兜底：她可能已经写好了文件，但那一轮的 `turn/end` 没被我们看到
+     * （重启、断线、事件丢了）。每五分钟看一次"她写完了没有"，比只押事件稳。
+     */
+    const documents = deps.documents()
+    if (documents !== undefined) {
+      const waiting = readState(documents).settling
+      if (waiting !== '') void harvestDiary(documents, waiting).catch(() => {})
+    }
   }, DAY_BOUNDARY_CHECK_MS)
   ;(dayTimer as unknown as { unref?: () => void }).unref?.()
 

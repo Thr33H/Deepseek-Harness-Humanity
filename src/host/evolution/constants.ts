@@ -116,6 +116,14 @@ export const TELL_QUIET_MINUTES = 10
 export const TELL_DELAY_SECONDS = 60
 
 /**
+ * 收账那条"该写日记了"投出去之前的等待（秒）。
+ *
+ * 为什么不是立刻：刚投完一次唤醒就紧接一条，读起来像连珠炮；留一点间隔，
+ * 她这一轮就算还在收尾也来得及。
+ */
+export const COLLECT_DELAY_SECONDS = 30
+
+/**
  * 跨天检查的间隔（毫秒）。
  *
  * 为什么需要它：收账原来只有"她睡下"那三条入口 + "她第二天又留下材料"这一条兜底。
