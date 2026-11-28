@@ -132,6 +132,16 @@ test('update 被拒时留日志（失败可观测），并把原始错误抛给�
   assert.equal(log.lines.some((line) => line.includes('数据面 update(humanity-memory) 被拒')), true)
 })
 
+test('文档表：关掉之后的写入静默成功但什么也不写（卸载途中的游离写入不许炸）', async () => {
+  const table = createTable()
+  const store = createDocumentStore(table, () => '2026-09-29T00:00:00.000Z')
+  await store.write('humanity-evolution-state', { energy: 50 })
+  store.close()
+  const after = await store.write('humanity-evolution-state', { energy: 1 })
+  assert.equal(after.value.energy, 1, '返回值照给（调用方不需要区分）')
+  assert.equal(store.read('humanity-evolution-state').value.energy, 50, '盘上必须还是关闭前那份')
+})
+
 test('文档表：写入递增修订号，合并只覆盖提到的字段', async () => {
   const store = createDocumentStore(createTable(), () => '2026-09-29T00:00:00.000Z')
 

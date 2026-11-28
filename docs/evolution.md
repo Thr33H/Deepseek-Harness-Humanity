@@ -104,7 +104,7 @@
 ## 8. 坏了怎么查
 
 ```bash
-docker exec <容器名> node /data/dsh/inspect-humanity.mjs
+docker exec <容器名> node $DSH_HOME/inspect-humanity.mjs
 ```
 
 一次给出：精力/今天第几次/下一次/在睡/今日 token、任务状态、日记篇数、页面投影、

@@ -58,6 +58,13 @@ export interface DocumentStore {
   write(ns: string, value: unknown): Promise<DocumentRecord>
   /** 深合并补丁（`update` 语义：没提到的字段保持原样）。 */
   merge(ns: string, patch: Record<string, unknown>): Promise<DocumentRecord>
+  /**
+   * 关掉这个入口（卸载时调）。
+   *
+   * 关掉之后的写入**静默成功但什么也没写**：卸载途中还有游离的写入在路上，
+   * 让它们撞上已关闭的存储领域只会把异常扔进卸载流程（真机与用例里都偶发出现过）。
+   */
+  close?(): void
 }
 
 /** 是不是"普通对象"（深合并只对普通对象递归，数组整体替换）。 */
@@ -86,11 +93,27 @@ export function mergeDocument(base: unknown, patch: Record<string, unknown>): Re
  */
 export function createDocumentStore(table: DocumentTableHandle, now: () => string = () => new Date().toISOString()): DocumentStore {
   const read = (ns: string): DocumentRecord | undefined => table.get(ns)
+  /**
+   * 这个入口是不是已经关了。
+   *
+   * 为什么需要：插件卸载时会释放存储领域，而我们这边还有很多**游离的写入**
+   * （`void saveState(...)`、串行队列里的材料、投递之后的回写）。它们比卸载晚一步落地，
+   * 就会撞上 `domain 'humanity' is closed`（真机与用例里都偶发出现过）。
+   * 关掉之后的写入**当作成功但什么也不做** —— 卸载途中丢一条状态，比把异常扔到卸载流程里好。
+   */
+  let closed = false
 
   const persist = async (ns: string, value: unknown, revision: number): Promise<DocumentRecord> => {
+    if (closed) return { value, revision, updatedAt: now() }
     const record: DocumentRecord = { value, revision, updatedAt: now() }
-    await table.put(ns, record)
-    return record
+    try {
+      await table.put(ns, record)
+      return record
+    } catch (error) {
+      // 竞态兜底：判断与写入之间领域可能刚被关掉。卸载途中的失败不值得炸掉整条链。
+      if (closed) return record
+      throw error
+    }
   }
 
   return {
@@ -101,5 +124,8 @@ export function createDocumentStore(table: DocumentTableHandle, now: () => strin
         .sort((left, right) => left.ns.localeCompare(right.ns)),
     write: (ns, value) => persist(ns, value, (read(ns)?.revision ?? 0) + 1),
     merge: (ns, patch) => persist(ns, mergeDocument(read(ns)?.value, patch), (read(ns)?.revision ?? 0) + 1),
+    close: () => {
+      closed = true
+    },
   }
 }

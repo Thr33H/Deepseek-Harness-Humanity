@@ -334,13 +334,13 @@ test('评估输入**不回读原因**：原因的措辞不能被当成"又来了
   const { seen, llm } = fakeLlm()
   const state = apply(
     createInitialEmotionState(T0),
-    [{ kind: 'disgust', target: 'user', delta: 40, cause: '又发来露骨的性要求' }],
+    [{ kind: 'disgust', target: 'user', delta: 40, cause: '又发来越界的亲密要求' }],
     T0,
   )
   // 注意：原因在这里故意写得跟现场一模一样；它只该留在状态里，不该进评估输入。
   await appraiseMessage(llm, { message: '在吗', state })
   const text = seen[0].text
-  assert.equal(text.includes('又发来露骨的性要求'), false, '原因不能进评估输入（会变成"又来了"的证据）')
+  assert.equal(text.includes('又发来越界的亲密要求'), false, '原因不能进评估输入（会变成"又来了"的证据）')
   assert.match(text, /对TA厌恶 40/, '但"哪种情绪、多强、冲谁"要在 —— 那是评估的起点')
 })
 

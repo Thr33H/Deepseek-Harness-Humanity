@@ -58,6 +58,8 @@ export function installHumanityStore(
     // 服务摘除：释放领域（数据本身留在盘上），并让"等待中"的打开自我关闭。
     return () => {
       disposed = true
+      // 先关入口再关领域：卸载途中还有游离写入在路上，它们撞上已关闭的领域会抛异常。
+      store?.documents?.close?.()
       log.info('存储领域服务已摘除，持久化已释放')
       void store?.close()
     }

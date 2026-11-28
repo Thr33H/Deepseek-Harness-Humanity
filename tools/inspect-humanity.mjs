@@ -1,7 +1,7 @@
 /**
  * 她这段时间的**一次看清**（放在容器里，随时跑）。
  *
- * 用法：`docker exec <容器名> node /data/dsh/inspect-humanity.mjs`
+ * 用法：`docker exec <容器名> node $DSH_HOME/inspect-humanity.mjs`（也可直接 `node tools/inspect-humanity.mjs`）
  *
  * 只读：状态、任务、日记、她目录里的文件、以及她最近一轮说过什么/调了哪些工具。
  * 为什么要有这个脚本：以前每次都现拼一大段 `node -e`，容易漏字段、也容易把只读检查写成写操作。
@@ -10,7 +10,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
 
-const HOME = '/data/dsh'
+const HOME = process.env.DSH_HOME
+if (HOME === undefined) {
+  console.error('请先设 $DSH_HOME（就是 DSH 的数据目录）')
+  process.exit(2)
+}
 
 /** 读一个 JSON 存储，坏了就当空。 */
 function readJson(file) {

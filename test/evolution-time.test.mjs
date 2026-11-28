@@ -459,22 +459,22 @@ test('房间：拿不到 Agent 注册表时安静失败，并给出人话原因'
 })
 
 test('她的房间：空串留在老位置，名字建在数据目录下，完整路径原样用', () => {
-  const home = '/data/dsh'
-  assert.equal(legacyRoomDirOf(roomDeps({ homeDir: () => home })), '/data/dsh/humanity/room')
-  assert.deepEqual(resolveRoomDir('书房', home), { ok: true, path: '/data/dsh/humanity/rooms/书房' })
-  assert.deepEqual(resolveRoomDir(' /data/dsh/她的地方/', home), { ok: true, path: '/data/dsh/她的地方' })
+  const home = '/srv/dsh'
+  assert.equal(legacyRoomDirOf(roomDeps({ homeDir: () => home })), '/srv/dsh/humanity/room')
+  assert.deepEqual(resolveRoomDir('书房', home), { ok: true, path: '/srv/dsh/humanity/rooms/书房' })
+  assert.deepEqual(resolveRoomDir(' /srv/dsh/她的地方/', home), { ok: true, path: '/srv/dsh/她的地方' })
   // 没填 = 老位置（升级后不搬家）。
-  assert.deepEqual(wantedRoomDirOf(roomDeps({ homeDir: () => home })), { ok: true, path: '/data/dsh/humanity/room' })
+  assert.deepEqual(wantedRoomDirOf(roomDeps({ homeDir: () => home })), { ok: true, path: '/srv/dsh/humanity/room' })
   assert.deepEqual(wantedRoomDirOf(roomDeps({ homeDir: () => home, roomSetting: () => '书房' })), {
     ok: true,
-    path: '/data/dsh/humanity/rooms/书房',
+    path: '/srv/dsh/humanity/rooms/书房',
   })
-  assert.equal(roomDirOf(roomDeps({ homeDir: () => home, roomSetting: () => '书房' })), '/data/dsh/humanity/rooms/书房')
+  assert.equal(roomDirOf(roomDeps({ homeDir: () => home, roomSetting: () => '书房' })), '/srv/dsh/humanity/rooms/书房')
 })
 
 test('她的房间：带斜杠的名字当场拒绝，读不到数据目录时给原因（不猜位置）', () => {
   assert.match(roomTextProblem('a/b') ?? '', /斜杠/)
-  assert.equal(roomTextProblem('/data/dsh/ok'), undefined, '完整路径没问题')
+  assert.equal(roomTextProblem('/srv/dsh/ok'), undefined, '完整路径没问题')
   assert.equal(roomTextProblem(''), undefined, '空串是合法的（回到老位置）')
   const noHome = resolveRoomDir('书房', undefined)
   assert.equal(noHome.ok, false)
@@ -496,7 +496,7 @@ test('工作区：没有就建、有就复用，然后把会话挂进去', async
     },
   }
 
-  const reused = await attachToWorkspace(roomDeps({ workspaces: () => registry }), '/data/dsh/humanity/rooms/书房', 'session-a')
+  const reused = await attachToWorkspace(roomDeps({ workspaces: () => registry }), '/srv/dsh/humanity/rooms/书房', 'session-a')
   assert.equal(reused, 'ws-old', '已有工作区就复用，不重复建')
   assert.deepEqual(calls.created, [])
   assert.deepEqual(calls.attached, [['old', 'session-a']])
@@ -504,11 +504,11 @@ test('工作区：没有就建、有就复用，然后把会话挂进去', async
   const registryEmpty = { ...registry, resolveByPath: async () => undefined }
   const created = await attachToWorkspace(
     roomDeps({ workspaces: () => registryEmpty }),
-    '/data/dsh/humanity/rooms/书房',
+    '/srv/dsh/humanity/rooms/书房',
     'session-b',
   )
   assert.equal(created, 'ws-new')
-  assert.deepEqual(calls.created.pop(), ['/data/dsh/humanity/rooms/书房', '书房'], '没有就建，标题取目录名')
+  assert.deepEqual(calls.created.pop(), ['/srv/dsh/humanity/rooms/书房', '书房'], '没有就建，标题取目录名')
 })
 
 test('工作区：注册表不在时房间照开，只是不挂（不因为缺服务就没有房间）', async () => {
