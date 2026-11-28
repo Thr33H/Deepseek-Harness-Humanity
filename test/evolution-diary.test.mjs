@@ -110,14 +110,14 @@ test('收账投递：称呼走数据，两件事说清，写作纪律还在', ()
   assert.match(prompt, /不要编/, '写作纪律：不编')
 
 test('收账提示词：给了当天全量记录，就让她自己检索（grep / 分段 read）', () => {
-  const prompt = buildCollectPrompt('2026-11-27', '日记材料-2026-11-27.md', 'diary-2026-11-27.md', '上位', '今天-2026-11-27.md')
+  const prompt = buildCollectPrompt('2026-11-27', '日记材料-2026-11-27.md', 'diary-2026-11-27.md', '先生', '今天-2026-11-27.md')
   assert.match(prompt, /全部记录在 `今天-2026-11-27\.md`/)
   assert.match(prompt, /grep/)
   assert.match(prompt, /摘要 `日记材料-2026-11-27\.md`/)
 })
 
 test('收账提示词：没有全量记录时退回只读摘要（老部署不该崩）', () => {
-  const prompt = buildCollectPrompt('2026-11-27', '日记材料-2026-11-27.md', 'diary-2026-11-27.md', '上位')
+  const prompt = buildCollectPrompt('2026-11-27', '日记材料-2026-11-27.md', 'diary-2026-11-27.md', '先生')
   assert.match(prompt, /`read` 打开 日记材料-2026-11-27\.md/)
   assert.doesNotMatch(prompt, /grep/)
 })

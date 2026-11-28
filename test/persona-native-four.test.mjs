@@ -171,8 +171,8 @@ test('V5 正面（界面半边）：原生 4 小节既没有删除入口、也�
   assert.equal(JSON.stringify(controller.getSnapshot().draft), before, '四个原生小节一个都没被动过')
 
   // 条目级的编辑**不受影响**（锁的是"整项删除/改名"，不是内容）。
-  controller.setSectionText('对TA的称呼', '主人')
-  assert.deepEqual(controller.getSnapshot().draft.mutableLayer.sections[0].items, ['主人'])
+  controller.setSectionText('对TA的称呼', '老板')
+  assert.deepEqual(controller.getSnapshot().draft.mutableLayer.sections[0].items, ['老板'])
 })
 
 test('V5 对照（防"一律拒绝"的恒真式）：非原生小节在同一个控制器里**能**进改名态、**能**删', async () => {
@@ -315,7 +315,7 @@ test('V7-② 数据保留（非空）：`userDefined` 原样穿过保存，一�
   }
 
   assert.deepEqual(controller.getSnapshot().draft.mutableLayer.userDefined, [{ key: '咖啡', value: '不加糖' }], '读到草稿里')
-  controller.setSectionText('对TA的称呼', '主人')
+  controller.setSectionText('对TA的称呼', '老板')
   await controller.save()
 
   assert.equal(fake.calls.replace.length, 1, '一次保存')
@@ -346,13 +346,13 @@ test('V8 注入：原生 4 节 + 自定义节都进提示词，原生在前；�
   persona.identityCard.fields.forEach((field, index) => {
     field.value = `值${index + 1}`
   })
-  persona.mutableLayer.sections[0].items = ['主人']
+  persona.mutableLayer.sections[0].items = ['老板']
   persona.mutableLayer.sections[1].items = ['先给结论，再给依据']
   withSection(persona, '经验教训', ['别在深夜做决定'])
   withSection(persona, '我自己的标题', ['自定义内容'])
 
   const text = renderPersonaPrompt(persona, { enabled: true })
-  for (const needle of ['对TA的称呼', '主人', '说话风格', '先给结论', '经验教训', '别在深夜做决定', '我自己的标题']) {
+  for (const needle of ['对TA的称呼', '老板', '说话风格', '先给结论', '经验教训', '别在深夜做决定', '我自己的标题']) {
     assert.ok(text.includes(needle), `注入内容里必须有「${needle}」`)
   }
   // 原生在前：4 个原生标题里**有内容的**都排在那两个自定义小节之前。

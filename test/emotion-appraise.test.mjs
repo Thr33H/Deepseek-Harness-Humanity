@@ -312,17 +312,17 @@ test('评估输入里带上了你的立场（否则评估器只能用通用道�
   const state = apply(createInitialEmotionState(T0), [{ kind: 'anger', target: 'user', delta: 30 }], T0)
   const stance = {
     character: '',
-    traits: [{ key: '人格偏好', value: '好色、性欲强，尤其对主人本人' }],
+    traits: [{ key: '人格偏好', value: '对亲近的人有强烈偏好' }],
     boundaries: [],
-    relation: ['主人是我的主人'],
-    address: ['主人'],
+    relation: ['他是我的老板'],
+    address: ['老板'],
     sections: [],
     custom: [],
   }
   await appraiseMessage(llm, { message: '想听😍', state, stance })
   const text = seen[0].text
   assert.match(text, /【你的立场】/, '立场块要在')
-  assert.match(text, /你的人格偏好：好色/)
+  assert.match(text, /你的人格偏好：对亲近的人有强烈偏好/)
   assert.match(text, /你的底线：没有特别写明/)
   assert.match(text, /想听😍/, '要判断的那句话照旧在')
   // 系统提示里要有"以你的立场为准"这条硬规则，否则模型会拿自己的偏好顶上。

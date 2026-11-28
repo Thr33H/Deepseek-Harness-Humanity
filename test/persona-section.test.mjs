@@ -46,7 +46,7 @@ function filled() {
   doc.identityCard.fields[2].value = '温和、直接'
   doc.identityCard.initializedAt = '2026-09-23T00:00:00.000Z'
   doc.identityCard.sealedAt = '2026-09-23T00:00:00.000Z'
-  doc.mutableLayer.sections[0].items = ['主人']
+  doc.mutableLayer.sections[0].items = ['老板']
   doc.mutableLayer.sections[1].items = ['先给结论，再给依据']
   return doc
 }
@@ -179,7 +179,7 @@ test('被取代的旧内容会进历史，且历史里没有"当前仍然有效"
       ],
     )
     // 没变的东西不该被记成历史。
-    assert.equal(harness.history.some((entry) => entry.previous === '主人'), false)
+    assert.equal(harness.history.some((entry) => entry.previous === '老板'), false)
   } finally {
     await harness.dispose()
   }

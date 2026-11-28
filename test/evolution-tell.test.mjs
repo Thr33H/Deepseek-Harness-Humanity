@@ -107,10 +107,10 @@ test('投递提示词：带作品时要说清名字，并告诉他去哪儿看',
 })
 
 test('投递提示词：给了绝对路径就让她用 present 交出去（他那边能直接点开）', () => {
-  const prompt = buildTellPrompt('给你看个东西', 'note.md', '/data/dsh/humanity/room/note.md')
-  assert.match(prompt, /\/data\/dsh\/humanity\/room\/note\.md/, '绝对路径要写进去')
+  const prompt = buildTellPrompt('给你看个东西', 'note.md', '/path/to/room/note.md')
+  assert.match(prompt, /\/path\/to\/room\/note\.md/, '绝对路径要写进去')
   assert.match(prompt, /present/, '要指名 present 这个动作')
-  assert.match(prompt, /"path": "\/data\/dsh\/humanity\/room\/note\.md"/, '参数写法要给死，别让她猜')
+  assert.match(prompt, /"path": "\/path\/to\/room\/note\.md"/, '参数写法要给死，别让她猜')
   assert.match(prompt, /要是 present 用不了/, '备一条退路：至少把名字说出来')
 })
 

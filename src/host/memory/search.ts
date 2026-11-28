@@ -134,7 +134,7 @@ export function strongest(records: readonly MemoryRecord[], limit: number, now: 
   // 「对方是谁」的那一条提到最前。
   //
   // 为什么不让它按强度排队：一句"他叫小明、是男生"的强度往往不高（一次自我介绍没有多少情绪），
-  // 会被"他亲了我"这种强记忆挤下去 —— 于是她知道"有人亲过她"，却不知道眼前这个人是谁，
+  // 会被"他靠得很近"这种强记忆挤下去 —— 于是她知道"有人亲过她"，却不知道眼前这个人是谁，
   // 整场对话把他当陌生人（2026-11-21 真机）。
   const isIdentity = (record: MemoryRecord): boolean =>
     record.about === 'user' && IDENTITY_HINTS.some((hint) => record.what.includes(hint))

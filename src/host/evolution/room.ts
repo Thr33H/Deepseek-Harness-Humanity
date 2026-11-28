@@ -239,7 +239,7 @@ export function roomTextProblem(text: string): string | undefined {
   const trimmed = text.trim()
   if (trimmed === '' || isAbsolutePath(trimmed)) return undefined
   if (trimmed.includes('/') || trimmed.includes('\\')) {
-    return '名字里不能带斜杠：想指定位置，请写完整路径（例如 /data/dsh/她的房间）'
+    return '名字里不能带斜杠：想指定位置，请写完整路径（例如 $DSH_HOME/她的房间）'
   }
   return undefined
 }

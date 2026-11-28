@@ -129,13 +129,13 @@ test('热更新（真实 SystemPrompt）：text 是函数 ⇒ 改内容后**不�
   const before = await ctx.systemPrompt.assemble()
   assert.match(seenText(before), /对TA的称呼：先生/)
 
-  // 模拟"用户在后台把称呼改成 主人"：只换数据，**不碰注册**。
+  // 模拟"用户在后台把称呼改成 老板"：只换数据，**不碰注册**。
   current = filledPersona()
-  current.mutableLayer.sections[0].items = ['主人']
+  current.mutableLayer.sections[0].items = ['老板']
 
   const after = await ctx.systemPrompt.assemble()
   const text = seenText(after)
-  assert.match(text, /对TA的称呼：主人/)
+  assert.match(text, /对TA的称呼：老板/)
   assert.doesNotMatch(text, /对TA的称呼：先生/)
 
   dispose()
@@ -179,9 +179,9 @@ test('接线（真实 SystemPrompt + 假 agents 注册表）：主 Agent 有、�
 
   // 热更新：只改数据、**不重新注册**，下一次 assemble（= 下一轮）就是新的。
   current = filledPersona()
-  current.mutableLayer.sections[0].items = ['主人']
+  current.mutableLayer.sections[0].items = ['老板']
   const updated = await assemblyFor(mainAgent)
-  assert.match(updated, /对TA的称呼：主人/)
+  assert.match(updated, /对TA的称呼：老板/)
   assert.doesNotMatch(updated, /对TA的称呼：先生/)
 
   // 开关：关掉后同一装配主体也不再注入（可一键关闭）。

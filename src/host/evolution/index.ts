@@ -539,7 +539,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       /**
        * 旧房间要记进"换过的房间"里：它跟新房间是同一个目录、同一个预设，看起来一模一样，
        * 但它已经不是"你跟她说话的地方"了。不记的话，她主动留的那句话会被送进旧屋子
-       * （真机 2026-11-27：半夜那句"上位，快四点了"就是对着空屋子说的）。
+       * （真机 2026-11-27：半夜她留的那句话就是对着空屋子说的）。
        */
       pastRooms: oldRoom === '' ? state.pastRooms : [...state.pastRooms.filter((id) => id !== oldRoom), oldRoom].slice(-8),
       // 记着的那个"说话会话"如果正好是旧房间，就别再往里送了。
@@ -1945,7 +1945,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     /**
      * 记着的那个"说话会话"如果其实是她的房间（现在的、或换掉的旧房间），就当没有。
      *
-     * 真机 2026-11-27：过了零点换房之后这里还指着旧房间，她半夜那句"上位，快四点了"
+     * 真机 2026-11-27：过了零点换房之后这里还指着旧房间，她半夜她留的那句话
      * 被送进了自己的旧屋子 —— 等于对着空屋子说了句话。这里发现就当没记过，等他下次开口再定。
      */
     if (state.talkSessionId !== '' && (state.talkSessionId === state.roomSessionId || state.pastRooms.includes(state.talkSessionId))) {

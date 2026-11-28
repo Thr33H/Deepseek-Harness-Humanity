@@ -27,7 +27,7 @@ function filledPersona() {
   persona.identityCard.fields[2].value = '温和、直接'
   persona.identityCard.initializedAt = '2026-09-22T00:00:00.000Z'
   persona.identityCard.sealedAt = '2026-09-22T00:00:00.000Z'
-  persona.mutableLayer.sections[0].items = ['主人']
+  persona.mutableLayer.sections[0].items = ['老板']
   persona.mutableLayer.sections[1].items = ['先给结论，再给依据']
   return persona
 }
@@ -487,13 +487,13 @@ test('② 判定与写入来源无关：Agent 写也拒绝（脏数据不该因�
 test('④ 控制字符在规范化阶段被剥掉，换行/制表保留', () => {
   const next = createDefaultPersona()
   next.identityCard.fields[0].value = '小\u0000安\u001b[31m'
-  next.mutableLayer.sections[0].items = ['主\u0007人\n第二行\t结束']
+  next.mutableLayer.sections[0].items = ['老\u0007板\n第二行\t结束']
   next.mutableLayer.userDefined = [{ key: '口\u0000味', value: '清\u001b淡' }]
 
   const normalized = normalizePersona(next)
 
   assert.equal(normalized.identityCard.fields[0].value, '小安')
-  assert.equal(normalized.mutableLayer.sections[0].items[0], '主人\n第二行\t结束')
+  assert.equal(normalized.mutableLayer.sections[0].items[0], '老板\n第二行\t结束')
   assert.equal(normalized.mutableLayer.userDefined[0].key, '口味')
   assert.equal(normalized.mutableLayer.userDefined[0].value, '清淡')
 })
@@ -606,7 +606,7 @@ test('迁移：「当前状态」节自动改名为「情绪」，内容一字�
 
 test('迁移：「对用户称呼」节自动改名为「对TA的称呼」（2026-11-14 文案去客服化），内容不丢且幂等', () => {
   const legacy = createDefaultPersona()
-  withSection(legacy, '对用户称呼', ['主人', '先生'])
+  withSection(legacy, '对用户称呼', ['老板', '先生'])
 
   const migrated = normalizePersona(legacy)
   const titles = migrated.mutableLayer.sections.map((section) => section.title)
@@ -614,7 +614,7 @@ test('迁移：「对用户称呼」节自动改名为「对TA的称呼」（202
   assert.equal(titles.includes('对用户称呼'), false, '旧标题必须消失')
   assert.deepEqual(
     migrated.mutableLayer.sections.find((section) => section.title === '对TA的称呼').items,
-    ['主人', '先生'],
+    ['老板', '先生'],
     '内容原样并入新标题那一节',
   )
   assert.deepEqual(normalizePersona(migrated), migrated, '幂等：再跑一次结果不变')

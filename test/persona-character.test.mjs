@@ -225,7 +225,7 @@ test('渲染：还没有性格时，人格段里不出现"此刻的你"', () => 
 
 test('渲染：性格那行排在底色之后、信息之前', () => {
   const persona = sealedPersona()
-  persona.mutableLayer.sections[0].items = ['主人']
+  persona.mutableLayer.sections[0].items = ['老板']
   const text = renderPersonaPrompt(persona, { enabled: true })
   const atCharacter = text.indexOf('此刻的你')
   const atSections = text.indexOf('## 你的信息')

@@ -54,6 +54,14 @@ const result = await build({
   // 中文文案保持原样：默认的 ascii 转义会把可读的字典变成一屏 \uXXXX。
   charset: 'utf8',
   legalComments: 'none',
+  /**
+   * 客户端产物**不带注释**（跟宿主侧 `tsconfig.host.json` 的 `removeComments` 一个道理）。
+   *
+   * 注释是给维护者看的，里面有真机事故的日期与现场；这个 bundle 是随 npm 包发出去的公开文件。
+   * 只压掉空白与注释，不做混淆 —— 出问题时仍然读得懂调用栈。
+   */
+  minifyWhitespace: true,
+  minifySyntax: true,
   logLevel: 'warning',
 })
 

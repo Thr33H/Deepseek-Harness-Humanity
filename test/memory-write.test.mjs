@@ -379,7 +379,7 @@ test('注入文本：带时间感，且不显示任何分数', () => {
 test('注入文本：刚发生的事带上当时的原话，久了就不再带（细节会褪）', () => {
   const now = new Date('2026-11-22T12:00:00.000Z')
   const fresh = createMemoryRecord({
-    what: '他慢慢亲了我一下',
+    what: '他慢慢牵了我一下',
     detail: '「这风声，微微的，挺惬意的」',
     about: 'us',
     certain: 'witnessed',
@@ -392,7 +392,7 @@ test('注入文本：刚发生的事带上当时的原话，久了就不再带�
   // 同一个把月前（超过细节寿命 60 天）：事还在，原话已经想不起来了。
   const stale = { ...fresh, createdAt: '2026-08-01T00:00:00.000Z' }
   const staleText = renderRecalled(hit(stale), now)
-  assert.match(staleText, /他慢慢亲了我一下/, '事还在')
+  assert.match(staleText, /他慢慢牵了我一下/, '事还在')
   assert.equal(staleText.includes('这风声'), false, '原话不该再出现')
 })
 

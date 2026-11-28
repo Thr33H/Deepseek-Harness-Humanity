@@ -509,7 +509,7 @@ function uiPersona() {
   document.identityCard.fields.push({ key: '归属地', value: '示例城市', custom: true })
   document.identityCard.initializedAt = '2026-09-23T00:00:00.000Z'
   document.identityCard.sealedAt = '2026-09-23T00:00:00.000Z'
-  document.mutableLayer.sections[0].items = ['主人']
+  document.mutableLayer.sections[0].items = ['老板']
   // 0.1.14：「经验教训」不再是原生项 —— 夹具显式当自定义项加进来（与工作台"添加小节"同语义）。
   withSection(document, '经验教训', ['别在深夜做决定'])
   document.mutableLayer.sections.push({ title: '决定权', items: ['技术判断我说了算'] })

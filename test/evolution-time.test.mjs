@@ -358,7 +358,7 @@ test('房间：开会话之后必须把预设真的挂上去（不挂她就没�
         return true
       },
     })
-    await ensureRoom(deps, '绒的私密空间')
+    await ensureRoom(deps, '她那间房的名字')
     assert.equal(selected.length, 1, 'create 之后要 select 一次（meta.agentPreset 只是贴名字，不装插件）')
     assert.equal(selected[0], agent)
   } finally {

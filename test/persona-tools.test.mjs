@@ -195,7 +195,7 @@ test('未初始化时 update 被拒，提示先走聊天初始化', async () => 
   const harness = await boot()
   try {
     const result = await harness.call(PERSONA_UPDATE_TOOL, {
-      sections: mutableSnapshot({ 对TA的称呼: ['主人'] }),
+      sections: mutableSnapshot({ 对TA的称呼: ['老板'] }),
       userDefined: [],
     })
 
@@ -263,7 +263,7 @@ test('⑤ 只给一个小标题就能更新，其它节全部原样保留（不�
   try {
     await harness.call(PERSONA_INIT_TOOL, initArgs)
     await harness.call(PERSONA_UPDATE_TOOL, {
-      sections: mutableSnapshot({ 对TA的称呼: ['主人'], 经验教训: ['不要在深夜改配置'] }),
+      sections: mutableSnapshot({ 对TA的称呼: ['老板'], 经验教训: ['不要在深夜改配置'] }),
       userDefined: [{ key: '时区', value: 'CST' }],
     })
 
@@ -274,7 +274,7 @@ test('⑤ 只给一个小标题就能更新，其它节全部原样保留（不�
 
     assert.equal(changed.value.ok, true)
     const doc = harness.persona.read()
-    assert.deepEqual(itemsOf(doc, '对TA的称呼'), ['主人'], '没传的节必须原样保留')
+    assert.deepEqual(itemsOf(doc, '对TA的称呼'), ['老板'], '没传的节必须原样保留')
     assert.deepEqual(itemsOf(doc, '经验教训'), ['不要在深夜改配置'])
     assert.deepEqual(itemsOf(doc, '说话风格'), ['先给结论'])
   } finally {
@@ -507,7 +507,7 @@ test('改称呼现在直接成功，不再要求任何确认（真机反馈的�
   const harness = await boot()
   try {
     await harness.call(PERSONA_INIT_TOOL, initArgs)
-    await harness.call(PERSONA_UPDATE_TOOL, { sections: mutableSnapshot({ 对TA的称呼: ['主人'] }), userDefined: [] })
+    await harness.call(PERSONA_UPDATE_TOOL, { sections: mutableSnapshot({ 对TA的称呼: ['老板'] }), userDefined: [] })
 
     const changed = await harness.call(PERSONA_UPDATE_TOOL, {
       sections: mutableSnapshot({ 对TA的称呼: ['先生'] }),
@@ -970,7 +970,7 @@ test('姓名写成备忘录时给提示（不拒绝）：超过标题上限 24 �
     await harness.call(PERSONA_INIT_TOOL, initArgs)
 
     // 真机形态：名字后面挂着一整句来龙去脉（35 字）。
-    const memo = '伊瑟（Yseult 的短形；旧名梅露辛已由主人更换，不再使用）'
+    const memo = '（旧名）（（旧名） 的短形；旧名（旧名）已由老板更换，不再使用）'
     const result = await harness.call(PERSONA_IDENTITY_TOOL, { set: [{ key: '姓名', value: memo }], remove: [] })
 
     assert.equal(result.value.ok, true, '超过上限不是错误，照样写入')
@@ -987,7 +987,7 @@ test('正常名字不触发那条提示', async () => {
   const harness = await boot({ approval, agent: { id: 'test-agent' } })
   try {
     await harness.call(PERSONA_INIT_TOOL, initArgs)
-    const result = await harness.call(PERSONA_IDENTITY_TOOL, { set: [{ key: '姓名', value: '伊瑟' }], remove: [] })
+    const result = await harness.call(PERSONA_IDENTITY_TOOL, { set: [{ key: '姓名', value: '（旧名）' }], remove: [] })
 
     assert.equal(result.value.ok, true)
     assert.doesNotMatch(result.value.message, /标题上限/, '短名字不该被唠叨')
