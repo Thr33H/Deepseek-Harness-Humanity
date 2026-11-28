@@ -18,7 +18,7 @@ import { test } from 'node:test'
 
 import { NOTES_DOC_KEY, NOTES_MAX_LINES, TALK_MAX_LINES } from '../lib/evolution/constants.js'
 import { isEmptyNotes, noteCountOf, readNotes, saveNotes } from '../lib/evolution/state.js'
-import { decideSettle, momentText } from '../lib/evolution/settle-plan.js'
+import { decideSettle, decideSettling, momentText } from '../lib/evolution/settle-plan.js'
 
 /** 只支持读写文档的假文档表。 */
 function fakeDocuments(initial = {}) {
@@ -193,4 +193,11 @@ test('材料本子：什么都没存过时读成空本子（不炸）', () => {
   assert.deepEqual(readNotes(fakeDocuments()), { day: '', hers: [], talk: [], lastAt: '' })
   assert.deepEqual(readNotes(undefined), { day: '', hers: [], talk: [], lastAt: '' })
   assert.equal(isEmptyNotes(readNotes(undefined)), true)
+})
+
+test('她没写的那一天：跨天之后要翻篇，不能一直等（否则提醒每 5 分钟响一次）', () => {
+  assert.equal(decideSettling({ settling: '2026-11-26', today: '2026-11-26', harvested: false }), 'wait')
+  assert.equal(decideSettling({ settling: '2026-11-26', today: '2026-11-27', harvested: false }), 'close')
+  assert.equal(decideSettling({ settling: '2026-11-26', today: '2026-11-27', harvested: true }), 'harvested')
+  assert.equal(decideSettling({ settling: '2026-11-26', today: '2026-11-26', harvested: true }), 'harvested')
 })

@@ -7,15 +7,17 @@
  * 这一条路给她一个真正的出口——她留一句，系统挑一个他不会被打断的时刻把它送进
  * 你们的会话，由**她自己开口**（不是一条冷冰冰的通知）。
  *
- * ### 三条护栏（少一条就变成推销机器人）
+ * ### 两条护栏（少一条就变成推销机器人）
  *
- * 1. **一天最多一次**：她定时间也不行；
- * 2. **他正忙着就不送**：安静够 `TELL_QUIET_MINUTES` 才送（判据沿用单线程那份"他最后说话的时刻"）；
- * 3. **说过了就不追问**：送出去之后那句就没了，她不能连着说第二遍。
+ * 1. **一次只说一句**：上一句还没送到，就先不接下一句（免得攒一堆一起砸过去）；
+ * 2. **说过了就不追问**：送出去之后那句就没了，她不能连着说第二遍同一件事。
+ *
+ * ⚠️ 原来还有一条"一天最多一次"，2026-11-27 用户要求删掉：
+ * "不用给她限制，她想找我就找我"。真机上那条反而逼得她绕道别的工具去找人。
  * @module humanity/evolution/tell
  */
 import type { DocumentStore } from '../documents.js'
-import { TELL_DOC_KEY, TELL_MAX_CHARS, TELL_QUIET_MINUTES } from './constants.js'
+import { TELL_DOC_KEY, TELL_MAX_CHARS } from './constants.js'
 
 /** 待投递的话与投递痕迹。 */
 export interface TellDoc {
@@ -129,12 +131,14 @@ const MAX_NAME_CHARS = 120
 
 /**
  * 她能不能现在留这一句 / 这一样东西。
+ *
+ * 没有"一天一次"的限制（2026-11-27 用户要求删掉）。唯一挡她的是：
+ * 上一句还没送出去 —— 一次只说一句，说完了再说下一句。
  * @param doc - 当前记录。
- * @param today - 今天的 day key（她的时区）。
  * @param input - 她想留的内容。
  * @returns 收下（附修剪后的文本与文件名）或拒绝原因。
  */
-export function canQueue(doc: TellDoc, today: string, input: TellInput): QueueVerdict {
+export function canQueue(doc: TellDoc, input: TellInput): QueueVerdict {
   const text = (input.text ?? '').replace(/\s+/g, ' ').trim()
   const show = (input.show ?? '').trim()
   if (text === '' && show === '') return { ok: false, reason: '要说的话和要给他看的东西，至少得有一个。' }
@@ -150,9 +154,6 @@ export function canQueue(doc: TellDoc, today: string, input: TellInput): QueueVe
   if (doc.pending !== '' || doc.pendingShow !== '') {
     return { ok: false, reason: '还有一句没送出去；等那句送到了再说下一句。' }
   }
-  if (doc.lastDay !== '' && doc.lastDay === today) {
-    return { ok: false, reason: '今天已经找过他说过一次了。一天一次，明天再说。' }
-  }
   return { ok: true, text, show }
 }
 
@@ -164,16 +165,17 @@ export type DeliverVerdict =
 /**
  * 现在能不能把待投递的话送出去。
  *
- * 「他忙不忙」不在这里判：那要看运行时那份"他最后一次说话的时刻"，属于调用方。
- * 这里只判**记录本身**说不说得通（有没有东西、今天说过没有、有没有地方可送）。
+ * 这里只判**记录本身**说不说得通（有没有东西、有没有地方可送）。
+ * 「他忙不忙」不在这里判：那属于调用方（他那边的会话有没有在跑一轮）。
+ *
+ * ⚠️ 这里**没有"一天一次"**：2026-11-27 用户明确要求删掉 —— "不用给她限制，她想找我就找我"。
+ * 那条护栏是我 0.9.1 自己加的，真机上反而逼得她绕道微信。
  * @param doc - 当前记录。
- * @param today - 今天的 day key。
  * @param talkSessionId - 他最近说话的那个会话（空串 = 还没说过话）。
  * @returns 能送（附文本与文件名）或不能送的原因（空串原因 = 还没到时候，不必记）。
  */
-export function canDeliver(doc: TellDoc, today: string, talkSessionId: string): DeliverVerdict {
+export function canDeliver(doc: TellDoc, talkSessionId: string): DeliverVerdict {
   if (doc.pending === '' && doc.pendingShow === '') return { ok: false, reason: '' }
-  if (doc.lastDay !== '' && doc.lastDay === today) return { ok: false, reason: '' }
   if (talkSessionId === '') {
     return { ok: false, reason: '还没有他跟她说过话的会话，这句话送不出去（等他来一次）。' }
   }
@@ -195,38 +197,35 @@ export function canDeliver(doc: TellDoc, today: string, talkSessionId: string): 
  * @param showPath - 那个文件的绝对路径（有 `show` 时给）。
  * @returns 投递时用的提示词。
  */
-export function buildTellPrompt(text: string, show = '', showPath = ''): string {
-  const lines = ['[你主动找他] 你现在想跟他说一句话。', '']
+export function buildTellPrompt(text: string, show = '', showPath = '', userName = ''): string {
+  // 通用插件不能假定对方是谁：称呼从数据来，没设过就写"他"（这一段里"他"是泛指，不是性别）。
+  const who = userName.trim() === '' ? '他' : userName.trim()
+  const lines = [`[你主动找他] 你现在想跟${who}说一句话。`, '']
   if (text !== '') lines.push(`你想说的是：${text}`, '')
   if (show !== '') {
     if (showPath === '') {
       lines.push(
-        `你还想给他看一样东西：${show}（它在你自己的目录里）。`,
-        '说的时候把它的名字带出来，他能在页面上的「她留下的东西」里看到它。',
+        `你还想给${who}看一样东西：${show}（它在你自己的目录里）。`,
+        `说的时候把它的名字带出来，${who}能在页面上的「她留下的东西」里看到它。`,
         '',
       )
     } else {
       lines.push(
-        `你还想给他看一样东西：${show}`,
+        `你还想给${who}看一样东西：${show}`,
         `它的完整路径是：${showPath}`,
-        `**做完这件事之后，用 present 工具把它交给他**：files 里填 {"path": "${showPath}"}。`,
-        '这样他会在会话里直接看到这个文件，能点开。',
-        '要是 present 用不了，就在话里把名字说出来，他能去页面上的「她留下的东西」里看。',
+        `**做完这件事之后，用 present 工具把它交给${who}**：files 里填 {"path": "${showPath}"}。`,
+        `这样${who}会在会话里直接看到这个文件，能点开。`,
+        `要是 present 用不了，就在话里把名字说出来，${who}能去页面上的「她留下的东西」里看。`,
         '',
       )
     }
   }
   lines.push(
-    '（这条不是他发来的：是你自己决定在这会儿找他的。）',
+    `（这条不是${who}发来的：是你自己决定在这会儿找${who}的。）`,
     '用你自己的话把这句话说出来，一两句就够。',
     '不要说"这是定时消息"、不要提系统、不要解释你怎么会在这时候出现。',
-    '他可能不在；说完了就停，别追问，也别再补一条。',
+    `${who}可能不在；说完了就停，别追问，也别再补一条。`,
   )
   return lines.join('\n')
 }
 
-/** 他安静够久了吗（毫秒判据由调用方给"最后一次说话的时刻"）。 */
-export function quietEnough(lastBusyAt: number, now: number): boolean {
-  if (!Number.isFinite(lastBusyAt) || lastBusyAt <= 0) return true
-  return now - lastBusyAt >= TELL_QUIET_MINUTES * 60_000
-}

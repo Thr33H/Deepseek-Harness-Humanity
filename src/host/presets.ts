@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Humanity 自己的 agent 预设。封存前只有一个（极简），封存后有两个（沉浸 / 功能）。
  *
  * ### 为什么用代码注册，而不是写进 `cordis.patch.yml`
@@ -79,6 +79,8 @@ const COMPACTION_GROUP: Entry = {
 function contentOnly(readOnly: boolean): Entry[] {
   return [
     // 前缀交给 humanity 的身份层处理；这里显式置空，避免 preset 自带那句"coding agent"。
+    // 后缀也要清空：它的默认内容是"工作目录事实"（模板里用了 {{cwd}}），而这个 DSH 版本的提示词装配
+    // 只注册 provider/model —— 留着它每一轮都会报 unknown prompt variable，整轮失败（真机 2026-11-26）。
     { id: 'persona', name: '@deepseek-ai/dsh-persona', config: { prefix: '' } },
     {
       id: 'tool-fs',

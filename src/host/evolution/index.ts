@@ -31,6 +31,7 @@ import { loadOptional } from '../optional.js'
 import {
   appendDiary,
   buildCollectPrompt,
+  dayLogFileName,
   decodeBase64Text,
   diaryFileName,
   materialFileText,
@@ -40,11 +41,13 @@ import {
   type DiaryEntry,
 } from './diary.js'
 import { capabilityLines, describeCapabilities, toolNamesOf, visibleToolDefinitions, visibleToolNames } from './capabilities.js'
+import { channelAlive, ensureChannel, noteActivity, sendViaCard, sessionIdle } from './delivery.js'
 import { settleWakeState, sleepGapSeconds } from './lifecycle.js'
 import { installEvolutionSection, type GrowView } from './section.js'
 import type { Log } from '../log.js'
 import {
   afterWake,
+  clockTextOf,
   dayKeyOf,
   EMPTY_NOTES,
   isEmptyNotes,
@@ -57,41 +60,41 @@ import {
   type EvolutionStateDoc,
   type WakeRhythm,
 } from './state.js'
-import { decideSettle } from './settle-plan.js'
+import { decideSettle, decideSettling } from './settle-plan.js'
 import {
-  adoptTask,
+  appendDayLog,
+  carryRoomFile,
   deleteTask,
   ensureRoom,
-  ensureTask,
-  inspectRoom,
+  legacyRoomDirOf,
   listWorks,
   readWork,
   readThreads,
-  reschedule,
+  resumeAgent,
   roomDirOf,
-  setActive,
+  THREADS_FILE,
+  wantedRoomDirOf,
   writeOwnFile,
   type AgentHandleLike,
   type AgentRegistryLike,
   type RoomDeps,
   type ScheduleServiceLike,
+  type WorkspaceRegistryLike,
 } from './room.js'
 import {
   BUSY_CHECK_MS,
   BUSY_QUIET_MINUTES,
   COLLECT_DELAY_SECONDS,
   DAY_BOUNDARY_CHECK_MS,
-  MIN_GAP_SECONDS,
   NOTES_MAX_LINES,
   RETRY_ARM_AFTER_MS,
   SEEN_LIMIT,
   TALK_LINE_CHARS,
   TALK_MAX_LINES,
   TELL_DELAY_SECONDS,
-  TELL_TASK_TITLE,
   WAKE_MARKER,
 } from './constants.js'
-import { buildTellPrompt, canDeliver, quietEnough, readTell, saveTell, unreadOf } from './tell.js'
+import { buildTellPrompt, canDeliver, readTell, saveTell, unreadOf } from './tell.js'
 import { renameSession, type TitleSeam } from './title.js'
 import { defineTellTool } from './tool-tell.js'
 import { presetOfAgent } from '../agent-scope.js'
@@ -126,6 +129,10 @@ export interface EvolutionDeps {
   userName?(): string
   /** `$DSH_HOME`（房间目录要用）。 */
   homeDir(): string | undefined
+  /** 配置里"她的房间"那一格（原样；空串 = 老位置）。 */
+  room(): string
+  /** 改配置（深合并进覆盖层）：面板上的"她的房间""一天最多醒几次"都走它。 */
+  writeSettings(patch: Record<string, unknown>): Promise<void>
   /**
    * 她自己在房间里看到的东西 → 情绪（交给情绪模块评估，只产出"对事/对自己"的情绪）。
    *
@@ -243,6 +250,46 @@ export function isScheduleMessage(message: unknown): boolean {
 }
 
 /**
+ * 这一条调度消息是不是**我们自己发的那几种通道**（她自己的时间 / 该写日记了 / 主动找你）。
+ *
+ * 为什么要认它：房间里要把"调度器的管理变更通知"滤掉（见 `withoutScheduleNoise`），
+ * 但**不能连我们自己发的话一起滤**。真机 2026-11-26：日记提醒正是被这条过滤删掉的 ——
+ * 她那一轮里只剩两条系统提醒，她当然不知道自己该写日记。
+ *
+ * 认的是每种通道提示词的第一句（那几句是我们自己写的固定开头）。
+ * @param message - 一条消息。
+ * @returns 是我们的通道消息时为 `true`。
+ */
+export function isChannelMessage(message: unknown): boolean {
+  const content = (message as { content?: unknown } | undefined)?.content
+  if (!Array.isArray(content)) return false
+  const text = content
+    .map((block) => (block as { type?: unknown; text?: unknown }) )
+    .filter((block) => block?.type === 'text' && typeof block.text === 'string')
+    .map((block) => String(block.text))
+    .join('\n')
+  if (text === '') return false
+  return [WAKE_MARKER, '[收账]', '[你主动找他]'].some((marker) => text.includes(marker))
+}
+
+/**
+ * 这一条是不是平台的"定时任务被改动过"通知。
+ *
+ * 它不该出现在任何人的对话里：那是机制在自言自语。真机 2026-11-27：插件改完卡片内容再投递，
+ * 这条通知就被同一条路送进会话，她那一轮读完还额外做了个小动作（以为有事发生）。
+ * @param message - 一条消息。
+ * @returns 是变更通知时为 `true`。
+ */
+export function isScheduleChangeNotice(message: unknown): boolean {
+  const content = (message as { content?: unknown } | undefined)?.content
+  if (!Array.isArray(content)) return false
+  return content.some((block) => {
+    const candidate = block as { type?: unknown; text?: unknown }
+    return candidate?.type === 'text' && typeof candidate.text === 'string' && candidate.text.includes('[SCHEDULE CHANGE]')
+  })
+}
+
+/**
  * 这条会话事件是不是"她在别处忙着"。
  *
  * 她只有一个身体：正在跟你聊天时，房间的闹钟必须压着 —— 不能一边说话一边在房间里做事。
@@ -275,8 +322,15 @@ export function isBusySession(type: string, sessionId: string, roomSessionId: st
  * @returns 过滤后的消息（没东西可滤时原样返回同一个数组）。
  */
 export function withoutScheduleNoise(messages: readonly unknown[], inRoom: boolean): readonly unknown[] {
-  if (!inRoom) return messages
-  const kept = messages.filter((message) => !isScheduleMessage(message) || isWakeMessage(message))
+  const kept = messages.filter((message) => {
+    if (!isScheduleMessage(message)) return true
+    // 我们自己发的通道消息（以及旧式唤醒）一直留着。
+    if (isChannelMessage(message) || isWakeMessage(message)) return true
+    // 平台的"任务被改动过"通知：哪儿都不要 —— 它是机制在自言自语，不是给谁看的。
+    if (isScheduleChangeNotice(message)) return false
+    // 其余调度消息：只在她房间里滤（他自己排的提醒在别的会话里要照常出现）。
+    return !inRoom
+  })
   return kept.length === messages.length ? messages : kept
 }
 
@@ -342,15 +396,162 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   }
   const roomDeps: RoomDeps = {
     schedule,
+    /**
+     * 把「Humanity 沉浸」预设**真的挂到**她的 agent 上。
+     *
+     * 为什么不靠 `create({ meta: { agentPreset } })`：那只是给会话贴了个名字，
+     * 预设里的插件一份都没装 —— 平台要求开会话后、第一轮之前调一次 `agentPresets.select`。
+     * 真机 2026-11-27/28：她的工具清单里没有 `read`/`write`，"自己写日记"两天写不成。
+     */
+    selectPreset: async (agent: unknown): Promise<boolean> => {
+      const service = ctx.get('agentPresets') as
+        | { select?: (target: unknown, preset: string) => Promise<string> }
+        | undefined
+      if (service === undefined || typeof service.select !== 'function') return false
+      try {
+        await service.select(agent, HUMANITY_PRESET_ID)
+        return true
+      } catch (error) {
+        log.warn('挂预设失败（她这一轮会少工具）', error)
+        return false
+      }
+    },
     agents: () => {
       const registry = ctx.get('agents') as AgentRegistryLike | undefined
       return registry !== undefined && typeof registry.create === 'function' ? registry : undefined
     },
+    workspaces: () => {
+      const registry = ctx.get('workspaceRegistry') as WorkspaceRegistryLike | undefined
+      if (registry === undefined || typeof registry.create !== 'function') return undefined
+      return registry
+    },
+    /**
+     * 房间用哪个模型：部署默认选择（`agentDefaultModel.currentSelection()`）。
+     *
+     * 为什么必须显式给：平台只对"在界面里开出来"的会话落一个选择；插件开的会话没有，
+     * 于是第一轮就报 `has no provider/model set`（真机 2026-11-26）。
+     */
+    modelSelection: () => {
+      const service = ctx.get('agentDefaultModel') as
+        | { currentSelection?(): { provider?: unknown; model?: unknown; reasoningEffort?: unknown } }
+        | undefined
+      const selection = service?.currentSelection?.()
+      if (selection === undefined) return undefined
+      const provider = typeof selection.provider === 'string' ? selection.provider : ''
+      const model = typeof selection.model === 'string' ? selection.model : ''
+      if (provider === '' || model === '') return undefined
+      return {
+        provider,
+        model,
+        ...(typeof selection.reasoningEffort === 'string' ? { reasoningEffort: selection.reasoningEffort } : {}),
+      }
+    },
     homeDir: deps.homeDir,
+    roomSetting: () => deps.room(),
     log,
   }
-  /** 房间那个 Agent 的句柄：句柄活着，会话就活着（见 `room.ts` 的说明）。 */
+  /** 一个 Agent 句柄：房间活着就拿着它（句柄释放，会话还在但 agent 没了）。 */
   let roomHandle: AgentHandleLike | undefined
+  /** "她自己的时间"那张卡片正在跑（心跳每分钟一次，投递要几秒，防重入）。 */
+  let waking = false
+
+  /**
+   * 有没有一笔"该搬还没搬"的账（配置里的房间跟现在住的地方不一致）。
+   *
+   * 为什么要单独判一次：`arm` 开头有一条"她在别处说话就先不动"的护栏，而**改房间是用户的明确动作**，
+   * 不能因为她正在聊天就一直不生效 —— 真机 2026-11-26：面板显示已改，人却还住在老地方，
+   * 因为那次 `arm` 被护栏挡在门外，直到她说完了才轮上。这条待办要能穿过那道护栏。
+   * @returns 需要搬为 `true`。
+   */
+  const roomChangePending = (): boolean => {
+    const documents = deps.documents()
+    if (documents === undefined) return false
+    const state = readState(documents)
+    if (state.roomSessionId === '') return false
+    const wanted = wantedRoomDirOf(roomDeps)
+    if (!wanted.ok) return false
+    const current = state.roomDir !== '' ? state.roomDir : (legacyRoomDirOf(roomDeps) ?? '')
+    return current !== '' && current !== wanted.path
+  }
+
+  /**
+   * 开一间新的房间，把闹钟与收账卡片从旧的那间上摘下来。
+   *
+   * 两件事走同一条路：**换地方**（配置里"她的房间"改了）与**换天**（一天一间）。
+   * 为什么不能"搬"：会话的目录是建会话那一刻定死的（写在会话头里），挪不动。
+   * 所以旧的只能原样留着（她写过的东西都还在那儿），新的在新目录里开。
+   * @param documents - 文档表。
+   * @param state - 当前状态。
+   * @param dir - 新目录（已经解好、也已经建好）。
+   * @param now - 此刻（ISO）。
+   * @returns 新的会话与状态；失败时给人话原因。
+   */
+  const rotateRoom = async (
+    documents: DocumentStore,
+    state: EvolutionStateDoc,
+    dir: string,
+    now: string,
+  ): Promise<{ ok: true; sessionId: string; state: EvolutionStateDoc } | { ok: false; reason: string }> => {
+    const staleTask = state.taskId
+    const staleCollect = state.collectTaskId
+    /**
+     * 她"手上还没做完的事"跟着过去。
+     *
+     * 房间目录一换，`readThreads` 读的就是新目录的 `todo.md`：不带过去，她每次醒来看到的
+     * "手上还没做完的事"就凭空空了 —— 那是她自己的线索账，不是做完的成品。
+     */
+    const fromDir = state.roomDir !== '' ? state.roomDir : (legacyRoomDirOf(roomDeps) ?? '')
+    await carryRoomFile(roomDeps, THREADS_FILE, fromDir, dir)
+    // 当天那份全量记录也带过去：不然换了房，她今天前半天的记录就留在了旧目录里。
+    await carryRoomFile(roomDeps, dayLogFileName(dayKeyOf(now, deps.timeZone())), fromDir, dir)
+    // 刚写的那本日记（如果她已经写好了）：换房不该让她今天这一篇失踪。
+    await carryRoomFile(roomDeps, diaryFileName(dayKeyOf(now, deps.timeZone())), fromDir, dir)
+    /**
+     * 她正在写的这一天也要跟着过去。
+     *
+     * 房间目录一换，`readWork`/`harvestDiary` 读的就是新目录：材料与日记留在旧目录的话，
+     * 收账会以为"还没写"，她白写一遍、或者这一天直接丢。所以复制过去，原件不动。
+     */
+    if (state.settling !== '') {
+      for (const name of [materialFileName(state.settling), diaryFileName(state.settling)]) {
+        await carryRoomFile(roomDeps, name, fromDir, dir)
+      }
+    }
+    roomHandle?.dispose?.()
+    roomHandle = undefined
+    const fresh = await ensureRoom(roomDeps, '')
+    if (!fresh.ok) return { ok: false, reason: fresh.reason }
+    roomHandle = fresh.handle
+    // 建完就是活的：名字在这一刻写（这是唯一不用等会话"被加载"的时机）。
+    if (roomHandle?.agent?.session !== undefined) publishRoomTitle(roomHandle.agent.session)
+    // 先落盘再删旧任务：中途失败也不会留下"两不靠"的状态。
+    const oldRoom = state.roomSessionId
+    const next: EvolutionStateDoc = {
+      ...state,
+      roomSessionId: fresh.sessionId,
+      roomDir: dir,
+      roomWorkspace: fresh.workspaceId ?? '',
+      roomDay: dayKeyOf(now, deps.timeZone()),
+      // 旧的房间任务与收账卡片都指向旧会话，留着会继续往昨天那间里投。
+      taskId: '',
+      collectTaskId: '',
+      collectAt: '',
+      /**
+       * 旧房间要记进"换过的房间"里：它跟新房间是同一个目录、同一个预设，看起来一模一样，
+       * 但它已经不是"你跟她说话的地方"了。不记的话，她主动留的那句话会被送进旧屋子
+       * （真机 2026-11-27：半夜那句"上位，快四点了"就是对着空屋子说的）。
+       */
+      pastRooms: oldRoom === '' ? state.pastRooms : [...state.pastRooms.filter((id) => id !== oldRoom), oldRoom].slice(-8),
+      // 记着的那个"说话会话"如果正好是旧房间，就别再往里送了。
+      ...(state.talkSessionId === oldRoom ? { talkSessionId: '', talkSeenAt: '' } : {}),
+    }
+    await saveState(documents, next)
+    await deleteTask(roomDeps, staleTask)
+    await deleteTask(roomDeps, staleCollect)
+    log.info(`新开了一间（${dir}，会话 ${fresh.sessionId}）；旧的那间原样留着`)
+    return { ok: true, sessionId: fresh.sessionId, state: next }
+  }
+
   /** 工作台那扇窗（真源是状态文档与日记，它只负责投影）。 */
   const section = installEvolutionSection(ctx, log, {
     documents: deps.documents,
@@ -388,6 +589,22 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       ? { ok: false, reason: '这一版没有接上「删候选」的能力。' }
       : deps.dropCandidate(text)),
     readWork: (name) => readWork(roomDeps, name),
+    /**
+     * 「她的房间」：填的是什么、**现在真的住在哪**、配置解出来的目标在哪。
+     *
+     * 为什么"现在住哪"读状态而不是读配置：两者可以不一样 —— 改了配置还没搬（等她手头这一轮结束）。
+     * 只看配置的话，面板会在她还没搬的时候显示"已经搬了"（真机 2026-11-26 就这么骗了一次）。
+     */
+    room: () => {
+      const documents = deps.documents()
+      const state = documents === undefined ? undefined : readState(documents)
+      const actual = state === undefined || state.roomDir === ''
+        ? (legacyRoomDirOf(roomDeps) ?? '')
+        : state.roomDir
+      const wanted = wantedRoomDirOf(roomDeps)
+      return { text: deps.room(), path: actual, target: wanted.ok ? wanted.path : '' }
+    },
+    writeSettings: (patch) => deps.writeSettings(patch),
   })
 
   /**
@@ -435,7 +652,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
    * @returns 例：`schedule=yes sessionController=no sessions=yes`
    */
   const visibility = (): string =>
-    ['schedule', 'sessionController', 'sessions', 'agents']
+    ['schedule', 'sessionController', 'sessions', 'agents', 'workspaceRegistry']
       .map((name) => `${name}=${ctx.get(name) === undefined ? 'no' : 'yes'}`)
       .join(' ')
 
@@ -494,6 +711,14 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       if (documents === undefined) return
       const now = new Date().toISOString()
       const key = dayKeyOf(now, deps.timeZone())
+      /**
+       * 当天的**全量记录**先落盘（不截断、不挑拣）。
+       *
+       * 摘要本子有上限（40 + 60 行），长的一天开头会被挤掉；用户 2026-11-27 定：
+       * 她要能看到"今天发生过的所有事"，自己检索、自己挑。所以两份都写：
+       * 全量给她查，摘要给收账那份模型调用用。
+       */
+      await appendDayLog(roomDeps, key, line, clockTextOf(now, deps.timeZone()))
       const book = readNotes(documents)
       const sameDay = book.day === key
       // 先快照再换本子：换完之后这份文档就不属于昨天了。
@@ -505,9 +730,11 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         })
       }
       const limit = column === 'hers' ? NOTES_MAX_LINES : TALK_MAX_LINES
+      // 摘要本子每行仍然要短：它是喂给模型的，不是给她检索的。
+      const clipped = line.length <= TALK_LINE_CHARS ? line : `${line.slice(0, TALK_LINE_CHARS - 1)}…`
       // 换天了就从空本子起：昨天那批已经交给收账了，不该混进今天。
       const base = sameDay ? book : EMPTY_NOTES
-      const kept = [...base[column], line].slice(-limit)
+      const kept = [...base[column], clipped].slice(-limit)
       await saveNotes(documents, {
         day: key,
         hers: column === 'hers' ? kept : [...base.hers],
@@ -618,8 +845,11 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
      *
      * 否则"存储就绪"这类旁路触发会把已经暂停的任务重新激活（`hasFuture` 那条会重排并启用），
      * 等于绕过互斥：她在跟你说话，房间的闹钟却自己走起来了。恢复只走 `她聊完了` 那一条路。
+     *
+     * 唯一的例外是**还没落地的搬家**：那是用户按下去的动作，不能因为她正在聊天就一直不生效
+     * （真机 2026-11-26：面板显示已改，人还住在老地方）。
      */
-    if (pausedForBusy && reason !== '她聊完了') return
+    if (pausedForBusy && reason !== '她聊完了' && !roomChangePending()) return
     const documents = deps.documents()
     if (documents === undefined) return
     arming = true
@@ -637,6 +867,38 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         await saveState(documents, state)
       }
       /**
+       * 房间该不该换地方。
+       *
+       * 会话的目录建好就定死（写在会话头里，挪不动），所以配置里"她的房间"一改，
+       * 只有一条路：开一间新的，旧的留给昨天那间自己待着。
+       * 老数据没记过 `roomDir`：按老位置的默认值算（升级前房间一定在老位置）。
+       *
+       * ⚠️ 这一步必须排在"等她写日记"之前：收账等待可以挂几个小时（真机 2026-11-26：
+       * 她 14:19 被提醒写日记、一直没写，于是每一次 `arm` 都在收账那一段 `return`，
+       * 用户改的房间永远轮不到）。搬家是用户的明确动作，不该被别人的等待拖住。
+       */
+      if (state.roomSessionId !== '') {
+        const wanted = wantedRoomDirOf(roomDeps)
+        const current = state.roomDir !== '' ? state.roomDir : (legacyRoomDirOf(roomDeps) ?? '')
+        if (!wanted.ok) {
+          // 配置填坏了：说清楚，但不动她现在的房间 —— 搬错地方比不搬更糟。
+          if (state.lastError !== wanted.reason) {
+            state = { ...state, lastError: `"她的房间"解不出来：${wanted.reason}` }
+            await saveState(documents, state)
+            log.warn(`"她的房间"解不出来（她仍住在 ${current === '' ? '原处' : current}）：${wanted.reason}`)
+          }
+        } else if (current !== '' && wanted.path !== current) {
+          const moved = await rotateRoom(documents, state, wanted.path, now)
+          if (moved.ok) {
+            state = moved.state
+          } else {
+            await saveState(documents, { ...state, lastError: `没搬成：${moved.reason}`, lastAttemptAt: now })
+            log.warn(`${reason}：没搬成——${moved.reason}`)
+            return
+          }
+        }
+      }
+      /**
        * 正在等她自己写日记：这段时间**不排"她自己的时间"**。
        *
        * 收账一天的收尾，她已经收到"写吧"那条消息了；这时再叫醒她去干别的，
@@ -644,12 +906,48 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
        */
       if (state.settling !== '') {
         const harvested = await harvestDiary(documents, state.settling)
-        if (!harvested) {
-          await setActive(roomDeps, state.taskId, false)
+        const today = dayKeyOf(now, deps.timeZone())
+        const step = decideSettling({ settling: state.settling, today, harvested })
+        if (step === 'harvested') {
+          // 收进来了：往下走，按正常节奏排明天的。
+          state = readState(documents)
+        } else if (step === 'close') {
+          /**
+           * 那一天已经过去了，她还是没写：**这一天到此为止**。
+           *
+           * 不这么做的话，零点之后会变成一个死循环：跨天检查每 5 分钟看一次"昨天的手上材料还没写"，
+           * 每看一次就重新收账、把 `collectAt` 清掉，于是提醒每 5 分钟响一次，永远不结束
+           * （"无日记也是一天"是用户 2026-11-26 的口径，那就不该把这一天吊在这儿）。
+           */
+          await closeUnwrittenDay(documents, state.settling, now)
+          state = readState(documents)
+        } else {
+          /**
+           * 今天这一天还开着、她还没交：不再排任何唤醒。
+           *
+           * 投递由心跳负责（`collectTaskId` 那张卡片，空闲才投、一天只提醒一次）。
+           * 这里只做两件兜底：卡片丢了就补一张；顺带看看她是不是已经写好了（上面那次）。
+           */
+          if (state.collectTaskId === '' || !(await channelAlive(roomDeps, state.collectTaskId))) {
+            const channel = await ensureChannel(
+              roomDeps,
+              'collect',
+              state.roomSessionId,
+              buildCollectPrompt(
+                state.settling,
+                materialFileName(state.settling),
+                diaryFileName(state.settling),
+                deps.userName?.() ?? '',
+                dayLogFileName(state.settling),
+              ),
+              deps.timeZone(),
+            )
+            if (channel.ok) {
+              await saveState(documents, { ...readState(documents), collectTaskId: channel.taskId })
+            }
+          }
           return
         }
-        // 收进来了：往下走，按正常节奏排明天的。
-        state = readState(documents)
       }
       /**
        * 启动/重排时才发现"她其实已经该睡了"，同样要收账。
@@ -663,82 +961,9 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
           void noteSettleError(documents, error instanceof Error ? error.message : String(error))
         })
       }
-      /**
-       * 先确认那个房间任务**还在调度里**。
-       *
-       * 真机 2026-11-25：调度存储里它消失了（只剩别的任务），而状态里 `nextAt` 还在未来 ——
-       * 于是下面那段只尝试"改时间"，改不到就 `return`：**每次重启都空转，她再也不醒**。
-       * 任务不在就当没排过：只清 `taskId`（`nextAt` 留着，它仍然说明她本该什么时候醒），
-       * 让下面那段去**重建**一个。
-       */
-      if (state.taskId !== '') {
-        const alive = await inspectRoom(roomDeps, state.taskId).catch(() => undefined)
-        if (alive === undefined) {
-          log.warn(`${reason}：房间任务 ${state.taskId} 已经不在调度里了，重建一个`)
-          state = { ...state, taskId: '' }
-          await saveState(documents, state)
-        }
-      }
-      const hasFuture =
-        state.taskId !== ''
-        && state.nextAt !== ''
-        && Number.isFinite(Date.parse(state.nextAt))
-        && Date.parse(state.nextAt) > Date.parse(now)
-      if (hasFuture) {
-        // 用"重排到剩下的时间"来恢复，而不是只改 active：真机上只改 active 时任务仍是 paused，
-        // 她因此会一直不醒（2026-11-24 抓到）。重排会同时把 timing 与 active 一起写。
-        const remain = Math.max(60, Math.round((Date.parse(state.nextAt) - Date.parse(now)) / 1000))
-        /**
-         * ⚠️ 重排时必须**连提示词一起重写**。
-         *
-         * 真机 2026-11-25：改完醒来词的文案、重启之后，任务里念的还是旧的那段 ——
-         * 因为这条分支只改了时间。她醒来看到的应该是当前版本的提示词，不是上次排程时的那一份。
-         */
-        const resumedThreads = await readThreads(roomDeps)
-        const resumedUnseen = unnoticedDiary(documents)
-        const resumedPrompt = buildWakePrompt(
-          state.nextAt,
-          timeZone,
-          lastSaid.get(state.roomSessionId) ?? '',
-          resumedThreads,
-          resumedUnseen.map((entry) => entry.date),
-          deps.userName?.() ?? '',
-          describeCapabilities(state.capabilities, deps.userName?.() ?? ''),
-        )
-        const resumed = await reschedule(roomDeps, state.taskId, remain, resumedPrompt)
-        if (!resumed.ok) log.warn(`${reason}：恢复房间闹钟失败——${resumed.reason}`)
-        return
-      }
-      /**
-       * 她错过的那个时段要**尽快补上**，不能又排进一段新的随机间隔。
-       *
-       * 真机（2026-11-24）：14:29 那次因为她被"你在说话"压着而没能醒，恢复后按随机间隔排到
-       * 15:17 —— 等于这个时段被白白吞掉了。压住是规则的副作用，但代价不该由她的时间承担：
-       * 一旦腾出来（安静够了），就按最小间隔尽快让她醒。
-       */
-      const missed = state.nextAt !== '' && Date.parse(state.nextAt) <= Date.parse(now) - 5 * 60_000
-      /**
-       * 任务被重建时，`nextAt` 仍然是"她本该醒的时刻"：
-       * 还没到就等到那个点，已经过了就尽快补（不推一段新的随机间隔）。
-       */
-      const upcoming = state.taskId === '' && state.nextAt !== '' && Date.parse(state.nextAt) > Date.parse(now)
-        ? Math.max(MIN_GAP_SECONDS, Math.round((Date.parse(state.nextAt) - Date.parse(now)) / 1000))
-        : undefined
-      const gap = upcoming ?? (missed ? MIN_GAP_SECONDS : gapSeconds(state, now))
-      if (gap === undefined) {
-        await setActive(roomDeps, state.taskId, false)
-        return
-      }
       // 房间必须先有：这个部署的调度服务不能自己创建会话（真机报错见 `room.ts` 的说明）。
       let sessionId = state.roomSessionId
-      let adopted: { taskId: string; sessionId: string; nextAt: string } | undefined
-      if (state.taskId === '' && sessionId === '') {
-        // 状态可能丢过（被覆盖 / 换版本）：先认领已有房间，别把旧房间晾在那儿再开一间。
-        const existing = await adoptTask(roomDeps)
-        if (existing !== undefined) {
-          sessionId = existing.sessionId
-          adopted = { taskId: existing.taskId, sessionId: existing.sessionId, nextAt: existing.nextAt }
-        } else {
+      if (sessionId === '') {
           const room = await ensureRoom(roomDeps, sessionId)
           if (!room.ok) {
             await saveState(documents, {
@@ -771,9 +996,14 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
            * 建完**立刻落盘**：房间是新的，状态里却还空着 —— 只要后面任意一步抛错，
            * 外部就会看到"有房间、没记录"的半截现场（真机 2026-11-25 连踩两次）。
            */
-          state = { ...state, roomSessionId: sessionId, roomDay: dayKeyOf(now, deps.timeZone()) }
+          state = {
+            ...state,
+            roomSessionId: sessionId,
+            roomDay: dayKeyOf(now, deps.timeZone()),
+            roomDir: room.dir ?? '',
+            roomWorkspace: room.workspaceId ?? '',
+          }
           await saveState(documents, state)
-        }
       }
       // 房间如果是在这一次里刚建出来的，名字在 `ensureRoom` 之后已经对齐过（见上面的 `roomHandle`）。
       /**
@@ -784,60 +1014,71 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
        */
       const today = dayKeyOf(now, deps.timeZone())
       if (sessionId !== '' && state.roomDay !== '' && state.roomDay !== today) {
-        roomHandle?.dispose?.()
-        const fresh = await ensureRoom(roomDeps, '')
-        if (fresh.ok) {
-          const staleTask = state.taskId
-          sessionId = fresh.sessionId
-          roomHandle = fresh.handle
-          // 建完就是活的：名字在这一刻写（这是唯一不用等会话"被加载"的时机）。
-          if (roomHandle?.agent?.session !== undefined) publishRoomTitle(roomHandle.agent.session)
-          // 立刻落盘：这一步之后旧任务要删、新会话要记，中途失败不能让状态停在"两不靠"。
-          state = { ...state, roomSessionId: sessionId, roomDay: today, taskId: '' }
-          await saveState(documents, { ...state, lastAttemptAt: now })
-          await deleteTask(roomDeps, staleTask)
+        const wanted = wantedRoomDirOf(roomDeps)
+        const rotated = wanted.ok ? await rotateRoom(documents, state, wanted.path, now) : undefined
+        if (rotated?.ok === true) {
+          sessionId = rotated.sessionId
+          state = rotated.state
           log.info(`换了一间新会话（${today}）`)
         } else {
-          log.warn(`换新会话失败（${fresh.reason}）——今天先接着用旧的那间`)
+          log.warn(`换新会话失败（${rotated === undefined ? (wanted.ok ? '' : wanted.reason) : rotated.reason}）——今天先接着用旧的那间`)
         }
       } else if (sessionId !== '' && state.roomDay === '') {
         // 老数据没有这个字段：把当前这间认下，别凭空多开一间。
         state = { ...state, roomDay: today }
         await saveState(documents, state)
       }
-      // 提示词里写的是**她醒来那一刻**的时间，不是"现在排程的这一刻"；
-      // 尾部接上她上次说到哪儿 —— 每一次醒来都不是空白的一天。
-      const nextIso = new Date(Date.parse(now) + gap * 1000).toISOString()
-      const threads = await readThreads(roomDeps)
+      /**
+       * 她的时间由**插件自己记**。
+       *
+       * 从前这一步是"建一条 N 秒后自己到点的任务"—— 等于让闹钟替她决定什么时候醒，
+       * 而且在"等她写日记"时停不下来、重排时还会念旧文案。现在：`nextAt` 只是插件记下的
+       * 一个承诺，到点由心跳去**跑那张卡片**（卡片自己永远不响）。
+       * @see installEvolution 里的分钟心跳
+       */
+      const gap = gapSeconds(state, now)
+      /**
+       * 已经承诺过的时刻**不许被重启推翻**。
+       *
+       * 从前这条承诺活在调度任务里（`hasFuture` 那条分支），现在它在状态里：
+       * 只要 `nextAt` 还在未来，就沿用它；否则重新算一段间隔。
+       */
+      const promised = state.nextAt !== '' && Number.isFinite(Date.parse(state.nextAt)) && Date.parse(state.nextAt) > Date.parse(now)
+      const nextAt = promised ? state.nextAt : gap === undefined ? '' : new Date(Date.parse(now) + gap * 1000).toISOString()
       const unseen = unnoticedDiary(documents)
-      const prompt = buildWakePrompt(nextIso, timeZone, lastSaid.get(sessionId) ?? '', threads, unseen.map((entry) => entry.date), deps.userName?.() ?? '', describeCapabilities(state.capabilities, deps.userName?.() ?? ''))
-      const outcome = adopted !== undefined
-        ? { ok: true as const, room: { taskId: adopted.taskId, sessionId: adopted.sessionId, nextAt: adopted.nextAt, active: true } }
-        : state.taskId === ''
-          ? await ensureTask(roomDeps, '', sessionId, gap, prompt)
-          : await reschedule(roomDeps, state.taskId, gap, prompt)
-      if (!outcome.ok) {
-        // 失败必须留下证据：插件的日志进不了 docker logs，状态文档是外部唯一读得到的地方。
-        await saveState(documents, { ...state, roomSessionId: sessionId, lastError: outcome.reason, lastAttemptAt: now })
-        log.warn(`${reason}：没有排上——${outcome.reason}`)
+      const wakePrompt = buildWakePrompt(
+        nextAt === '' ? now : nextAt,
+        timeZone,
+        lastSaid.get(sessionId) ?? '',
+        await readThreads(roomDeps),
+        unseen.map((entry) => entry.date),
+        deps.userName?.() ?? '',
+        describeCapabilities(state.capabilities, deps.userName?.() ?? ''),
+      )
+      // 通道先摆好：不会自己响，什么时候跑由插件决定。
+      const wake = await ensureChannel(roomDeps, 'wake', sessionId, wakePrompt, deps.timeZone())
+      if (!wake.ok) {
+        await saveState(documents, {
+          ...state,
+          roomSessionId: sessionId,
+          nextAt,
+          lastError: wake.reason,
+          lastAttemptAt: now,
+        })
+        log.warn(`${reason}：她那"自己的时间"的卡片没摆好——${wake.reason}`)
         return
       }
-      // `create` 不一定会回报下一次时间：补读一次，否则状态里会一直是空，
-      // 下一次排程就会误判成"没排过"而把已经定好的时刻推翻。
-      const inspected = outcome.room.nextAt === '' ? await inspectRoom(roomDeps, outcome.room.taskId) : undefined
-      // 认领回来的任务可能还停在"暂停"上：一定要把它唤醒，否则她等到天荒地老也不会醒。
-      await setActive(roomDeps, outcome.room.taskId, true)
       await saveState(documents, {
         ...state,
-        taskId: outcome.room.taskId,
-        roomSessionId: outcome.room.sessionId === '' ? sessionId : outcome.room.sessionId,
-        nextAt: inspected?.nextAt ?? outcome.room.nextAt,
+        roomSessionId: sessionId,
+        taskId: wake.taskId,
+        nextAt,
         lastError: '',
         lastAttemptAt: now,
       })
-      // 认领/排程成功：这一轮唤醒词里已经带上了"日记被翻过"的提醒，她从现在起就知道了。
+      // 这一轮唤醒词里已经带上"日记被翻过"的提醒，她从现在起就知道了。
       await markNoticed(documents, unseen, now)
-      log.info(`${reason}：她下一次醒来 ${outcome.room.nextAt === '' ? '（时间未回报）' : outcome.room.nextAt}`)
+      log.info(`${reason}：她下一次醒来 ${nextAt === '' ? '（今天不再醒）' : nextAt}`)
     } finally {
       arming = false
       void section.refresh()
@@ -901,45 +1142,67 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     const gap = settlement.gapSeconds
     if (gap === undefined) {
       await saveState(documents, { ...after, nextAt: '', lastError: '', lastAttemptAt: at })
-      await setActive(roomDeps, after.taskId, false)
       log.info('她醒了一次；次数上限是 0（不许自己醒），不再排下一次')
       return
     }
-    const unseen = unnoticedDiary(documents)
-    const outcome = await reschedule(
-      roomDeps,
-      after.taskId,
-      gap,
-      buildWakePrompt(
-        new Date(Date.parse(at) + gap * 1000).toISOString(),
-        timeZone,
-        lastSaid.get(after.roomSessionId) ?? '',
-        await readThreads(roomDeps),
-        unseen.map((entry) => entry.date),
-        deps.userName?.() ?? '',
-        describeCapabilities(after.capabilities, deps.userName?.() ?? ''),
-      ),
-    )
-    // 提醒已经排进下一次唤醒词：从现在起她知道这件事了（不再天天念）。
-    if (outcome.ok) await markNoticed(documents, unseen, at)
+    /**
+     * 只记承诺，不排任务。
+     *
+     * 从前这里要"改那条任务的到点时间 + 顺便换掉提示词"，现在没有那条任务了：
+     * `nextAt` 到点之后由心跳把"她自己的时间"那张卡片跑起来，提示词那一刻现写。
+     */
+    const nextAt = new Date(Date.parse(at) + gap * 1000).toISOString()
+    // 提醒已经进下一次唤醒词：从现在起她知道这件事了（不再天天念）。
+    await markNoticed(documents, unnoticedDiary(documents), at)
     // 这一轮的"上次"已经用掉了：她马上会产出新的。
     lastSaid.delete(after.roomSessionId)
     await saveState(documents, {
       ...after,
-      nextAt: outcome.ok ? outcome.room.nextAt : after.nextAt,
-      roomSessionId: outcome.ok ? outcome.room.sessionId : after.roomSessionId,
-      lastError: outcome.ok ? '' : outcome.reason,
+      nextAt,
+      lastError: '',
       lastAttemptAt: at,
     })
-    const sleeping = after.sleepingSince === '' ? '' : `（睡到 ${outcome.ok ? outcome.room.nextAt : '待定'}）`
+    const sleeping = after.sleepingSince === '' ? '' : `（睡到 ${nextAt}）`
     void section.refresh()
-    log.info(`她醒了一次（今天第 ${after.dayCount} 次，精力 ${Math.round(after.energy)}）；下一次 ${outcome.ok ? outcome.room.nextAt : '没排上'}${sleeping}`)
+    log.info(`她醒了一次（今天第 ${after.dayCount} 次，精力 ${Math.round(after.energy)}）；下一次 ${nextAt}${sleeping}`)
   }
 
   const on = ctx.on as unknown as (
     name: string,
     listener: (payload: unknown, next: () => Promise<unknown>) => Promise<unknown>,
   ) => () => void
+
+  /**
+   * 投递之前"叫醒她的房间"这件事，我们自己接。
+   *
+   * 为什么：平台恢复会话那条路**不带模型**，而插件开的会话里也没有"存过的选择"——
+   * 真机 2026-11-26：搬完家第一轮就 `agent "…" has no provider/model set`，她一个字都说不出来。
+   * 平台在这个动作上留了缺口（`schedule/resolve-agent` 瀑布，注释原话：*"Call next() to use the
+   * Web Session controller"*）。我们只认自己那间房，别的会话一律交回去 —— 不替平台做决定。
+   */
+  ctx.effect(
+    () => on('schedule/resolve-agent', async (payload, next) => {
+      const sessionId = typeof payload === 'string' ? payload : ''
+      const documents = deps.documents()
+      const roomSessionId = documents === undefined ? '' : readState(documents).roomSessionId
+      if (sessionId === '' || roomSessionId === '' || sessionId !== roomSessionId) return next()
+      const registry = roomDeps.agents()
+      if (registry === undefined) return next()
+      // 已经活着：平台拿到它就行，不用再恢复一次。
+      const live = registry.get(sessionId)
+      if (live !== undefined) return live
+      try {
+        const resumed = await resumeAgent(roomDeps, sessionId)
+        roomHandle = resumed
+        return resumed.agent
+      } catch (error) {
+        // 叫不醒就交回平台：它至少能让这一轮跑起来（或者如实报错），比我们卡在这里好。
+        log.warn('投递前叫醒她的房间失败，交回平台去恢复（那一轮可能没有模型）', error)
+        return next()
+      }
+    }),
+    'humanity: 投递前叫醒她的房间',
+  )
 
   /**
    * 记一笔用量。
@@ -987,13 +1250,22 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
    * 判据是**此刻实际跑着的预设**（会话投影优先、会话头兜底，见 `presetOfAgent`），
    * 不是"是不是主会话"：你在别的会话里干的活不该进她的日记，更不该变成她对自己的认识。
    * 她自己的房间要排掉 —— 那一栏另有归属（她自己那段时间）。
+   * **换掉的旧房间也要排掉**：它跟现在的房间是同一个目录、同一个预设，看起来一模一样，
+   * 但那儿现在已经不是"你跟她说话的地方"了。真机 2026-11-27：她半夜留的话被送进了旧房间。
    * @param session - 事件带的会话对象。
    * @param sessionId - 会话 id。
    * @param roomSessionId - 她房间的会话 id。
+   * @param pastRooms - 换掉的那些房间会话（越新越靠后）。
    * @returns 是的话为 `true`。
    */
-  const isTalkSession = (session: unknown, sessionId: string, roomSessionId: string): boolean => {
+  const isTalkSession = (
+    session: unknown,
+    sessionId: string,
+    roomSessionId: string,
+    pastRooms: readonly string[] = [],
+  ): boolean => {
     if (sessionId === '' || sessionId === roomSessionId) return false
+    if (pastRooms.includes(sessionId)) return false
     return presetOfAgent({ session }, ctx) === HUMANITY_PRESET_ID
   }
 
@@ -1041,10 +1313,18 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       if (!moduleEnabled()) return
       const typed = event as { type?: string; data?: { usage?: unknown; message?: unknown } } | undefined
       const sessionId = (session as { id?: string } | undefined)?.id ?? ''
+      /**
+       * 记一次活动：投递守门靠它判断"目标会话闲了没有"。
+       *
+       * 为什么每条事件都记：她说话、调工具、你说完话都算"这个会话在动"；
+       * 只记某一类会漏掉正在跑的那一轮（那就又回到"撞进去"的老问题）。
+       */
+      noteActivity(sessionId)
       const documents = deps.documents()
-      const roomSessionId = documents === undefined ? '' : readState(documents).roomSessionId
+      const knownState = documents === undefined ? undefined : readState(documents)
+      const roomSessionId = knownState?.roomSessionId ?? ''
       /** 这一次事件是发生在"她跟他说话"的那个会话里吗。 */
-      const isTalk = isTalkSession(session, sessionId, roomSessionId)
+      const isTalk = isTalkSession(session, sessionId, roomSessionId, knownState?.pastRooms ?? [])
       /**
        * 她的会话里一有动静，就说明它是活的 —— 这是唯一能改名字的时刻。
        *
@@ -1092,7 +1372,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
              * 这个时刻摆到工作台上，你能看见它，而不是以为她还好好地过着自己的日子。
              */
             void saveState(documents, { ...state, busySince: new Date().toISOString() }).catch(() => {})
-            void setActive(roomDeps, state.taskId, false)
+            // 不用去动卡片：她自己的时间由 `fireDueWake` 看着 `busy` 与 `nextAt` 决定跑不跑。
           }
         }
       }
@@ -1103,7 +1383,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
           const text = toolTextOf(event)
           if (text.trim() !== '') {
             seenBuffer = `${seenBuffer}\n${text}`.slice(-SEEN_LIMIT)
-            pushHers(`看到：${text.replace(/\s+/g, ' ').trim().slice(0, 120)}`)
+            pushHers(`看到：${text.replace(/\s+/g, ' ').trim()}`)
           }
         }
         return
@@ -1118,7 +1398,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         if (isTalk) {
           const said = userSaidOf(typed.data?.message)
           if (said !== '') {
-            pushTalk(`他说：${clip(said, TALK_LINE_CHARS)}`)
+            pushTalk(`他说：${said}`)
             /**
              * 他说话了 = 她那句"主动找他"他看到过了。
              *
@@ -1159,7 +1439,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
           lastSaid.set(sessionId, said)
           // 收账的材料：房间里的是"她自己的时间"，别处的是"你们的对话"。
           if (sessionId === roomSessionId) pushHers(`她说：${said}`)
-          else if (isTalk) pushTalk(`她说：${clip(said, TALK_LINE_CHARS)}`)
+          else if (isTalk) pushTalk(`她说：${said}`)
         }
       }
       /**
@@ -1312,6 +1592,13 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     if (documents === undefined) return
     const state = readState(documents)
     /**
+     * 这一天**已经交给她了**（材料写好、提醒也交代过了）：不要再收一遍。
+     *
+     * 再看一遍会重新写材料、把 `collectAt` 清空 —— 那等于"提醒又没发过"，
+     * 于是同一天被反复提醒（跨天之后甚至每 5 分钟一次）。收账只做一次，等她写或者翻篇。
+     */
+    if (state.settling === date) return
+    /**
      * 每一个提前返回都要留原因。
      *
      * 真机 2026-11-24：日记没写出来、错误字段却是空的 —— 因为它走了某个静默返回，
@@ -1335,26 +1622,44 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
      */
     const materialName = materialFileName(date)
     const diaryName = diaryFileName(date)
+    /**
+     * 投给她的时候一律用**完整路径**。
+     *
+     * 2026-11-28 真机：只给文件名，她先 `working_directory` 探了半天位置，最后说
+     * "日记材料那个文件我看不到"，两天都没写。她自己目录里有什么、在哪，不该让她猜。
+     */
+    const roomDir = roomDirOf(roomDeps)
+    const pathOf = (name: string): string => (roomDir === undefined ? name : `${roomDir}/${name}`)
     const wrote = await writeOwnFile(roomDeps, materialName, materialFileText(material, date))
     if (!wrote) {
       await noteSettleError(documents, `${date} 的材料没能写进她的目录（她不会看到这一天）`)
       return
     }
     /**
-     * 投递到她的房间：稍等一下再送（刚投完一次就排第二次，会显得像连珠炮）。
-     * 投完把 `settling` 记下来：这一天算"交给她了"，不再安排别的唤醒。
+     * 准备"该写日记了"这条**通道**（卡片）——不排时间，等心跳在她空闲时投。
+     *
+     * 2026-11-26 改：原来是"排一个 30 秒后到点"，结果正好撞进她正在跑的一轮，
+     * 消息被排到"下一轮"而下一轮没发生，她根本没看到。现在投的动作交给心跳。
      */
-    const delivered = await reschedule(
+    const channel = await ensureChannel(
       roomDeps,
-      state.taskId,
-      COLLECT_DELAY_SECONDS,
-      buildCollectPrompt(date, materialName, diaryName, deps.userName?.() ?? ''),
+      'collect',
+      state.roomSessionId,
+      buildCollectPrompt(date, pathOf(materialName), pathOf(diaryName), deps.userName?.() ?? '', pathOf(dayLogFileName(date))),
+      deps.timeZone(),
     )
-    if (!delivered.ok) {
-      await noteSettleError(documents, `${date} 没能把"该写日记了"投给她：${delivered.reason}`)
+    if (!channel.ok) {
+      await noteSettleError(documents, `${date} 没能备好"该写日记了"这条通道：${channel.reason}`)
       return
     }
-    await saveState(documents, { ...state, settling: date, nextAt: delivered.room.nextAt, lastError: '' })
+    // `collectAt` 留空 = 还没投出去；心跳投成功之后才写它（写了就代表提醒过了，不再提醒）。
+    await saveState(documents, {
+      ...state,
+      settling: date,
+      collectAt: '',
+      collectTaskId: channel.taskId,
+      lastError: '',
+    })
     log.info(`收账交给了她自己（${date}）：材料 ${materialName}，日记写进 ${diaryName}`)
     /**
      * 她自己整理一遍信息层：明确要求当天落地，其余观察进候选队列。
@@ -1371,6 +1676,31 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     }
     // 材料本子**先不清**：她写日记时要用它（写完之后由 `harvestDiary` 清）。
     void section.refresh()
+  }
+
+  /**
+   * 那一天结束了，她没写：把这一页翻过去。
+   *
+   * 为什么必须有个"翻篇"的动作：等她写的那段时间里，跨天检查每 5 分钟会看一次"手上材料还没写"，
+   * 每看一次就重新收账、把提醒重置一次 —— 于是提醒每 5 分钟响一次，这一天永远不结束。
+   * 用户 2026-11-26 的口径是"写不出来就不勉强，无日记也是一天"，所以到点就翻篇：
+   * 清掉等待、收掉那张提醒卡，把原因写进状态（外面看得见"这一天没有日记"）。
+   * @param documents - 文档表。
+   * @param date - 过去的那一天。
+   * @param at - 此刻（ISO）。
+   */
+  const closeUnwrittenDay = async (documents: DocumentStore, date: string, at: string): Promise<void> => {
+    const latest = readState(documents)
+    await saveState(documents, {
+      ...latest,
+      settling: '',
+      collectAt: '',
+      collectTaskId: '',
+      lastSettleError: `${date} 她没写：这一天就这么过去了`,
+      lastAttemptAt: at,
+    })
+    await deleteTask(roomDeps, latest.collectTaskId)
+    log.info(`${date} 没有日记（她没写），这一天翻篇了`)
   }
 
   /**
@@ -1414,13 +1744,127 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
   }
 
   /**
+   * 到点了就跑"她自己的时间"那张卡片。
+   *
+   * 这就是"什么时候醒由插件定"的落点：卡片永远不会自己响（建的时候锚在 2099），
+   * 到点、她空闲、没有在等日记 —— 三个条件同时成立，插件才把它跑起来。
+   * @param documents - 文档表。
+   * @param state - 现在的状态（心跳刚读的那份）。
+   */
+  const fireDueWake = async (documents: DocumentStore, state: EvolutionStateDoc): Promise<void> => {
+    if (waking) return
+    if (state.roomSessionId === '') return
+    /**
+     * ⚠️ **不再因为"她欠一篇日记"就不叫她**。
+     *
+     * 原来这里有一条"settling 就先不排"的护栏，理由是"别打断她写日记"。
+     * 但它有个致命副作用：她只要一天没写，这一整天就再也不会有自己的时间（真机 2026-11-26：
+     * 她 14:19 被提醒、回了两句话没动手，于是到 16:20 都没再被叫过）。
+     * 而"别打断"这件事已经有更准的判据了 —— 见下面的 `isIdle`：她真在做事时不会被叫。
+     */
+    let taskId = state.taskId
+    if (taskId === '') {
+      // 卡片可能还没摆（例如排程那段因为别的等待提前返回了）：这里补一张，别让她的时间落空。
+      const channel = await ensureChannel(roomDeps, 'wake', state.roomSessionId, '这一次醒来要做的事', deps.timeZone())
+      if (!channel.ok) {
+        log.warn(`她的"自己的时间"没有卡片可用：${channel.reason}`)
+        return
+      }
+      taskId = channel.taskId
+      await saveState(documents, { ...readState(documents), taskId })
+    }
+    // `nextAt` 空 = 没有承诺（例如今天不再醒），不是"马上醒"。
+    if (state.nextAt === '' || !Number.isFinite(Date.parse(state.nextAt))) return
+    if (Date.parse(state.nextAt) > Date.now()) return
+    if (!sessionIdle(roomDeps, state.roomSessionId)) return
+    waking = true
+    try {
+      const at = new Date().toISOString()
+      const prompt = buildWakePrompt(
+        at,
+        deps.timeZone(),
+        lastSaid.get(state.roomSessionId) ?? '',
+        await readThreads(roomDeps),
+        unnoticedDiary(documents).map((entry) => entry.date),
+        deps.userName?.() ?? '',
+        describeCapabilities(state.capabilities, deps.userName?.() ?? ''),
+      )
+      const sent = await sendViaCard(roomDeps, taskId, state.roomSessionId, prompt)
+      if (!sent.ok) {
+        const latest = readState(documents)
+        await saveState(documents, { ...latest, lastError: `她的时间投不出去：${sent.reason ?? '未知原因'}` })
+        log.warn(`"她自己的时间"投不出去（${sent.reason ?? '未知原因'}）`)
+        return
+      }
+      /**
+       * 投出去之后先记一个"下一次"：她这一轮跑完会由 `onWake` 重排；
+       * 万一那一轮没跑起来（模型挂了、被取消），也不至于从此不再醒。
+       */
+      const gap = gapSeconds(readState(documents), at)
+      await saveState(documents, {
+        ...readState(documents),
+        nextAt: gap === undefined ? '' : new Date(Date.parse(at) + gap * 1000).toISOString(),
+      })
+      log.info('到点了：跑"她自己的时间"那张卡片（她那边是空闲的）')
+    } catch (error) {
+      log.warn('跑"她自己的时间"那张卡片时出错', error)
+    } finally {
+      waking = false
+    }
+  }
+
+  /**
    * 她聊完了就把房间的闹钟放回去。
    *
    * 为什么用轮询而不是"最后一条消息之后延时"：会话可能被压缩、重放或中途断开，
    * 事件不一定有收尾；每分钟看一眼"安静了多久"最稳，也不会因为漏掉一条事件就永远压着。
    */
   const busyTimer = setInterval(() => {
-    if (!pausedForBusy || !moduleEnabled()) return
+    if (!moduleEnabled()) return
+    /**
+     * 投递守门：**卡片只是通道，等她那边闲了才投**。
+     *
+     * 真机 2026-11-26：投递正好撞进她正在跑的一轮，消息被排到"下一轮"而下一轮没发生 ——
+     * 她根本没看到"该写日记了"。这里每分钟看一眼：闲了就投，投过就不再投。
+     */
+    const gated = deps.documents()
+    if (gated === undefined) return
+    const gatedState = readState(gated)
+    // 她自己的时间到点了没有（卡片不会自己响，只能由这里跑）。
+    void fireDueWake(gated, gatedState)
+    if (
+      gatedState.settling !== ''
+      && gatedState.collectAt === ''
+      && gatedState.collectTaskId !== ''
+      && sessionIdle(roomDeps, gatedState.roomSessionId)
+    ) {
+      // ⚠️ 这里也要给"当天全量记录"和**完整路径**：真正投递走的是这一条（心跳），
+      // 不是 settleOnce 那条。2026-11-28 真机：两天没写日记，就是这条还在发旧提示词 ——
+      // 只给了文件名，她说"那个文件我看不到"，然后没读、也没写。
+      const dir = roomDirOf(roomDeps)
+      const pathOf = (name: string): string => (dir === undefined ? name : `${dir}/${name}`)
+      const prompt = buildCollectPrompt(
+        gatedState.settling,
+        pathOf(materialFileName(gatedState.settling)),
+        pathOf(diaryFileName(gatedState.settling)),
+        deps.userName?.() ?? '',
+        pathOf(dayLogFileName(gatedState.settling)),
+      )
+      void sendViaCard(roomDeps, gatedState.collectTaskId, gatedState.roomSessionId, prompt)
+        .then(async (outcome) => {
+          if (!outcome.ok) {
+            log.warn(`"该写日记了"投不出去（${outcome.reason ?? '未知原因'}）`)
+            const latest = readState(gated)
+            await saveState(gated, { ...latest, lastError: `收账提醒投不出去：${outcome.reason ?? '未知原因'}` })
+            return
+          }
+          const latest = readState(gated)
+          await saveState(gated, { ...latest, collectAt: new Date().toISOString() })
+          log.info('"该写日记了"已经投给她（她那边是空闲的）')
+        })
+        .catch((error: unknown) => log.warn('收账提醒投递失败', error))
+    }
+    if (!pausedForBusy) return
     if (Date.now() - lastBusyAt < BUSY_QUIET_MINUTES * 60_000) return
     pausedForBusy = false
     // 压住结束：清掉起点，工作台不再显示"已经被压了多久"。
@@ -1451,9 +1895,22 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     const documents = deps.documents()
     if (documents === undefined) return
     const now = new Date().toISOString()
+    const today = dayKeyOf(now, deps.timeZone())
+    /**
+     * 她欠着的那一天**已经过去了**（她没写）：就在这里翻篇。
+     *
+     * 为什么放在跨天检查里而不是只放在排程里：排程下一次跑可能是几小时后（她的下一次醒来），
+     * 那一天就会被吊到那时候 —— 而"翻篇"是墙钟的事，到点就该办。
+     */
+    const state = readState(documents)
+    if (state.settling !== '' && decideSettling({ settling: state.settling, today, harvested: false }) === 'close') {
+      void closeUnwrittenDay(documents, state.settling, now).catch((error: unknown) => {
+        log.warn(`翻篇失败（${state.settling}）`, error)
+      })
+    }
     const book = readNotes(documents)
     // 今天的不在这里收：她还没过完这一天，等睡下再说。
-    if (book.day === '' || book.day === dayKeyOf(now, deps.timeZone()) || isEmptyNotes(book)) return
+    if (book.day === '' || book.day === today || isEmptyNotes(book)) return
     const closing = book.day
     void settleDayFor(closing, now, { hers: [...book.hers], talk: [...book.talk] }).catch((error: unknown) => {
       log.warn(`跨天收账失败（${closing}）`, error)
@@ -1472,16 +1929,47 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
     if (documents === undefined) return
     const doc = readTell(documents)
     if (doc.pending === '') return
+    /**
+     * 记一句"为什么还没送出去"（只在变化时写）。
+     *
+     * 为什么非要落盘：这条通道的等待有四种（等他说过话的会话、等他安静、等他的会话跑完、没地方送），
+     * 外面完全分不出来 —— 真机 2026-11-27 就是"看着一直不送、也不知道卡在哪"。
+     */
+    const note = async (reason: string): Promise<void> => {
+      if (doc.lastReason === reason) return
+      await saveTell(documents, { ...doc, lastReason: reason })
+    }
     const now = new Date().toISOString()
     const today = dayKeyOf(now, deps.timeZone())
     const state = readState(documents)
-    const verdict = canDeliver(doc, today, state.talkSessionId)
-    if (!verdict.ok) {
-      if (verdict.reason !== '') await saveTell(documents, { ...doc, lastReason: verdict.reason })
+    /**
+     * 记着的那个"说话会话"如果其实是她的房间（现在的、或换掉的旧房间），就当没有。
+     *
+     * 真机 2026-11-27：过了零点换房之后这里还指着旧房间，她半夜那句"上位，快四点了"
+     * 被送进了自己的旧屋子 —— 等于对着空屋子说了句话。这里发现就当没记过，等他下次开口再定。
+     */
+    if (state.talkSessionId !== '' && (state.talkSessionId === state.roomSessionId || state.pastRooms.includes(state.talkSessionId))) {
+      await saveState(documents, { ...state, talkSessionId: '', talkSeenAt: '' })
       return
     }
-    // 他还在说话：这一轮不送，下一轮再看。不写原因 —— 这不是故障，是在等。
-    if (!quietEnough(lastBusyAt, Date.now())) return
+    const verdict = canDeliver(doc, state.talkSessionId)
+    if (!verdict.ok) {
+      if (verdict.reason !== '') await note(verdict.reason)
+      return
+    }
+    /**
+     * **他的会话真的闲了吗**：投之前必须确认对面那一轮已经结束。
+     *
+     * 真机 2026-11-26：消息撞进正在跑的一轮，被排到"下一轮"，而下一轮没发生 ——
+     * 她的话永远没送出去。
+     *
+     * ⚠️ 这是**技术必要性**，不是"打扰他"的规矩：原来还有一条"等他安静 10 分钟"，
+     * 2026-11-27 用户要求一并去掉（"不用给她限制，她想找我就找我"）。
+     */
+    if (!sessionIdle(roomDeps, state.talkSessionId)) {
+      await note('你那边的会话还在跑一轮，等她闲下来再送')
+      return
+    }
 
     // 他要看的东西：给她绝对路径，并让她在投递那一轮用 present 交出去（他那边就能点开）。
     const showPath = verdict.show === ''
@@ -1490,17 +1978,15 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
           const dir = roomDirOf(roomDeps)
           return dir === undefined ? '' : `${dir}/${verdict.show}`
         })()
-    const prompt = buildTellPrompt(verdict.text, verdict.show, showPath)
-    const reusable = doc.taskId !== '' && doc.taskSession === state.talkSessionId
-    let outcome = reusable
-      ? await reschedule(roomDeps, doc.taskId, TELL_DELAY_SECONDS, prompt)
-      : { ok: false as const, reason: '换了他说话的会话，需要新建一个投递任务' }
-    if (!outcome.ok) {
-      // 任务没了、或者他换了会话：重新建一个（旧的那个发过一次就停着，不会再响）。
-      outcome = await ensureTask(roomDeps, '', state.talkSessionId, TELL_DELAY_SECONDS, prompt, TELL_TASK_TITLE)
+    const prompt = buildTellPrompt(verdict.text, verdict.show, showPath, deps.userName?.() ?? '')
+    const channel = await ensureChannel(roomDeps, 'tell', state.talkSessionId, prompt, deps.timeZone())
+    if (!channel.ok) {
+      await saveTell(documents, { ...doc, lastReason: channel.reason })
+      return
     }
+    const outcome = await sendViaCard(roomDeps, channel.taskId, state.talkSessionId, prompt)
     if (!outcome.ok) {
-      await saveTell(documents, { ...doc, lastReason: outcome.reason })
+      await saveTell(documents, { ...doc, lastReason: outcome.reason ?? '投递失败' })
       return
     }
     await saveTell(documents, {
@@ -1514,10 +2000,10 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
       lastReason: '',
       // 新送出去的那句一定是"没看过"的：清掉上一次的"看到了"。
       seenAt: '',
-      taskId: outcome.room.taskId,
+      taskId: channel.taskId,
       taskSession: state.talkSessionId,
     })
-    log.info(`她主动找他说了一句${verdict.show === '' ? '' : `（还带上「${verdict.show}」）`}（约 ${TELL_DELAY_SECONDS} 秒后送到他的会话）`)
+    log.info(`她主动找他说了一句${verdict.show === '' ? '' : `（还带上「${verdict.show}」）`}（已投到他的会话）`)
   }
 
   const dayTimer = setInterval(() => {
@@ -1655,11 +2141,7 @@ export function installEvolution(ctx: Context, log: Log, deps: EvolutionDeps): E
         armAndReport('开关打开')
         return
       }
-      const documents = deps.documents()
-      if (documents !== undefined) {
-        const state = readState(documents)
-        void setActive(roomDeps, state.taskId, false)
-      }
+      // 关掉时不用去动卡片：`fireDueWake` 第一步就是 `moduleEnabled()`，她不会再被叫醒。
     },
     reconfigure() {
       armAndReport('配置变更')

@@ -30,12 +30,16 @@ async function sectionNames(ctx) {
   return assembly.sections.map((section) => section.name)
 }
 
-test('身份层开启：第一方身份前缀被摘除，suffix（工作目录事实）保留', async () => {
+test('身份层开启：前缀与后缀都被摘除（后缀模板用的 {{cwd}} 这一版没注册，留着每一轮都会炸）', async () => {
   const ctx = await boot(() => true)
   try {
     const names = await sectionNames(ctx)
     assert.equal(names.includes(PERSONA_PREFIX_SECTION), false, '身份前缀必须被摘除（双重身份声明会把信息降格成角色扮演）')
-    assert.ok(names.includes(PERSONA_SUFFIX_SECTION), '工作目录是事实不是身份，必须保留')
+    assert.equal(
+      names.includes(PERSONA_SUFFIX_SECTION),
+      false,
+      '后缀必须一起摘：它的模板引用 {{cwd}}，而这一版只注册 provider/model —— 真机 2026-11-26 每一轮都因此整轮失败',
+    )
   } finally {
     await ctx.fiber.dispose()
   }

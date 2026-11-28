@@ -209,6 +209,36 @@ export function EvolutionPage({ t, controller }: EvolutionPageProps) {
 
       <section style={{ ...panel, marginTop: 16 }}>
         <h2 style={{ ...panelTitle, ...headingWithHint }}>
+          {t('workbench.evolution.room.title')}
+          <InfoHint label={t('workbench.evolution.room.hint')} />
+        </h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <input
+            type="text"
+            defaultValue={status.roomText}
+            placeholder={t('workbench.evolution.room.placeholder')}
+            aria-label={t('workbench.evolution.room.aria')}
+            style={{ flex: '1 1 260px', minWidth: 200 }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return
+              void controller.setRoom((event.target as HTMLInputElement).value.trim())
+            }}
+          />
+        </div>
+        <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
+          {status.roomPath !== ''
+            ? t('workbench.evolution.room.nowAt').replace('{path}', status.roomPath)
+            : t('workbench.evolution.room.legacy')}
+        </p>
+        {status.roomTarget !== '' && status.roomTarget !== status.roomPath ? (
+          <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
+            {t('workbench.evolution.room.pending').replace('{path}', status.roomTarget)}
+          </p>
+        ) : null}
+      </section>
+
+      <section style={{ ...panel, marginTop: 16 }}>
+        <h2 style={{ ...panelTitle, ...headingWithHint }}>
           {t('workbench.evolution.tell.title')}
           <InfoHint label={t('workbench.evolution.tell.hint')} />
         </h2>

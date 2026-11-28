@@ -46,6 +46,12 @@ export interface DayStatusView {
   busySince: string
   /** 上一次自评的结果（kind:count:targets）。 */
   lastAppraise: string
+  /** 「她的房间」现在填的是什么（空串 = 用老位置）。 */
+  roomText: string
+  /** 她**现在真的**住在哪个目录（绝对路径）。 */
+  roomPath: string
+  /** 配置解出来的目标目录；与 `roomPath` 不同 = 改了还没搬过去。 */
+  roomTarget: string
 }
 
 /** 她留下的一样东西（只读）。 */
@@ -104,7 +110,13 @@ export interface EvolutionDocument {
   tell: TellView
   /** 一次性文件传输（点了下载才有；下完就空）。 */
   transfer: { name: string; mime: string; base64: string }
-  request: { op: string; date: string }
+  /**
+   * 命令槽：`op` 想做的那件事，`value` 它的载荷（哪一天 / 几个 / 哪个名字）。
+   *
+   * 为什么叫 `value` 而不叫 `date`：这个槽装过"打开哪天""改成几次""删哪条"，
+   * 早就不是日期专用的一条通道了 —— 名字跟用途对不上，下一个人一定会读错。
+   */
+  request: { op: string; value: string }
   notice: string
 }
 
@@ -127,6 +139,9 @@ export function emptyEvolutionDocument(): EvolutionDocument {
       lastTurnTools: 0,
       busySince: '',
       lastAppraise: '',
+      roomText: '',
+      roomPath: '',
+      roomTarget: '',
     },
     diary: [],
     works: [],
@@ -134,7 +149,7 @@ export function emptyEvolutionDocument(): EvolutionDocument {
     grow: { candidates: [], lastRun: { at: '', wrote: [], queued: [], note: '' } },
     tell: { pending: '', pendingShow: '', lastAt: '', lastText: '', lastShow: '', unread: false, lastReason: '' },
     transfer: { name: '', mime: '', base64: '' },
-    request: { op: '', date: '' },
+    request: { op: '', value: '' },
     notice: '',
   }
 }
@@ -210,6 +225,9 @@ export function asEvolutionDocument(value: unknown): EvolutionDocument {
       lastTurnTools: typeof status.lastTurnTools === 'number' ? status.lastTurnTools : 0,
       busySince: typeof status.busySince === 'string' ? status.busySince : '',
       lastAppraise: typeof status.lastAppraise === 'string' ? status.lastAppraise : '',
+      roomText: typeof status.roomText === 'string' ? status.roomText : '',
+      roomPath: typeof status.roomPath === 'string' ? status.roomPath : '',
+      roomTarget: typeof status.roomTarget === 'string' ? status.roomTarget : '',
     },
     diary,
     works,
@@ -239,7 +257,7 @@ export function asEvolutionDocument(value: unknown): EvolutionDocument {
     },
     request: {
       op: typeof request.op === 'string' ? request.op : '',
-      date: typeof request.date === 'string' ? request.date : '',
+      value: typeof request.value === 'string' ? request.value : '',
     },
     notice: typeof raw.notice === 'string' ? raw.notice : '',
   }

@@ -49,6 +49,14 @@ export const workbenchZh = {
   'workbench.evolution.energy.spent': '快没力气了（{value}/100）',
   'workbench.evolution.wakesValue': '{count} 次（上限 {max} 次）',
   'workbench.evolution.cap.aria': '一天最多醒几次（回车生效）',
+  'workbench.evolution.room.title': '她的房间',
+  'workbench.evolution.room.hint':
+    '她自己待着的地方。填一个名字（建在数据目录里）或一条完整路径；填完回车生效。她只会在下一次排程时搬过去，旧会话留在原处不动。',
+  'workbench.evolution.room.aria': '她的房间：名字或完整路径（回车生效）',
+  'workbench.evolution.room.placeholder': '名字，或完整路径',
+  'workbench.evolution.room.nowAt': '现在住在这里：{path}',
+  'workbench.evolution.room.pending': '改成了 {path} —— 她手头这一轮结束就搬过去（旧会话留在原处）。',
+  'workbench.evolution.room.legacy': '现在住在老位置（还没填过）。',
   'workbench.evolution.error': '上一次没排上：{reason}',
   'workbench.evolution.diary.title': '她的日记',
   'workbench.evolution.diary.hint':
@@ -140,6 +148,14 @@ export const workbenchEn = {
   'workbench.evolution.energy.spent': 'Nearly spent ({value}/100)',
   'workbench.evolution.wakesValue': '{count} times (cap {max})',
   'workbench.evolution.cap.aria': 'Wakes per day cap (press Enter to apply)',
+  'workbench.evolution.room.title': 'Her room',
+  'workbench.evolution.room.hint':
+    'Where she spends her own time. Type a name (created under the data directory) or a full path, then press Enter. She moves on her next schedule; the old session stays where it is.',
+  'workbench.evolution.room.aria': 'Her room: name or full path (press Enter to apply)',
+  'workbench.evolution.room.placeholder': 'A name, or a full path',
+  'workbench.evolution.room.nowAt': 'Living here now: {path}',
+  'workbench.evolution.room.pending': 'Changed to {path} — she moves after her current turn finishes (the old session stays put).',
+  'workbench.evolution.room.legacy': 'Still at the old place (never set).',
   'workbench.evolution.error': 'Last scheduling attempt failed: {reason}',
   'workbench.evolution.diary.title': 'Her diary',
   'workbench.evolution.diary.hint':

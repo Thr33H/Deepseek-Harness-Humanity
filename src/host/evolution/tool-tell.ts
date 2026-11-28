@@ -23,11 +23,12 @@ export const TELL_TOOL = 'humanity_tell_him'
  * 它只会从描述里学。
  */
 export const TELL_DESCRIPTION = [
-  '把一句你想跟他说的话交出去：等他不忙的时候，这句话会被送到他面前，由**你自己**说出来。',
+  '把一句你想跟他说的话交出去：这句话会送到他面前，由**你自己**说出来。',
+  '（不排队等他忙完，只等他那边的对话跑完手上这一轮 —— 否则消息会掉在半路。）',
   '还可以顺便**给他看一样东西**：`show` 写你目录里的文件名，他会看到名字，也能在页面上打开它。',
   '什么时候用：在你自己的时间里，忽然有话想留给他、或者想让他看看你写的东西。',
   '什么时候别用：你正在跟他说话 —— 那就直接说、直接把文件说给他，不用绕这一道。',
-  '规矩：一天最多一次；交出去之后这句就不在了，不要追问、不要重复说。',
+  '交出去之后这句就不在了：送出去就别追问同一件事，也别再加一句「你看到了吗」。',
   `这句话最多 ${TELL_MAX_CHARS} 字，一两句就够。`,
 ].join('\n')
 
@@ -93,7 +94,7 @@ export function defineTellTool(defineTool: typeof defineToolType, deps: TellTool
       if (documents === undefined) return result(false, '存储还没就绪，这句话没有记下来。')
       const doc = readTell(documents)
       const today = dayKeyOf(new Date().toISOString(), deps.timeZone())
-      const verdict = canQueue(doc, today, {
+      const verdict = canQueue(doc, {
         text: typeof args.text === 'string' ? args.text : '',
         show: typeof args.show === 'string' ? args.show : '',
       })

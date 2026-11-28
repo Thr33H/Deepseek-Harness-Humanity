@@ -23,7 +23,7 @@ import { fallbackSettings } from '../plane-settings.js'
 import { supportsDynamicSections } from '../settings.js'
 import { appendDiary, readDiary } from './diary.js'
 import type { EvolutionStateDoc } from './state.js'
-import type { WorkItem } from './room.js'
+import { roomTextProblem, type WorkItem } from './room.js'
 
 /** 命名空间名（客户端按它读；改名等于两边失联）。 */
 export const EVOLUTION_NAMESPACE = 'humanity-evolution'
@@ -81,6 +81,12 @@ export interface DayView {
   busySince: string
   /** 上一次自评的结果（kind:count:targets；空串 = 没跑过）。 */
   lastAppraise: string
+  /** 「她的房间」现在填的是什么（原样；空串 = 用老位置）。 */
+  roomText: string
+  /** 她**现在真的**住在哪个目录（绝对路径；空串 = 还没解出来）。 */
+  roomPath: string
+  /** 配置解出来的目标目录（与 `roomPath` 不同 = 改了还没搬）。 */
+  roomTarget: string
 }
 
 /** 她自己整理的一条候选（攒着、还没够次数）。 */
@@ -156,8 +162,8 @@ export interface EvolutionDocument {
    * （≤ 2 MB），放进投影最省事，也不会把每次推送撑大（平时是空的）。
    */
   transfer: { name: string; mime: string; base64: string }
-  /** 命令槽：客户端写"想做什么"，宿主消费。 */
-  request: { op: string; date: string }
+  /** 命令槽：客户端写"想做什么"，宿主消费。`value` 是这条命令的载荷（哪一天、几个、哪个名字…）。 */
+  request: { op: string; value: string }
   /** 宿主给的一句话（例如"这一天已经打开了"）。 */
   notice: string
 }
@@ -181,6 +187,9 @@ export function emptyEvolutionDocument(): EvolutionDocument {
       lastTurnTools: 0,
       busySince: '',
       lastAppraise: '',
+      roomText: '',
+      roomPath: '',
+      roomTarget: '',
     },
     diary: [],
     works: [],
@@ -188,7 +197,7 @@ export function emptyEvolutionDocument(): EvolutionDocument {
     grow: { candidates: [], lastRun: { at: '', wrote: [], queued: [], note: '' } },
     tell: { pending: '', pendingShow: '', lastAt: '', lastText: '', lastShow: '', unread: false, lastReason: '' },
     transfer: { name: '', mime: '', base64: '' },
-    request: { op: '', date: '' },
+    request: { op: '', value: '' },
     notice: '',
   }
 }
@@ -211,6 +220,9 @@ export const EvolutionDocSchema = Schema.object({
     lastTurnTools: Schema.number().default(0),
     busySince: Schema.string().default(''),
     lastAppraise: Schema.string().default(''),
+    roomText: Schema.string().default(''),
+    roomPath: Schema.string().default(''),
+    roomTarget: Schema.string().default(''),
   }),
   diary: Schema.array(
     Schema.object({
@@ -264,7 +276,7 @@ export const EvolutionDocSchema = Schema.object({
   ).default([]),
   request: Schema.object({
     op: Schema.string().default(''),
-    date: Schema.string().default(''),
+    value: Schema.string().default(''),
   }),
   notice: Schema.string().default(''),
 })
@@ -298,6 +310,16 @@ export interface EvolutionSectionDeps {
   busy?(): boolean
   /** 读一个文件（下载用；不合法时给 undefined）。 */
   readWork(name: string): Promise<{ base64: string; mime: string } | undefined>
+  /** 「她的房间」：填的是什么、现在真的住在哪、配置解出来的目标（给页面显示，也给"改了没"作判据）。 */
+  room(): { text: string; path: string; target: string }
+  /**
+   * 改配置（深合并进覆盖层）。
+   *
+   * 由宿主转给插件自己的设置桥：那份桥同时实现"官方 settings"与"自有数据面"两条路，
+   * 而这里拿到的设置服务只是其中一条的实例 —— 直接调它的 `update('humanity', …)`
+   * 在数据面那条路上必然被拒（那个命名空间不在它的注册表里）。真机踩过：面板点了没反应。
+   */
+  writeSettings(patch: Record<string, unknown>): Promise<void>
 }
 
 /** 工作台入口。 */
@@ -381,6 +403,9 @@ function project(
       lastTurnTools: state?.lastTurnTools ?? 0,
       busySince: state?.busySince ?? '',
       lastAppraise: state?.lastAppraise ?? '',
+      roomText: deps.room().text,
+      roomPath: deps.room().path,
+      roomTarget: deps.room().target,
     },
     diary,
     works: [...works],
@@ -396,7 +421,7 @@ function project(
       lastReason: '',
     },
     transfer: transfer ?? { name: '', mime: '', base64: '' },
-    request: { op: '', date: '' },
+    request: { op: '', value: '' },
     notice: '',
   }
 }
@@ -413,14 +438,22 @@ export function installEvolutionSection(ctx: Context, log: Log, deps: EvolutionS
   /** 一次性文件传输（下发一次就清掉，见 EvolutionDocument.transfer）。 */
   let pendingTransfer: { name: string; mime: string; base64: string; at: number } | undefined
 
-  const refresh = async (notice = ''): Promise<void> => {
+  /**
+   * 重投影一次。
+   *
+   * `notice` 传 `undefined` = **保留上一条**：排程收尾、存储就绪这类后台刷新会把
+   * 上一句人话抹掉，于是"点了没反应"看起来像没发生（真机 2026-11-26 就栽在这上面）。
+   * 传空串才是显式清掉 —— 目前没人这么用。
+   * @param notice - 这次要写进去的一句话。
+   */
+  const refresh = async (notice?: string): Promise<void> => {
     if (!state.attached) return
     const works = await deps.works().catch(() => [] as WorkItem[])
     const threads = await deps.threads().catch(() => [] as string[])
     // 传输有寿命：20 秒内没被取走就作废（否则那份 base64 会一直挂在文档里，每次推送都搬一遍）。
     const fresh = pendingTransfer !== undefined && Date.now() - pendingTransfer.at < 20_000 ? pendingTransfer : undefined
     const doc = project(deps, works, threads, fresh)
-    if (notice !== '') doc.notice = notice
+    doc.notice = notice ?? (readDoc(state.settings)?.notice ?? '')
     writeDoc(state, log, doc)
     // 传输只给一次：写进去就清掉，下次投影里不会再出现同一份字节。
     pendingTransfer = undefined
@@ -441,21 +474,44 @@ export function installEvolutionSection(ctx: Context, log: Log, deps: EvolutionS
      * 才没有炸（2026-11-24 写测试时才发现：假替身不去重，测试直接挂死）。
      */
     if (request === undefined || request.op === '') return
-    // 改"一天最多醒几次"：写的是套件配置（`humanity` 命名空间的 modules.evolution）。
+    // 改"一天最多醒几次"：写的是套件配置（覆盖层里的 modules.evolution）。
     if (request.op === 'cap') {
-      const value = Number(request.date)
+      const value = Number(request.value)
       if (!Number.isInteger(value) || value < 0 || value > 24) {
         await refresh('次数上限要是 0–24 之间的整数。')
         return
       }
-      const provider = state.settings
       try {
-        await (provider as unknown as {
-          update(ns: string, patch: Record<string, unknown>): Promise<void>
-        }).update('humanity', { modules: { evolution: { maxWakesPerDay: value } } })
+        await deps.writeSettings({ modules: { evolution: { maxWakesPerDay: value } } })
         await refresh(value === 0 ? '已改成 0：她不会自己醒了（只能手动叫）。' : `已改成一天最多 ${value} 次。`)
       } catch (error) {
-        await refresh(`没改成（${error instanceof Error ? error.message : String(error)}）；去 DSH 设置里改也一样。`)
+        await refresh(`没改成（${error instanceof Error ? error.message : String(error)}）。`)
+      }
+      return
+    }
+    /**
+     * 改"她的房间"：这里只写配置，真正的搬家由排程那一步做。
+     *
+     * 为什么不在这里直接开会话：开会话要牵动闹钟、收账卡片与状态落盘，那条路已经在
+     * `arm` 里写好了（重启后也要走同一条）；这里再写一遍就成了两套并存的搬家逻辑。
+     */
+    if (request.op === 'room') {
+      const text = request.value.trim()
+      // 先拦形状问题（例如名字里带了斜杠）：写进配置再失败，她要等下次排程才知道。
+      const problem = roomTextProblem(text)
+      if (problem !== undefined) {
+        await refresh(problem)
+        return
+      }
+      try {
+        await deps.writeSettings({ modules: { evolution: { room: text } } })
+        await refresh(
+          text === ''
+            ? '已清空：她一空闲就搬回老位置（现在这间留在原地）。'
+            : `已记下「${text}」：她一空闲就搬过去（旧会话留在原处；正在跟你说话时会等说完）。`,
+        )
+      } catch (error) {
+        await refresh(`没改成（${error instanceof Error ? error.message : String(error)}）。`)
       }
       return
     }
@@ -465,7 +521,7 @@ export function installEvolutionSection(ctx: Context, log: Log, deps: EvolutionS
      * 执行权在宿主：这里只把"删哪一条"交出去，真正的读写归人格那边（`grow-queue.ts`）。
      */
     if (request.op === 'grow-drop') {
-      const text = request.date
+      const text = request.value
       if (deps.dropCandidate === undefined) {
         await refresh('这一版没有接上「删候选」的能力。')
         return
@@ -478,7 +534,7 @@ export function installEvolutionSection(ctx: Context, log: Log, deps: EvolutionS
       return
     }
     if (request.op === 'read') {
-      const name = request.date
+      const name = request.value
       const item = await deps.readWork(name)
       if (item === undefined) {
         await refresh('这个文件读不到（可能太大，或者已经不在了）。')
@@ -489,12 +545,12 @@ export function installEvolutionSection(ctx: Context, log: Log, deps: EvolutionS
       await refresh()
       return
     }
-    if (request.op !== 'open' || request.date === '') {
+    if (request.op !== 'open' || request.value === '') {
       await refresh()
       return
     }
     const documents = deps.documents()
-    const entry = readDiary(documents).find((item) => item.date === request.date)
+    const entry = readDiary(documents).find((item) => item.date === request.value)
     if (entry === undefined) {
       await refresh('那一天没有日记。')
       return
@@ -503,7 +559,7 @@ export function installEvolutionSection(ctx: Context, log: Log, deps: EvolutionS
     if (entry.openedAt === '') {
       await appendDiary(documents, { ...entry, openedAt: new Date().toISOString() })
     }
-    await refresh(`你翻开了 ${request.date} 那天写的日记。`)
+    await refresh(`你翻开了 ${request.value} 那天写的日记。`)
   }
 
   ctx.inject(['settings'], (sctx) => {

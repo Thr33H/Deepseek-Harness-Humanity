@@ -31,14 +31,13 @@ function fakeDocuments(seed = {}) {
 }
 
 /**
- * 假设置服务：把我们真正用到的那四个方法做出来。
+ * 假设置服务：把我们真正用到的那几个方法做出来。
  *
  * `installSection` 会把钩子交出来，测试直接调 `onChange()` 模拟"客户端写了命令槽"。
  */
 function fakeSettings() {
   const docs = new Map()
   const hooks = new Map()
-  const updates = []
   const settings = {
     get(ns) {
       return docs.get(ns)
@@ -47,18 +46,12 @@ function fakeSettings() {
       docs.set(ns, value)
       hooks.get(ns)?.onChange?.(value)
     },
-    update(ns, patch) {
-      updates.push({ ns, patch })
-      const current = docs.get(ns) ?? {}
-      docs.set(ns, { ...current, ...patch })
-      hooks.get(ns)?.onChange?.(docs.get(ns))
-    },
     installSection(_ctx, ns, _schema, base, installed) {
       docs.set(ns, base)
       hooks.set(ns, installed)
     },
   }
-  return { settings, docs, hooks, updates }
+  return { settings, docs, hooks }
 }
 
 /** 假上下文：注入立刻成功，效应直接忽略。 */
@@ -109,7 +102,9 @@ async function mount(overrides = {}) {
     'humanity-evolution-state': stateOf(overrides.state),
     'humanity-diary': overrides.diary ?? diaryOf(),
   })
-  const { settings, docs, hooks, updates } = fakeSettings()
+  const { settings, docs, hooks } = fakeSettings()
+  /** 面板写配置全都记在这里（走的是宿主的桥，不是"当前那份设置服务"）。 */
+  const patches = []
   const section = installEvolutionSection(fakeContext(settings), { info() {}, warn() {}, error() {} }, {
     documents: () => documents,
     state: () => documents.peek('humanity-evolution-state'),
@@ -122,9 +117,26 @@ async function mount(overrides = {}) {
     tell: () => overrides.tell,
     dropCandidate: overrides.dropCandidate,
     readWork: async () => undefined,
+    room: () => overrides.room ?? { text: '', path: '' },
+    writeSettings: async (patch) => {
+      if (overrides.writeFails === true) throw new Error('存储未就绪')
+      patches.push(patch)
+    },
   })
   await section.refresh()
-  return { documents, settings, docs, hooks, updates, section }
+  return { documents, settings, docs, hooks, patches, section }
+}
+
+/**
+ * 模拟客户端写一条命令，然后触发一次 `onChange`（宿主就是在那里消费的）。
+ * @param docs - 假设置服务里的样式表（命名空间 → 值）。
+ * @param hooks - 安装时交出来的钩子。
+ * @param op - 命令名。
+ * @param value - 这条命令的载荷。
+ */
+function sendCommand(docs, hooks, op, value) {
+  docs.set('humanity-evolution', { ...docs.get('humanity-evolution'), request: { op, value } })
+  hooks.get('humanity-evolution').onChange()
 }
 
 test('她留给你的：待送的、送过的、看没看都进投影', async () => {
@@ -196,8 +208,7 @@ test('翻开命令：落盘 openedAt、下发正文、写回通知', async () =>
   assert.equal(target.openedAt, '')
 
   // 模拟客户端：把命令写进命令槽，然后触发一次 onChange。
-  docs.set('humanity-evolution', { ...docs.get('humanity-evolution'), request: { op: 'open', date: '2026-11-23' } })
-  hooks.get('humanity-evolution').onChange()
+  sendCommand(docs, hooks, 'open', '2026-11-23')
   await new Promise((resolve) => setTimeout(resolve, 20))
 
   const after = documents.peek('humanity-diary')
@@ -206,30 +217,64 @@ test('翻开命令：落盘 openedAt、下发正文、写回通知', async () =>
   const view = docs.get('humanity-evolution')
   assert.equal(view.diary.find((entry) => entry.date === '2026-11-23').text, '那天我没做什么。')
   assert.match(view.notice, /2026-11-23/, '要告诉用户翻开了哪一天')
-  assert.deepEqual(view.request, { op: '', date: '' }, '命令槽消费完要清空')
+  assert.deepEqual(view.request, { op: '', value: '' }, '命令槽消费完要清空')
 })
 
 test('改次数上限：写进套件配置；越界不许写', async () => {
-  const { docs, hooks, updates } = await mount()
-  docs.set('humanity-evolution', { ...docs.get('humanity-evolution'), request: { op: 'cap', date: '6' } })
-  hooks.get('humanity-evolution').onChange()
+  const { docs, hooks, patches } = await mount()
+  sendCommand(docs, hooks, 'cap', '6')
   await new Promise((resolve) => setTimeout(resolve, 20))
-  assert.equal(updates.length, 1, '要真的写一次配置')
-  assert.equal(updates[0].ns, 'humanity')
-  assert.equal(updates[0].patch.modules.evolution.maxWakesPerDay, 6)
+  assert.equal(patches.length, 1, '要真的写一次配置')
+  assert.equal(patches[0].modules.evolution.maxWakesPerDay, 6)
 
   // 越界值：不写配置，只给一句人话。
-  docs.set('humanity-evolution', { ...docs.get('humanity-evolution'), request: { op: 'cap', date: '99' } })
-  hooks.get('humanity-evolution').onChange()
+  sendCommand(docs, hooks, 'cap', '99')
   await new Promise((resolve) => setTimeout(resolve, 20))
-  assert.equal(updates.length, 1, '越界不该写进配置')
+  assert.equal(patches.length, 1, '越界不该写进配置')
   assert.match(docs.get('humanity-evolution').notice, /0/, '要说清合法范围')
+})
+
+test('改她的房间：写进套件配置；名字里带斜杠当场拦下', async () => {
+  const { docs, hooks, patches } = await mount()
+  sendCommand(docs, hooks, 'room', '书房')
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(patches.length, 1, '要真的写一次配置')
+  assert.equal(patches[0].modules.evolution.room, '书房')
+
+  sendCommand(docs, hooks, 'room', 'a/b')
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(patches.length, 1, '带斜杠的不该写进配置')
+  assert.match(docs.get('humanity-evolution').notice, /斜杠/, '要说清为什么不收')
+})
+
+test('改她的房间：空串 = 回到老位置（也是一次配置写入）', async () => {
+  const { docs, hooks, patches } = await mount()
+  sendCommand(docs, hooks, 'room', '')
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(patches.length, 1)
+  assert.equal(patches[0].modules.evolution.room, '')
+})
+
+test('写配置失败要如实说（别让面板看起来像成功了）', async () => {
+  const { docs, hooks } = await mount({ writeFails: true })
+  sendCommand(docs, hooks, 'room', '书房')
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.match(docs.get('humanity-evolution').notice, /没改成/, '失败必须有话说')
+  assert.match(docs.get('humanity-evolution').notice, /存储未就绪/, '原因要原样带出来')
+})
+
+test('后台刷新不许抹掉上一句话（点了没反应就是这么来的）', async () => {
+  const { docs, hooks, section } = await mount()
+  sendCommand(docs, hooks, 'room', 'a/b')
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.match(docs.get('humanity-evolution').notice, /斜杠/)
+  await section.refresh()
+  assert.match(docs.get('humanity-evolution').notice, /斜杠/, '重投影之后那句话还在')
 })
 
 test('读不到文件时给原因，不假装下载成功', async () => {
   const { docs, hooks } = await mount()
-  docs.set('humanity-evolution', { ...docs.get('humanity-evolution'), request: { op: 'read', date: 'note.md' } })
-  hooks.get('humanity-evolution').onChange()
+  sendCommand(docs, hooks, 'read', 'note.md')
   await new Promise((resolve) => setTimeout(resolve, 20))
   const view = docs.get('humanity-evolution')
   assert.match(view.notice, /读不到/, '要说清为什么没有文件')
@@ -244,11 +289,7 @@ test('删候选：一条命令过去，宿主转给人格那边执行，并把�
       return { ok: true }
     },
   })
-  docs.set('humanity-evolution', {
-    ...docs.get('humanity-evolution'),
-    request: { op: 'grow-drop', date: '爱吃糖葫芦' },
-  })
-  hooks.get('humanity-evolution').onChange()
+  sendCommand(docs, hooks, 'grow-drop', '爱吃糖葫芦')
   await new Promise((resolve) => setTimeout(resolve, 20))
   assert.deepEqual(seen, ['爱吃糖葫芦'], '交出去的正是那一条')
   assert.match(docs.get('humanity-evolution').notice, /删掉了/)
@@ -258,11 +299,7 @@ test('删候选：宿主说删不了就照实说，不假装删成功', async ()
   const { docs, hooks } = await mount({
     dropCandidate: async () => ({ ok: false, reason: '队列里没有这一条（可能刚变过）' }),
   })
-  docs.set('humanity-evolution', {
-    ...docs.get('humanity-evolution'),
-    request: { op: 'grow-drop', date: '已经不在了' },
-  })
-  hooks.get('humanity-evolution').onChange()
+  sendCommand(docs, hooks, 'grow-drop', '已经不在了')
   await new Promise((resolve) => setTimeout(resolve, 20))
   const notice = docs.get('humanity-evolution').notice
   assert.match(notice, /没删成/)

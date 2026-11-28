@@ -45,6 +45,29 @@ export type SettlePlan =
   | { kind: 'done' }
   | { kind: 'cannot'; reason: string }
 
+/**
+ * 等她交日记的那一天，下一步该做什么。
+ *
+ * 为什么要单独一条判定：这一天已经交给她之后有三种走法，走错哪种都很难看 ——
+ * - `harvested`：她写了，收档；
+ * - `wait`：今天还开着，她还有时间，等（只留一张提醒卡）；
+ * - `close`：那一天已经过去了，她还是没写 ⇒ **翻篇**。不翻篇的话，跨天检查每 5 分钟看一次
+ *   "昨天的手上材料还没写"，每看一次都重新收账、把提醒重置 —— 于是提醒每 5 分钟响一次、
+ *   这一天永远不结束（真机 2026-11-26 收账那条路就是这样）。
+ */
+export type SettlingStep = 'harvested' | 'wait' | 'close'
+
+/**
+ * 判一次"等她写"的下一步。
+ * @param input - 等的是哪一天、今天是哪一天、她写好了没有。
+ * @returns 下一步（见 `SettlingStep`）。
+ */
+export function decideSettling(input: { settling: string; today: string; harvested: boolean }): SettlingStep {
+  if (input.harvested) return 'harvested'
+  if (input.settling !== input.today) return 'close'
+  return 'wait'
+}
+
 /** 把一个时刻写成"11-25 10:17"（按她的时区；写不出来时退回原文）。 */
 export function momentText(iso: string, timeZone?: string): string {
   const at = Date.parse(iso)

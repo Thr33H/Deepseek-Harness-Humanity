@@ -99,12 +99,39 @@ function saveTransfer(transfer: { name: string; mime: string; base64: string }):
       await this.load({ quiet: true })
       const outcome = await channel.replace(
         EVOLUTION_NAMESPACE,
-        { ...this.state.doc, request: { op: 'cap', date: String(value) }, notice: '' },
+        { ...this.state.doc, request: { op: 'cap', value: String(value) }, notice: '' },
         this.revision,
       )
       if (outcome.ok) this.revision = (outcome.value as { value?: { revision?: number } } | undefined)?.value?.revision ?? this.revision
       await this.load({ quiet: true })
       return outcome.ok === true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * 改「她的房间」。
+   *
+   * 写的是套件配置（`humanity` 命名空间的 `modules.evolution.room`）；**不在这里开会话** ——
+   * 搬家要牵动闹钟与状态，那是宿主排程那一步的事。宿主要是拒绝，会以通知形式说明原因。
+   * @param value - 名字（不带斜杠）或完整路径；空串 = 回到老位置。
+   * @returns 命令是否写出去。
+   */
+  async setRoom(value: string): Promise<boolean> {
+    const channel = this.channel
+    if (channel === undefined) return false
+    try {
+      await this.load({ quiet: true })
+      const outcome = await channel.replace(
+        EVOLUTION_NAMESPACE,
+        { ...this.state.doc, request: { op: 'room', value }, notice: '' },
+        this.revision,
+      )
+      if (outcome.ok) this.revision = (outcome.value as { value?: { revision?: number } } | undefined)?.value?.revision ?? this.revision
+      if (outcome.ok !== true) return false
+      await this.load({ quiet: true })
+      return true
     } catch {
       return false
     }
@@ -124,7 +151,7 @@ function saveTransfer(transfer: { name: string; mime: string; base64: string }):
       await this.load({ quiet: true })
       const outcome = await channel.replace(
         EVOLUTION_NAMESPACE,
-        { ...this.state.doc, request: { op: 'grow-drop', date: text }, notice: '' },
+        { ...this.state.doc, request: { op: 'grow-drop', value: text }, notice: '' },
         this.revision,
       )
       if (outcome.ok) this.revision = (outcome.value as { value?: { revision?: number } } | undefined)?.value?.revision ?? this.revision
@@ -151,7 +178,7 @@ function saveTransfer(transfer: { name: string; mime: string; base64: string }):
       await this.load({ quiet: true })
       const outcome = await channel.replace(
         EVOLUTION_NAMESPACE,
-        { ...this.state.doc, request: { op: 'read', date: name }, notice: '' },
+        { ...this.state.doc, request: { op: 'read', value: name }, notice: '' },
         this.revision,
       )
       if (outcome.ok !== true) return false
@@ -171,7 +198,7 @@ function saveTransfer(transfer: { name: string; mime: string; base64: string }):
     try {
       // 与记忆同一条命令路：先重读（版本号可能旧了），再写命令槽。
       await this.load({ quiet: true })
-      const outcome = await channel.replace(EVOLUTION_NAMESPACE, { ...this.state.doc, request: { op: 'open', date }, notice: '' }, this.revision)
+      const outcome = await channel.replace(EVOLUTION_NAMESPACE, { ...this.state.doc, request: { op: 'open', value: date }, notice: '' }, this.revision)
       if (outcome.ok) this.revision = (outcome.value as { value?: { revision?: number } } | undefined)?.value?.revision ?? this.revision
       if (outcome.ok !== true) return false
       await this.load({ quiet: true })

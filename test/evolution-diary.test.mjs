@@ -97,19 +97,33 @@ test('文件名按日期来（她自己要找得到）', () => {
   assert.equal(materialFileName('2026-11-26'), '日记材料-2026-11-26.md')
 })
 
-test('收账投递：称呼走数据，写作纪律要写进去', () => {
+test('收账投递：称呼走数据，两件事说清，写作纪律还在', () => {
   const prompt = buildCollectPrompt('2026-11-26', '日记材料-2026-11-26.md', 'diary-2026-11-26.md', '囡囡')
   assert.match(prompt, /\[收账\]/, '带标记，好认')
-  assert.match(prompt, /囡囡不在/, '称呼从数据来')
-  assert.match(prompt, /日记材料-2026-11-26\.md/, '材料文件要点名')
-  assert.match(prompt, /diary-2026-11-26\.md/, '写到哪儿要点名')
-  assert.match(prompt, /场景/, '写作纪律：写成场景')
+  assert.match(prompt, /不是囡囡在说话/, '先拆穿误认：不然她以为对方来了')
+  assert.match(prompt, /不用回话/, '说清不必回话')
+  assert.match(prompt, /`read` 打开 日记材料-2026-11-26\.md/, '第一步用哪个工具、读哪个文件')
+  assert.match(prompt, /`write` 写 diary-2026-11-26\.md/, '第二步用哪个工具、写到哪')
+  assert.match(prompt, /最具体的片段/, '写作纪律：写具体片段')
   assert.match(prompt, /心里冒出来的话/, '写作纪律：一句当时的心里话')
   assert.match(prompt, /不要总结这一天/, '写作纪律：别写成周报')
   assert.match(prompt, /不要编/, '写作纪律：不编')
 
+test('收账提示词：给了当天全量记录，就让她自己检索（grep / 分段 read）', () => {
+  const prompt = buildCollectPrompt('2026-11-27', '日记材料-2026-11-27.md', 'diary-2026-11-27.md', '上位', '今天-2026-11-27.md')
+  assert.match(prompt, /全部记录在 `今天-2026-11-27\.md`/)
+  assert.match(prompt, /grep/)
+  assert.match(prompt, /摘要 `日记材料-2026-11-27\.md`/)
+})
+
+test('收账提示词：没有全量记录时退回只读摘要（老部署不该崩）', () => {
+  const prompt = buildCollectPrompt('2026-11-27', '日记材料-2026-11-27.md', 'diary-2026-11-27.md', '上位')
+  assert.match(prompt, /`read` 打开 日记材料-2026-11-27\.md/)
+  assert.doesNotMatch(prompt, /grep/)
+})
+
   const plain = buildCollectPrompt('2026-11-26', 'a.md', 'b.md')
-  assert.match(plain, /对方不在/, '没设称呼就用"对方"')
+  assert.match(plain, /不是对方在说话/, '没设称呼就用"对方"')
 })
 
 test('从她的文件里读回正文：base64 要能解出中文与 emoji', () => {

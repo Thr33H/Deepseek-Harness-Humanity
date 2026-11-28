@@ -33,6 +33,16 @@ import { createMainAgentJudge, subjectOf } from '../agent-scope.js'
 const PERSONA_PREFIX_SECTION = 'deployment:persona-prefix'
 
 /**
+ * 人格**后缀**的 section 名（部署级注册，内容是"工作目录事实"）。
+ *
+ * ⚠️ 必须与前缀一起摘除（2026-11-26 真机）：它的模板里用了 `{{cwd}}`，而这一版 DSH 装配提示词时
+ * 只注册了 `provider` / `model` —— 留给它，**每一轮**都会在渲染时抛
+ * `unknown prompt variable "{{cwd}}"`，整轮失败（她一句话都说不出，投递也就永远收不到）。
+ * 摘掉之后她对工作目录的认知仍来自注入的 `cwd` 事实与我们自己的内容。
+ */
+const PERSONA_SUFFIX_SECTION = 'deployment:persona-suffix'
+
+/**
  * 挂上身份层。
  * @param ctx - 本插件的上下文。
  * @param log - 日志门面。
@@ -52,8 +62,16 @@ export function installIdentityLayer(ctx: Context, log: Log, enabled: () => bool
           const subject = subjectOf(context)
           if (subject !== undefined && !isMainAgent(subject)) return assembled
           const sections = assembled.sections
-          if (!sections.some((section) => section.name === PERSONA_PREFIX_SECTION)) return assembled
-          return { ...assembled, sections: sections.filter((section) => section.name !== PERSONA_PREFIX_SECTION) }
+          const drop = sections.some(
+            (section) => section.name === PERSONA_PREFIX_SECTION || section.name === PERSONA_SUFFIX_SECTION,
+          )
+          if (!drop) return assembled
+          return {
+            ...assembled,
+            sections: sections.filter(
+              (section) => section.name !== PERSONA_PREFIX_SECTION && section.name !== PERSONA_SUFFIX_SECTION,
+            ),
+          }
         },
       ),
     'humanity: 身份层（摘第一方身份前缀）',

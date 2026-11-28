@@ -20,20 +20,70 @@
  */
 import { describeError, type Log } from '../log.js'
 import { HUMANITY_PRESET_ID } from '../presets.js'
-import { ROOM_TASK_TITLE } from './constants.js'
+import { ROOM_DIR } from './constants.js'
+import { dayLogFileName } from './diary.js'
 
 /** 调度服务里我们用到的那部分（结构化声明，不固化 DSH 的类型面）。 */
 interface ScheduleTaskLike {
   id?: string
   title?: string
+  kind?: string
   createdAt?: string
   active?: string
   /** 循环任务的下一次。 */
   nextScheduledAt?: string
-  /** 单次任务（fter/t）的下一次 —— 房间用的就是这种。 */
+  /** 单次的到点时刻。 */
   scheduledAt?: string
   target?: { kind?: string; sessionId?: string }
   code?: string
+  /** 存储里的样子（`catalog` 返回摊平的，`view`/`create` 里见过嵌套的）。 */
+  record?: {
+    id?: string
+    title?: string
+    kind?: string
+    scheduledAt?: string
+    target?: { kind?: string; sessionId?: string }
+  }
+}
+
+/**
+ * 从一条调度任务里读出我们关心的字段。
+ *
+ * ⚠️ **两种形状都要认**：存储里是 `{ record: { id, title, kind, scheduledAt }, target }`，
+ * 而 `catalog()` 返回的是摊平的 `{ id, title, kind, scheduledAt, target }`
+ * （类型面就是这么声明的：`ScheduleCatalogEntry = ScheduleRecord & {...}`）。
+ * 只按一种读，另一半永远是空 —— 真机 2026-11-26 的后果是"认领不到已有卡片"，
+ * 于是每跑一次就新建一张，任务列表越攒越多。
+ * @param task - 调度服务/存储给的那条任务。
+ * @returns 认得的字段（读不到的给空串）。
+ */
+export function taskFields(task: unknown): {
+  id: string
+  title: string
+  kind: string
+  scheduledAt: string
+  sessionId: string
+} {
+  const outer = (typeof task === 'object' && task !== null ? task : {}) as Record<string, unknown>
+  const inner = (typeof outer.record === 'object' && outer.record !== null ? outer.record : {}) as Record<string, unknown>
+  const pick = (key: string): string => {
+    const flat = outer[key]
+    if (typeof flat === 'string' && flat !== '') return flat
+    const nested = inner[key]
+    return typeof nested === 'string' ? nested : ''
+  }
+  const target = (typeof outer.target === 'object' && outer.target !== null
+    ? outer.target
+    : typeof inner.target === 'object' && inner.target !== null
+      ? inner.target
+      : {}) as Record<string, unknown>
+  return {
+    id: pick('id'),
+    title: pick('title'),
+    kind: pick('kind'),
+    scheduledAt: pick('scheduledAt'),
+    sessionId: typeof target.sessionId === 'string' ? target.sessionId : '',
+  }
 }
 
 /** `ctx.get('schedule')` 读到的服务。 */
@@ -43,11 +93,37 @@ export interface ScheduleServiceLike {
   edit(request: unknown, actorSessionId?: string, signal?: AbortSignal): Promise<ScheduleTaskLike>
   /** 全部任务（"认领"已有房间时用）。 */
   catalog(): Promise<ScheduleTaskLike[]>
+  /**
+   * 立刻投一次（界面上的"立即执行"）。
+   *
+   * 关键性质（查源码确认）：**不消耗、也不移动**原来排的时间。
+   * 所以卡片可以建成"2099 年才到点"=永远不自己响，什么时候投完全由插件决定。
+   */
+  run(request: { id: string }, signal?: AbortSignal): Promise<unknown>
 }
 
-/** 会话创建能力（`ctx.get('sessionController')` 的那一部分）。 */
-export interface SessionControllerLike {
-  create(request: { cwd?: string; agentPreset?: string }): Promise<{ sessionId?: string }>
+
+/**
+ * 一个工作区（`workspaceRegistry` 建出来/查出来的那一个）。
+ *
+ * 只声明我们用到的两样：身份（记住"挂过没挂过"）与挂载动作。
+ * 挂载是**唯一的归属入口** —— 不挂，会话就落进侧栏的"未分组"。
+ */
+export interface WorkspaceLike {
+  readonly id: string
+  readonly title: string
+  attachSession(sessionId: string): Promise<void>
+}
+
+/**
+ * 工作区注册表（`ctx.get('workspaceRegistry')`）。
+ *
+ * `create` 遇到同一个目录只会返回已有那条（不会建重复），`resolveByPath` 只查不建 ——
+ * 所以"先查再建"是安全的，重复调用也不会多出工作区。
+ */
+export interface WorkspaceRegistryLike {
+  create(path: string, title?: string): Promise<WorkspaceLike>
+  resolveByPath(path: string): Promise<WorkspaceLike | undefined>
 }
 
 /** 一个已受管的 Agent 句柄（我们只用它的会话与释放能力）。 */
@@ -56,14 +132,31 @@ export interface AgentHandleLike {
   dispose?: () => void
 }
 
+/**
+ * 开会话时一并交出去的模型（`AgentOptions` 的那一部分）。
+ *
+ * 为什么必须要：平台要求"要么开会话时带 provider/model，要么会话里存过选择"。
+ * 插件开的会话没人点开过，也不会有选择 —— 不带这一项，第一轮就是
+ * `agent "…" has no provider/model set`，她一句话都说不出来（真机 2026-11-26）。
+ */
+export interface RoomAgentOptions {
+  provider: string
+  model: string
+  reasoningEffort?: string
+}
+
 /** Agent 注册表里我们用到的那部分（`ctx.get('agents')`）。 */
 export interface AgentRegistryLike {
   create(options: {
     sessionId: string
     meta?: { cwd?: string; agentPreset?: string }
+    agentOptions?: RoomAgentOptions
   }): Promise<AgentHandleLike>
   get(sessionId: string): unknown
-  resume(options: { resumeSessionId: string }): Promise<AgentHandleLike>
+  resume(options: {
+    resumeSessionId: string
+    agentOptions?: RoomAgentOptions
+  }): Promise<AgentHandleLike>
 }
 
 /** 房间的外部事实。 */
@@ -78,8 +171,29 @@ export interface RoomDeps {
    * 所以房间只能从 **Agent 注册表** 开：它看得见，并且能按我们给的会话 id 建"会话 + Agent"。
    */
   agents(): AgentRegistryLike | undefined
+  /** 工作区注册表（`workspaceRegistry`；缺席时房间照开，只是不进侧栏分组）。 */
+  workspaces(): WorkspaceRegistryLike | undefined
+  /**
+   * 开会话时要带的模型（部署默认选择；读不到时 `undefined`）。
+   *
+   * 平台默认**不会**给插件开的会话配模型：房间没人手动点开，也就没有"存过的选择"。
+   */
+  modelSelection(): RoomAgentOptions | undefined
   /** `$DSH_HOME`（现读）。 */
   homeDir(): string | undefined
+  /**
+   * 把预设**真正挂到**那个 agent 上（`agentPresets.select`）。
+   *
+   * ⚠️ 这是必需品，不是优化。`create({ meta: { agentPreset } })` 只记了"这个会话叫什么预设"，
+   * 预设里的插件（文件工具、联网、present、定时任务）**一个都没挂上** —— 平台要求开会话后、
+   * 第一轮之前调一次 `select`。真机 2026-11-27/28 两天没写成日记，就是她连 `read`/`write`
+   * 都没有：她那一轮的工具清单只有 11 个（微信、窗口目录、留话、记忆…），没有文件工具。
+   * @param agent - 那个 agent。
+   * @returns 选成了没有（拿不到服务或失败时为 `false`，调用方只记日志）。
+   */
+  selectPreset?(agent: unknown): Promise<boolean>
+  /** 配置里"她的房间"那一格（原样，现读）。 */
+  roomSetting(): string
   /** 日志。 */
   log: Log
 }
@@ -97,13 +211,88 @@ export interface RoomState {
 }
 
 /** 结果：成功时带上房间状态，失败时带一句人话（调用方决定记不记）。 */
-export type RoomOutcome = { ok: true; room: RoomState } | { ok: false; reason: string }
 
-/** 房间目录（`$DSH_HOME/humanity/room`）。 */
-export function roomDirOf(deps: RoomDeps): string | undefined {
+/** 老位置（没填"她的房间"时用的那个）：`$DSH_HOME/humanity/room`。 */
+export function legacyRoomDirOf(deps: RoomDeps): string | undefined {
   const home = deps.homeDir()
   if (home === undefined || home.trim() === '') return undefined
-  return `${home.replace(/[\\/]+$/, '')}/humanity/room`
+  return `${trimTrailingSlashes(home)}/${ROOM_DIR}`
+}
+
+/** 去掉结尾的分隔符（根路径 `/` 保留）。 */
+function trimTrailingSlashes(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, '')
+  return trimmed === '' ? '/' : trimmed
+}
+
+/** 是不是一条绝对路径（POSIX 的 `/`、Windows 的盘符或 UNC）。 */
+function isAbsolutePath(path: string): boolean {
+  return path.startsWith('/') || path.startsWith('\\\\') || /^[A-Za-z]:[\\/]/.test(path)
+}
+
+/**
+ * 只看形状：这段文字能不能当"她的房间"用（不需要 `$DSH_HOME`，所以界面那侧也能先拦一道）。
+ * @param text - 配置原文。
+ * @returns 问题；没问题时 `undefined`。
+ */
+export function roomTextProblem(text: string): string | undefined {
+  const trimmed = text.trim()
+  if (trimmed === '' || isAbsolutePath(trimmed)) return undefined
+  if (trimmed.includes('/') || trimmed.includes('\\')) {
+    return '名字里不能带斜杠：想指定位置，请写完整路径（例如 /data/dsh/她的房间）'
+  }
+  return undefined
+}
+
+/**
+ * 把配置里那一格解成一个绝对目录。
+ *
+ * 规则只有一条：**以 `/`（或盘符）开头就是路径，否则整个当成名字**。
+ * 名字不允许带分隔符 —— 带了说明他想指定位置，那就该写完整路径，不能靠猜。
+ * @param configured - 配置原文。
+ * @param home - `$DSH_HOME`（现读）。
+ * @returns 解出来的目录；解不出来时给出人话原因。
+ */
+export function resolveRoomDir(
+  configured: string,
+  home: string | undefined,
+): { ok: true; path: string } | { ok: false; reason: string } {
+  const text = configured.trim()
+  if (text === '') return { ok: false, reason: '没有填' }
+  const problem = roomTextProblem(text)
+  if (problem !== undefined) return { ok: false, reason: problem }
+  if (isAbsolutePath(text)) return { ok: true, path: trimTrailingSlashes(text) }
+  const base = home === undefined ? '' : trimTrailingSlashes(home.trim())
+  if (base === '') return { ok: false, reason: '读不到 $DSH_HOME，填名字时没法定位；请直接写完整路径' }
+  return { ok: true, path: `${base}/humanity/rooms/${text}` }
+}
+
+/**
+ * 她的房间**应该**在哪个目录（配置的现读解释）。
+ *
+ * 与 `roomDirOf` 的区别只有一个：解不出来时给的是原因，而不是 `undefined` ——
+ * 排程那一步要把它写进状态，外面才看得见"为什么没搬成"。
+ * @param deps - 外部事实。
+ * @returns 绝对目录；解不出来时给人话原因。
+ */
+export function wantedRoomDirOf(deps: RoomDeps): { ok: true; path: string } | { ok: false; reason: string } {
+  const configured = deps.roomSetting().trim()
+  if (configured !== '') return resolveRoomDir(configured, deps.homeDir())
+  const legacy = legacyRoomDirOf(deps)
+  if (legacy === undefined) return { ok: false, reason: '读不到 $DSH_HOME' }
+  return { ok: true, path: legacy }
+}
+
+/**
+ * 她的房间目录。
+ *
+ * 填了"她的房间"就用它解出来的那个；没填就还是老位置 —— 保证升级后不搬家。
+ * @param deps - 外部事实。
+ * @returns 绝对目录；没有 `$DSH_HOME` 又没填路径时为 `undefined`。
+ */
+export function roomDirOf(deps: RoomDeps): string | undefined {
+  const wanted = wantedRoomDirOf(deps)
+  return wanted.ok ? wanted.path : undefined
 }
 
 /** 我们用到的那几个 `node:fs/promises` 函数（宿主编译没有 `@types/node`）。 */
@@ -285,6 +474,66 @@ export async function listWorks(deps: RoomDeps, limit = 20): Promise<WorkItem[]>
 }
 
 /**
+ * 她手上那条线索账的文件名。
+ *
+ * 名字不能随手改：她自己也读写它（醒来词里就是这么念的），改一次她就找不到自己写的东西了。
+ * 搬房间时（`rotateRoom`）要凭它把这份"没做完的事"带到新目录。
+ */
+export const THREADS_FILE = 'todo.md'
+
+/**
+ * 往当天的全量记录里追加一行。
+ *
+ * 为什么要这个：日记材料是插件抄的摘要，**有上限**（她房里的 40 行、你们的对话 60 行），
+ * 长的一天开头会被挤掉。用户 2026-11-27 定：她要能看到"今天发生过的所有事"，
+ * 自己去检索、自己挑，而不是只看我挑的那几十行。
+ * @param deps - 外部事实。
+ * @param date - 哪一天（她的时区）。
+ * @param line - 原文（不截断：截断是摘要那一份的事）。
+ * @param clock - 这一条发生时的**她那边**的时刻（`HH:MM`，由调用方按她的时区算好）。
+ * @returns 写成了没有。
+ */
+export async function appendDayLog(
+  deps: RoomDeps,
+  date: string,
+  line: string,
+  clock: string,
+): Promise<boolean> {
+  if (date === '' || line.trim() === '') return false
+  const dir = roomDirOf(deps)
+  if (dir === undefined) return false
+  const name = dayLogFileName(date)
+  try {
+    const specifier: string = 'node:fs/promises'
+    const fs = (await import(specifier)) as FsPromisesModule & {
+      appendFile(path: string, data: string, encoding: 'utf8'): Promise<void>
+    }
+    await fs.mkdir(dir, { recursive: true })
+    const header = `${dir}/${name}`
+    let exists = false
+    try {
+      await fs.stat(header)
+      exists = true
+    } catch {
+      exists = false
+    }
+    if (!exists) {
+      await fs.writeFile(
+        header,
+        `# ${date} 今天发生的事\n\n（这是自动记下来的全部记录，没有挑拣：她的房间、你们说过的话。时间是她那边的本地时间。）\n\n`,
+        'utf8',
+      )
+    }
+    const clockText = clock.trim() === '' ? '' : `- ${clock.trim()} `
+    await fs.appendFile(header, `${clockText}${line.replace(/\s+/g, ' ').trim()}\n`, 'utf8')
+    return true
+  } catch (error) {
+    deps.log.warn(`当天记录没写进去（${date}）`, error)
+    return false
+  }
+}
+
+/**
  * 读她手上的"未完成清单"。
  *
  * 为什么用文件而不是新表／新工具：她本来就有读写自己目录的能力（沉浸预设里开着）。
@@ -299,7 +548,7 @@ export async function readThreads(deps: RoomDeps, limit = 8): Promise<string[]> 
   try {
     const specifier: string = 'node:fs/promises'
     const fs = (await import(specifier)) as FsPromisesModule
-    const text = await fs.readFile(`${dir}/todo.md`, 'utf8')
+    const text = await fs.readFile(`${dir}/${THREADS_FILE}`, 'utf8')
     return text
       .split('\n')
       .map((line) => line.replace(/^\s*[-*]\s*/, '').trim())
@@ -314,9 +563,14 @@ export async function readThreads(deps: RoomDeps, limit = 8): Promise<string[]> 
 
 /** 确保房间目录存在；失败只记日志（目录没建成也不阻止排程）。 */
 async function ensureRoomDir(deps: RoomDeps): Promise<string | undefined> {
+  const configured = deps.roomSetting().trim()
   const dir = roomDirOf(deps)
   if (dir === undefined) {
-    deps.log.warn('读不到 $DSH_HOME，她的房间没有固定目录（将使用 Host 默认目录）')
+    deps.log.warn(
+      configured === ''
+        ? '读不到 $DSH_HOME，她的房间没有固定目录（将使用 Host 默认目录）'
+        : `"她的房间"填的「${configured}」解不出目录（将使用 Host 默认目录）`,
+    )
     return undefined
   }
   try {
@@ -338,19 +592,287 @@ async function ensureRoomDir(deps: RoomDeps): Promise<string | undefined> {
 function roomOf(task: ScheduleTaskLike | undefined): RoomState | undefined {
   if (task === undefined) return undefined
   if (typeof task.code === 'string') return undefined
-  const id = typeof task.id === 'string' ? task.id : ''
-  if (id === '') return undefined
+  const fields = taskFields(task)
+  if (fields.id === '') return undefined
   return {
-    taskId: id,
-    sessionId: typeof task.target?.sessionId === 'string' ? task.target.sessionId : '',
-    nextAt:
-      typeof task.nextScheduledAt === 'string' && task.nextScheduledAt !== ''
-        ? task.nextScheduledAt
-        : typeof task.scheduledAt === 'string'
-          ? task.scheduledAt
-          : '',
+    taskId: fields.id,
+    sessionId: fields.sessionId,
+    nextAt: fields.scheduledAt,
     active: task.active !== 'paused' && task.active !== 'ended',
   }
+}
+
+/**
+ * 把一个会话挂到它目录所属的工作区上（侧栏分组就是这么来的）。
+ *
+ * 为什么要"先查再建"：`create` 只认**已经存在**的目录（它要 realpath），而且同一个目录
+ * 重复调用只会返回已有那条 —— 所以"没有就建"是安全的，不会越积越多。
+ *
+ * 挂载为什么不能省：工作区的成员是**单独记的**（侧栏读的是那份记录，不是会话的目录）。
+ * 只开会话不挂，她就落在"未分组"里 —— 这正是升级前她一直在的地方。
+ * @param deps - 外部事实。
+ * @param dir - 房间目录（绝对路径，且已经建好）。
+ * @param sessionId - 要挂进去的会话。
+ * @returns 工作区 id；注册表缺席或挂载被拒时为 `undefined`（房间照常用）。
+ */
+export async function attachToWorkspace(
+  deps: RoomDeps,
+  dir: string,
+  sessionId: string,
+): Promise<string | undefined> {
+  const registry = deps.workspaces()
+  if (registry === undefined) {
+    deps.log.warn('这个部署没有工作区注册表（workspaceRegistry 不在）：她会落在侧栏的"未分组"里，其余照常')
+    return undefined
+  }
+  try {
+    const existing = await registry.resolveByPath(dir).catch(() => undefined)
+    const workspace = existing ?? (await registry.create(dir, workspaceTitleOf(dir)))
+    await workspace.attachSession(sessionId)
+    deps.log.info(`她住进了工作区「${workspace.title}」（${dir}）`)
+    return workspace.id
+  } catch (error) {
+    // 挂不上不是致命的：会话照常能跑，只是不出现在工作区分组里。
+    deps.log.warn(`房间没能挂到工作区上（她会落在"未分组"里）：${describeError(error)}`)
+    return undefined
+  }
+}
+
+/**
+ * 工作区显示名：目录的最后一段。
+ * @param dir - 绝对目录。
+ * @returns 名字；根目录回退成目录本身。
+ */
+function workspaceTitleOf(dir: string): string {
+  const trimmed = trimTrailingSlashes(dir)
+  const index = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
+  return index === -1 ? trimmed : trimmed.slice(index + 1) || trimmed
+}
+
+/**
+ * 把一个文件从旧房间目录带到新房间目录（搬家时用）。
+ *
+ * 为什么需要：她"正在写的那一天"有两份文件在房间里 —— 材料（插件写的）和她写的日记。
+ * 房间一换目录，这两份就留在旧目录里，收账会以为"还没写"，她白写一遍、或者这一天就丢了。
+ * 所以搬房间时把它们**复制**过去；旧目录里的原件不动（她那边的东西一律不删）。
+ * @param deps - 外部事实。
+ * @param name - 顶层文件名（不许带路径）。
+ * @param fromDir - 旧目录。
+ * @param toDir - 新目录。
+ * @returns 带过去了为 `true`；旧目录里没有这个文件也算成功（没什么要带的）。
+ */
+export async function carryRoomFile(
+  deps: RoomDeps,
+  name: string,
+  fromDir: string,
+  toDir: string,
+): Promise<boolean> {
+  if (name === '' || name.includes('/') || name.includes('\\') || name.includes('..')) return false
+  if (fromDir === '' || toDir === '' || fromDir === toDir) return false
+  try {
+    const specifier: string = 'node:fs/promises'
+    const fs = (await import(specifier)) as FsPromisesModule & {
+      readFile(path: string): Promise<Uint8Array>
+      writeFile(path: string, data: Uint8Array): Promise<void>
+    }
+    const bytes = await fs.readFile(`${fromDir}/${name}`)
+    await fs.mkdir(toDir, { recursive: true })
+    await fs.writeFile(`${toDir}/${name}`, bytes)
+    return true
+  } catch {
+    // 文件不存在（她还没写）或读不到：都不是错误，别打断搬家。
+    return false
+  }
+}
+
+/**
+ * 把一个会话叫醒（恢复成活的 agent），**永远带着部署默认模型**。
+ *
+ * 为什么要收成一处：平台只对"在界面里开出来"的会话落一个模型选择；插件自己的会话没有。
+ * 之前有三个地方各自 `resume({resumeSessionId})`，哪个忘了带模型，那一轮就
+ * `has no provider/model`（真机 2026-11-26 连挂两次：先是我们开会话的地方，后是投递前的叫醒）。
+ * 现在只剩这一个入口，忘不了。
+ * @param deps - 外部事实。
+ * @param sessionId - 要叫醒的会话。
+ * @returns 那个会话的句柄。
+ */
+export async function resumeAgent(deps: RoomDeps, sessionId: string): Promise<AgentHandleLike> {
+  const registry = deps.agents()
+  if (registry === undefined) throw new Error('这个部署没有 Agent 注册表（agents 不在）')
+  const agentOptions = deps.modelSelection()
+  const resumed = await registry.resume({
+    resumeSessionId: sessionId,
+    ...(agentOptions === undefined ? {} : { agentOptions }),
+  })
+  await attachPreset(deps, resumed)
+  return resumed
+}
+
+/**
+ * 把预设挂到这个 agent 上（拿不到服务、或它自己失败时只记日志）。
+ *
+ * 为什么不抛错：挂不上只是"她少几件工具"，房间本身还能用；把整间房判失败更糟。
+ * @param deps - 外部事实。
+ * @param handle - 刚建/刚恢复的那个 agent 句柄。
+ */
+async function attachPreset(deps: RoomDeps, handle: AgentHandleLike | undefined): Promise<void> {
+  if (deps.selectPreset === undefined || handle?.agent === undefined) return
+  try {
+    const ok = await deps.selectPreset(handle.agent)
+    if (!ok) deps.log.warn('预设没挂上：她这一轮会缺文件工具（读写文件都要它）')
+  } catch (error) {
+    deps.log.warn('预设没挂上（select 抛错）', error)
+  }
+}
+
+/**
+ * 那个会话现在忙不忙 —— **问 agent 自己**。
+ *
+ * 为什么不能靠自己的活动账本判：账本在进程里，重启之后是空的，于是"从没动过"被当成"闲着"。
+ * 真机 2026-11-26 就是这一条：投递撞进了一个刚被我们自己开出来的空轮，卡片进了"下一轮"，
+ * 而她再没有下一轮 —— 她根本没看到"该写日记了"。
+ * @param deps - 外部事实。
+ * @param sessionId - 目标会话。
+ * @returns 忙为 `true`、闲为 `false`、不知道（没有活的 agent）为 `undefined`。
+ */
+export function agentBusy(deps: RoomDeps, sessionId: string): boolean | undefined {
+  const registry = deps.agents()
+  if (registry === undefined || sessionId === '') return undefined
+  const agent = registry.get(sessionId) as { status?: unknown } | undefined
+  if (agent === undefined || agent === null) return undefined
+  return agent.status === 'running'
+}
+
+/**
+ * 等那个会话空下来。
+ *
+ * 有 `whenIdle()` 就等它（那是 agent 自己的承诺，比轮询准），没有就轮询状态。
+ * @param deps - 外部事实。
+ * @param sessionId - 目标会话。
+ * @param timeoutMs - 最多等多久。
+ * @returns 闲下来了为 `true`；超时 `false`。
+ */
+export async function waitAgentIdle(deps: RoomDeps, sessionId: string, timeoutMs: number): Promise<boolean> {
+  if (sessionId === '') return true
+  const registry = deps.agents()
+  const agent = registry?.get(sessionId) as { status?: unknown; whenIdle?: unknown } | undefined
+  // 没有活的 agent：投递会自己把它拉起来，不存在"撞进正在跑的一轮"这件事。
+  if (agent === undefined || agent === null) return true
+  if (agent.status !== 'running') return true
+  if (typeof agent.whenIdle === 'function') {
+    const idle = (agent as { whenIdle(): Promise<void> }).whenIdle()
+    const timeout = new Promise<'timeout'>((resolve) => {
+      const timer = setTimeout(() => resolve('timeout'), timeoutMs) as unknown as { unref?: () => void }
+      timer.unref?.()
+    })
+    const outcome = await Promise.race([idle.then(() => 'idle' as const), timeout])
+    return outcome === 'idle'
+  }
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, 2_000) as unknown as { unref?: () => void }
+      timer.unref?.()
+    })
+    if (agentBusy(deps, sessionId) !== true) return true
+  }
+  return false
+}
+
+/** 一个活的 agent 里我们用到的那部分（`ctx.agents.get()` 拿到的那个）。 */
+interface LiveAgentLike {
+  id?: string
+  status?: unknown
+  followup?(message: unknown): void
+  whenIdle?(): Promise<void>
+}
+
+/**
+ * 直接把她要收到的那条消息交给那个会话的 agent。
+ *
+ * 为什么不再让调度服务去投：它投递时把消息排进"下一轮"，然后指望有人去开这一轮 ——
+ * 真机 2026-11-26 反复验证下来，那个"下一轮"经常永远不来（投递记录有了，她一个字都没收到）。
+ * 平台的 `followup` 是"排进下一轮 + 立刻把 driver 叫起来"，这是唯一不会丢的路。
+ *
+ * 消息来源仍标成 `schedule`：会话里长得和平台的「自动化任务」块一样（用户口径）。
+ * @param deps - 外部事实。
+ * @param sessionId - 目标会话。
+ * @param text - 她这一次要看到的那段话。
+ * @param timeoutMs - 等她手头那一轮结束最多多久。
+ * @returns 发出去了没有；没发出去给原因。
+ */
+export async function deliverToAgent(
+  deps: RoomDeps,
+  sessionId: string,
+  text: string,
+  timeoutMs = 180_000,
+): Promise<{ ok: boolean; reason?: string }> {
+  const registry = deps.agents()
+  if (registry === undefined) return { ok: false, reason: '这个部署没有 Agent 注册表（agents 不在）' }
+  if (sessionId === '') return { ok: false, reason: '没有目标会话' }
+  let agent = registry.get(sessionId) as LiveAgentLike | undefined
+  if (agent === undefined) {
+    try {
+      const handle = await resumeAgent(deps, sessionId)
+      agent = (handle as { agent?: LiveAgentLike }).agent
+    } catch (error) {
+      return { ok: false, reason: `叫不醒会话：${describeError(error)}` }
+    }
+  }
+  if (agent === undefined || typeof agent.followup !== 'function') {
+    return { ok: false, reason: '这个 agent 不能收消息（followup 不在）' }
+  }
+  // 她手头这一轮还没跑完：等它（否则消息会排在"下一轮"，而下一轮未必来）。
+  if (agent.status === 'running') {
+    const quiet = await waitAgentIdle(deps, sessionId, timeoutMs)
+    if (!quiet) return { ok: false, reason: '会话一直没安静下来（等不到可以投的时刻）' }
+  }
+  try {
+    agent.followup(createScheduleMessage(text))
+  } catch (error) {
+    return { ok: false, reason: `投递失败：${describeError(error)}` }
+  }
+  /**
+   * 核对：投完她应该**在跑一轮**。不跑就是没收到（这正是"投递记录有了、她却没看到"的形状）。
+   */
+  const deadline = Date.now() + 10_000
+  for (;;) {
+    if (agent.status === 'running') return { ok: true }
+    if (Date.now() >= deadline) return { ok: false, reason: '消息投出去了，但她没有开始这一轮' }
+    await sleep(500)
+  }
+}
+
+/**
+ * 造一条"来源是调度"的用户消息（会话里会显示成「自动化任务」块）。
+ *
+ * 形状照抄宿主（见 `@deepseek-ai/dsh-llm` 的 `createUserMessage`）：展开输入、现铸一个 id、
+ * 深冻结 —— 宿主把它当不可变对象。
+ * @param text - 消息正文。
+ * @returns 可以交给 `followup` 的消息。
+ */
+function createScheduleMessage(text: string): unknown {
+  const message = {
+    id: globalThis.crypto.randomUUID(),
+    role: 'user' as const,
+    content: [{ type: 'text' as const, text }],
+    source: { kind: 'schedule' as const },
+  }
+  const freeze = (value: unknown): void => {
+    if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return
+    Object.freeze(value)
+    for (const key of Object.keys(value)) freeze((value as Record<string, unknown>)[key])
+  }
+  freeze(message)
+  return message
+}
+
+/** 等一会儿（不挂住进程）。 */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms) as unknown as { unref?: () => void }
+    timer.unref?.()
+  })
 }
 
 /**
@@ -367,21 +889,31 @@ function roomOf(task: ScheduleTaskLike | undefined): RoomState | undefined {
  *
  * @param deps - 外部事实。
  * @param knownSessionId - 上次开出来的会话 id（空串 = 还没开过）。
- * @returns 会话 id 与需要一直持有的句柄；失败时给人话原因。
+ * @returns 会话 id、它落在哪个目录、挂在哪个工作区（后两个可能为空）；失败时给人话原因。
  */
 export async function ensureRoom(
   deps: RoomDeps,
   knownSessionId: string,
-): Promise<{ ok: true; sessionId: string; handle?: AgentHandleLike } | { ok: false; reason: string }> {
+): Promise<
+  | { ok: true; sessionId: string; handle?: AgentHandleLike; dir?: string; workspaceId?: string }
+  | { ok: false; reason: string }
+> {
   const registry = deps.agents()
   if (registry === undefined) return { ok: false, reason: '这个部署没有 Agent 注册表（agents 不在）' }
+  /**
+   * 房间的模型：用部署默认选择。
+   *
+   * 每次都现读（对方可能在设置里换过默认模型）；读不到就不带 —— 那一轮会像从前一样报
+   * "没有模型"，但至少不会假装成功。
+   */
+  const agentOptions = deps.modelSelection()
   // 已经活着：直接复用（重启后 Agent 会没，但会话还在，走下面的 resume）。
   if (knownSessionId !== '' && registry.get(knownSessionId) !== undefined) {
     return { ok: true, sessionId: knownSessionId }
   }
   if (knownSessionId !== '') {
     try {
-      const resumed = await registry.resume({ resumeSessionId: knownSessionId })
+      const resumed = await resumeAgent(deps, knownSessionId)
       deps.log.info(`她的房间已恢复（会话 ${knownSessionId}）`)
       return { ok: true, sessionId: knownSessionId, handle: resumed }
     } catch (error) {
@@ -395,83 +927,29 @@ export async function ensureRoom(
     const handle = await registry.create({
       sessionId,
       ...(cwd === undefined ? {} : { meta: { cwd, agentPreset: HUMANITY_PRESET_ID } }),
+      ...(agentOptions === undefined ? {} : { agentOptions }),
     })
+    // 只记了预设名不算挂上：预设里的插件（文件工具等）要靠这一次 select 才会装进来。
+    await attachPreset(deps, handle)
     deps.log.info(`她的房间已开出（会话 ${sessionId}）`)
-    return { ok: true, sessionId, handle }
+    /**
+     * 挂工作区只在她**真的有自己的目录**时做：
+     *
+     * 没填"她的房间"时用的是老位置，那是插件内部的事，不该悄悄往侧栏里多一个工作区；
+     * 填了就是明确要求"她住在这里"，那就登记并挂上。
+     */
+    const configured = deps.roomSetting().trim() !== ''
+    const workspaceId = configured && cwd !== undefined ? await attachToWorkspace(deps, cwd, sessionId) : undefined
+    return {
+      ok: true,
+      sessionId,
+      handle,
+      ...(cwd === undefined ? {} : { dir: cwd }),
+      ...(workspaceId === undefined ? {} : { workspaceId }),
+    }
   } catch (error) {
     deps.log.warn('她的房间没开出来（这次不排程）', error)
     return { ok: false, reason: `新建会话被拒绝：${describeError(error)}` }
-  }
-}
-
-/**
- * 认领一个**已经存在**的房间任务。
- *
- * 为什么需要：状态文档可能丢（真机 2026-11-24 就被工作台投影覆盖过一次）。丢了就重建的话，
- * 旧房间会留在那儿没人管、闹钟越积越多。所以先找：同标题的任务里挑**最早的那个**（那是她的
- * 老房间，里面有她的东西），其余同标题的暂停掉。
- * @param deps - 外部事实。
- * @returns 认领到的房间；没有就 `undefined`。
- */
-export async function adoptTask(deps: RoomDeps): Promise<RoomState | undefined> {
-  const service = deps.schedule()
-  if (service === undefined) return undefined
-  let tasks: ScheduleTaskLike[]
-  try {
-    tasks = await service.catalog()
-  } catch {
-    return undefined
-  }
-  const mine = tasks
-    .filter((task) => task.title === ROOM_TASK_TITLE && typeof task.code !== 'string')
-    .sort((left, right) => String(left.createdAt ?? '').localeCompare(String(right.createdAt ?? '')))
-  const kept = mine[0]
-  if (kept === undefined) return undefined
-  // 多出来的（同标题）暂停：不删，免得误删你手建的同类任务；它们不会再喊她。
-  for (const extra of mine.slice(1)) {
-    await setActive(deps, String(extra.id ?? ''), false)
-  }
-  deps.log.info(`认领了已有的房间任务 ${String(kept.id ?? '')}`)
-  return roomOf(kept)
-}
-
-/**
- * 确保房间里有一个任务，并把它排到下一次。
- *
- * 顺序：已有任务 → 直接沿用；没有 → 在**已存在的房间会话**上建一个任务。
- * @param deps - 外部事实。
- * @param taskId - 已知的任务 id（空串 = 认为还没有）。
- * @param sessionId - 房间的会话 id（必须已存在：这个部署不允许任务自己建会话）。
- * @param gapSeconds - 下一次隔多少秒。
- * @param prompt - 醒来时她要看到的那段话。
- * @returns 结果。
- */
-export async function ensureTask(
-  deps: RoomDeps,
-  taskId: string,
-  sessionId: string,
-  gapSeconds: number,
-  prompt: string,
-  title: string = ROOM_TASK_TITLE,
-): Promise<RoomOutcome> {
-  const service = deps.schedule()
-  if (service === undefined) return { ok: false, reason: '调度服务不在（DSH 没装或没启用它会话调度）' }
-  if (sessionId === '') return { ok: false, reason: '还没有她的房间（会话 id 为空）' }
-  const existing = taskId === '' ? undefined : roomOf(await service.view({ id: taskId }).catch(() => undefined))
-  if (existing !== undefined) return { ok: true, room: existing }
-  try {
-    const created = await service.create({
-      title,
-      prompt,
-      timing: { kind: 'after', after_seconds: gapSeconds },
-      target: { kind: 'session', sessionId },
-    })
-    const room = roomOf(created)
-    if (room === undefined) return { ok: false, reason: '调度服务没有返回新建的任务' }
-    return { ok: true, room }
-  } catch (error) {
-    deps.log.warn('她的房间没建成（这次不排程）', error)
-    return { ok: false, reason: `新建定时任务被拒绝：${describeError(error)}` }
   }
 }
 
@@ -487,50 +965,6 @@ export async function inspectRoom(deps: RoomDeps, taskId: string): Promise<RoomS
   return roomOf(await service.view({ id: taskId }).catch(() => undefined))
 }
 
-/**
- * 把下一次醒来排到 `gapSeconds` 之后。
- * @param deps - 外部事实。
- * @param taskId - 任务 id。
- * @param gapSeconds - 间隔秒数。
- * @returns 结果（成功时带刷新后的房间状态）。
- */
-export async function reschedule(
-  deps: RoomDeps,
-  taskId: string,
-  gapSeconds: number,
-  prompt?: string,
-): Promise<RoomOutcome> {
-  const service = deps.schedule()
-  if (service === undefined) return { ok: false, reason: '调度服务不在' }
-  if (taskId === '') return { ok: false, reason: '还没有房间任务' }
-  try {
-    const edited = await service.edit({
-      id: taskId,
-      action: 'update',
-      patch: {
-        timing: { kind: 'after', after_seconds: gapSeconds },
-        active: true,
-        // 下一次醒来看到的那段话随"上次做到哪"一起改：连续性靠它，不靠她的记性。
-        ...(prompt === undefined ? {} : { prompt }),
-      },
-    })
-    const room = roomOf(edited)
-    if (room === undefined) return { ok: false, reason: '任务已经不存在（下次醒来时会重建）' }
-    return { ok: true, room }
-  } catch (error) {
-    deps.log.warn('下一次醒来的时间没排上（这次不排程）', error)
-    return { ok: false, reason: '修改定时任务被拒绝（详见日志）' }
-  }
-}
-
-/**
- * 让任务进入/退出活动状态。
- *
- * 关掉模块时**暂停**任务而不是删掉：重开时不用重建房间，会话与 id 都还在。
- * @param deps - 外部事实。
- * @param taskId - 任务 id。
- * @param active - 是否活动。
- */
 /**
  * 删掉一个调度任务。
  *
@@ -551,30 +985,44 @@ export async function deleteTask(deps: RoomDeps, taskId: string): Promise<void> 
 }
 
 /**
- * 把一个任务改成投到别的会话。
- * @param deps - 外部事实。
- * @param taskId - 任务 id。
- * @param sessionId - 新的投递会话。
- * @returns 改成功了吗。
+ * 一张"永远不自己响"的卡片用的时间。
+ *
+ * 为什么是 2099：DSH 建任务必须给一个时间；给一个远到不会到来的时刻，
+ * 这张卡片就只是一条**通道**，什么时候投完全由插件用 `run` 决定。
  */
-export async function retarget(deps: RoomDeps, taskId: string, sessionId: string): Promise<boolean> {
-  const service = deps.schedule()
-  if (service === undefined || taskId === '' || sessionId === '') return false
-  try {
-    await service.edit({ id: taskId, action: 'update', patch: { target: { kind: 'session', sessionId } } })
-    return true
-  } catch (error) {
-    deps.log.warn('房间任务没能改到新会话', error)
-    return false
-  }
-}
+export const DORMANT_RRULE = 'DTSTART;TZID=Asia/Shanghai:20991231T120000\nRRULE:FREQ=DAILY;COUNT=1'
 
-export async function setActive(deps: RoomDeps, taskId: string, active: boolean): Promise<void> {
+/**
+ * 建一张"停着的卡片"（不会自己触发）。
+ * @param deps - 外部事实。
+ * @param title - 面板上显示的名字。
+ * @param prompt - 首次投递要用的正文（之后每次投之前都会改）。
+ * @param sessionId - 投到哪个会话。
+ * @param timeZone - 她的时区（决定 2099 那个锚点的时区）。
+ * @returns 建好的卡片；失败给 `undefined` 与原因。
+ */
+export async function createDormantTask(
+  deps: RoomDeps,
+  title: string,
+  prompt: string,
+  sessionId: string,
+  timeZone?: string,
+): Promise<{ ok: true; taskId: string } | { ok: false; reason: string }> {
   const service = deps.schedule()
-  if (service === undefined || taskId === '') return
+  if (service === undefined) return { ok: false, reason: '调度服务不在' }
+  if (sessionId === '') return { ok: false, reason: '还没有可投的会话' }
+  const zone = timeZone === undefined || timeZone.trim() === '' ? 'Asia/Shanghai' : timeZone.trim()
   try {
-    await service.edit({ id: taskId, action: 'update', patch: { active } })
+    const created = await service.create({
+      title,
+      prompt,
+      timing: { kind: 'rrule', rrule: DORMANT_RRULE.replace('Asia/Shanghai', zone) },
+      target: { kind: 'session', sessionId },
+    })
+    const room = roomOf(created)
+    if (room === undefined || room.taskId === '') return { ok: false, reason: '建出来的卡片没有 id' }
+    return { ok: true, taskId: room.taskId }
   } catch (error) {
-    deps.log.warn(active ? '房间任务没能恢复' : '房间任务没能暂停', error)
+    return { ok: false, reason: error instanceof Error ? error.message : String(error) }
   }
 }

@@ -46,11 +46,7 @@ export const TALK_LINE_CHARS = 120
 /** 她的房间在 `$DSH_HOME` 下的相对路径：她写的东西、以后的作品都落在这儿。 */
 export const ROOM_DIR = 'humanity/room'
 
-/** 房间里那个调度任务的标题（你在 DSH 的任务管理器里看到的就是它）。 */
-export const ROOM_TASK_TITLE = '她自己的时间'
 
-/** 「她主动找你说一句」那个投递任务的标题（与房间任务分开，任务列表里看得清）。 */
-export const TELL_TASK_TITLE = '她主动找你说一句'
 
 /**
  * 醒来提示词的标记。
@@ -103,14 +99,6 @@ export const TELL_DOC_KEY = 'humanity-evolution-tell'
 
 /** 她想说的那句话最多多少字（太长就不是"一句话"了）。 */
 export const TELL_MAX_CHARS = 300
-
-/**
- * 他要安静多久，她的话才允许送过去（分钟）。
- *
- * 为什么要有：他正在跟你说话时冒出一条"她主动找你"，等于插嘴。
- * 判据用的是单线程那套"他最后一次说话的时刻"（`lastBusyAt`），不是另造一份。
- */
-export const TELL_QUIET_MINUTES = 10
 
 /** 送出去之后隔多久才真正出现在会话里（秒）：调度服务的最小粒度是 60 秒。 */
 export const TELL_DELAY_SECONDS = 60

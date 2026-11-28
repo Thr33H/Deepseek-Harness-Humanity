@@ -93,7 +93,7 @@
 | 她的状态 | `humanity-evolution-state` | 精力、次数、房间 id、下一次、错误 |
 | 日记 / 归档 | `humanity-diary` / `humanity-diary-archive` | |
 | 工作台投影 | 设置命名空间 `humanity-evolution` | 只读一扇窗 |
-| 她的房间 | `$DSH_HOME/humanity/room/` | 她的文件在这；**不在插件包目录**（升级会删） |
+| 她的房间 | 默认 `$DSH_HOME/humanity/room/`，可在自进化页改（名字 → `humanity/rooms/<名字>`，或完整路径；填了就登记成工作区并挂上会话） | 她的文件在这；**不在插件包目录**（升级会删） |
 
 ⚠️ **状态键与命名空间名不能相同。** 0.1.7+ 的设置服务会退化成"把文档写进同一张文档表"，
 同名就是互相覆盖——真机 2026-11-24 把她的精力、次数、房间 id 全冲掉过一次。

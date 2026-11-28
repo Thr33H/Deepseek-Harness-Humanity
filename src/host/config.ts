@@ -29,8 +29,20 @@ export interface EvolutionSettings {
   maxWakesPerDay: number
   /** 两次醒来之间的最短间隔（分钟）。 */
   minGapMinutes: number
-  /** 两次醒来之间的最长间隔（分钟）；实际值在这两条线之间随机取。 */
+  /** 两次醒来之间的最长间隔（分钟）；实际值在这条线和 `minGapMinutes` 之间随机取。 */
   maxGapMinutes: number
+  /**
+   * 她的房间放在哪（她自己的那块地方，日记副本、材料、待办都在里面）。
+   *
+   * 三种填法，按同一个规则理解：
+   * - 空串 = 还在老位置 `$DSH_HOME/humanity/room`（不搬家，不建工作区）；
+   * - 不带斜杠的名字 = `$DSH_HOME/humanity/rooms/<名字>`；
+   * - 以 `/` 开头（或 Windows 盘符）的绝对路径 = 就用这一条。
+   *
+   * 填了就会把这个目录登记成 DSH 的工作区，并把她的会话挂进去（侧栏里能看见）。
+   * 改这一项等于搬家：旧会话留在原处，新会话在新目录里开。
+   */
+  room: string
 }
 
 /** Humanity 套件的全部对方可编辑开关。 */
@@ -131,6 +143,13 @@ export const Config: Schema<HumanityConfig> = Schema.object({
         .description('一天最多醒几次（上限，不是配额：累了就少醒；0 = 只能手动叫醒）'),
       minGapMinutes: Schema.number().default(40).description('两次醒来之间的最短间隔（分钟）'),
       maxGapMinutes: Schema.number().default(150).description('两次醒来之间的最长间隔（分钟）；实际值在这两条线之间随机取'),
+      room: Schema.string()
+        .default('')
+        .description(
+          '她的房间放在哪：空=老位置（数据目录下 humanity/room）；'
+            + '填名字=建在数据目录的 humanity/rooms/<名字>；填完整路径=就用那条路径。'
+            + '填了会登记成工作区（侧栏可见）；改了等于搬家，旧会话留在原处。',
+        ),
     }),
   }),
 })

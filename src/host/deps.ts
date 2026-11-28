@@ -209,6 +209,9 @@ export function evolutionDeps(
     },
     timeZone: () => clock?.report().effective,
     homeDir: () => homeDir?.(),
+    room: () => settings.read().modules.evolution.room,
+    // 面板改配置（房间、醒来次数）走插件自己的那条桥：它两边（官方 settings / 自有数据面）都实现了。
+    writeSettings: (patch) => settings.write(patch),
     started: () => humanityStarted(state),
     // 对方叫什么：醒来那段话要直接叫名字（"他自己不在你身边"读起来像在说旁人）。
     userName: () => {

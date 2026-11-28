@@ -39,6 +39,16 @@ export interface SettingsBridge {
   /** 当前生效配置：schema 默认 → 组合配置 → 对方覆盖。 */
   read(): HumanityConfig
   /**
+   * 改配置（只写**覆盖层**，不冻结组合配置里的值）。
+   *
+   * 为什么要有它：工作台上的开关与「她的房间」都要落成配置，而"当前那份设置服务"
+   * 在各版本里根本不是同一种东西（官方 settings / 自有数据面）。把写入收在这里，
+   * 调用方就不必知道自己拿到的是哪一种 —— 之前 section 直接调 `update('humanity', …)`，
+   * 在数据面那一侧必然被拒（那个命名空间不在数据面的注册表里），而且错被吞了。
+   * @param patch - 深合并进覆盖层的补丁。
+   */
+  write(patch: Record<string, unknown>): Promise<void>
+  /**
    * 是否已接上 DSH 设置服务。
    * `false` 表示开关只来自组合配置，对方在工作台里改不动——工作台据此显示只读提示。
    */
@@ -80,6 +90,12 @@ export function installSettings(
   let source: () => HumanityConfig = () => entry
   let attached = false
   let planeAttached = false
+  /**
+   * 两条写入路径，谁在就写谁；都不在就**明确报错**（静默失败正是这次真机踩的坑：
+   * 面板点了没反应，错被吞在日志里，而日志又进不了 docker logs）。
+   */
+  let writeOfficial: ((patch: Record<string, unknown>) => Promise<void>) | undefined
+  let writePlane: ((patch: Record<string, unknown>) => Promise<void>) | undefined
 
   ctx.inject(['settings'], (sctx) => {
     const settings: SettingsProvider = sctx.settings
@@ -93,7 +109,7 @@ export function installSettings(
         )
         return
       }
-      const off = mountPlaneSwitches(plane, documents, entry, (read) => {
+      const mounted = mountPlaneSwitches(plane, documents, entry, (read) => {
         // **每次现算，不缓存快照。**
         //
         // 缓存踩过（2026-11-22）：初始同步发生在存储就绪之前，那时覆盖层是空的，
@@ -105,15 +121,30 @@ export function installSettings(
         planeAttached = true
         onChange(read())
       }, log)
+      writePlane = mounted.write
       log.info('0.1.7：模块开关改由自有数据面承载（POST /api/humanity/replace|update）')
 
       return () => {
         source = () => entry
         attached = false
         planeAttached = false
-        off()
+        writePlane = undefined
+        mounted.off()
         log.info('数据面摘除：开关回退到组合配置，工作台转为只读')
       }
+    }
+    /**
+     * 官方那条路：`settings.update` 就是"深合并进这一层的覆盖值"。
+     * 读的是 `sctx.settings` 而不是别处 —— 它同时是 attach/detach 的唯一入口。
+     */
+    writeOfficial = async (patch) => {
+      const provider = settings as unknown as {
+        update(ns: string, patch: Record<string, unknown>): Promise<void>
+      }
+      if (typeof provider.update !== 'function') {
+        throw new Error('这份设置服务没有 update：本次改动没有落地（去 DSH 设置里改也一样）')
+      }
+      await provider.update(SETTINGS_NAMESPACE, patch)
     }
     settings.installSection(ctx, SETTINGS_NAMESPACE, Config, entry, {
       // attach 与 detach 都会调用它：detach 时传回来的就是上面的组合入口，天然完成回退。
@@ -130,12 +161,18 @@ export function installSettings(
     return () => {
       source = () => entry
       attached = false
+      writeOfficial = undefined
       log.info('设置服务已摘除：开关回退到组合配置，工作台转为只读')
     }
   })
 
   return {
     read: () => source(),
+    write: async (patch) => {
+      if (writeOfficial !== undefined) return writeOfficial(patch)
+      if (writePlane !== undefined) return writePlane(patch)
+      throw new Error('设置服务还没接上：这次改动没有落地（稍后再试，或去 DSH 设置里改）')
+    },
     get attached() {
       return attached
     },
@@ -159,7 +196,7 @@ export function installSettings(
  * @param entry - 组合入口（base 层）。
  * @param onChanged - 每次提交后回调（拿到的是已解析配置）。
  * @param log - 日志门面。
- * @returns 摘除动作。
+ * @returns 摘除动作与"改开关"的写入入口。
  */
 function mountPlaneSwitches(
   plane: DataPlane,
@@ -168,7 +205,7 @@ function mountPlaneSwitches(
   /** 收到的是**读取函数**而不是快照：每次要值的时候现算，别缓存（见调用方的说明）。 */
   onChanged: (read: () => HumanityConfig) => void,
   log: Log,
-): () => void {
+): { off: () => void; write: (patch: Record<string, unknown>) => Promise<void> } {
   const overrides = (): Record<string, unknown> => {
     const stored = documents()?.read(SETTINGS_NAMESPACE)?.value
     return typeof stored === 'object' && stored !== null && !Array.isArray(stored) ? (stored as Record<string, unknown>) : {}
@@ -196,5 +233,9 @@ function mountPlaneSwitches(
   // 传的是函数不是值 —— 调用方会一直用它现算，存储就绪后才拿得到真实覆盖层。
   onChanged(resolved)
   log.info(`开关命名空间 ${SETTINGS_NAMESPACE} 已挂到自有数据面`)
-  return off
+  return {
+    off,
+    // 面板改开关/房间走这里：合并的是**覆盖层**，不是解析后的全量值。
+    write: (patch) => write(mergeDocument(overrides(), patch), undefined),
+  }
 }

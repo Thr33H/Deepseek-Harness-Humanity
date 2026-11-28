@@ -1,0 +1,11 @@
+const fs = require('node:fs')
+const p = 'src/host/evolution/room.ts'
+let text = fs.readFileSync(p, 'utf8')
+const start = text.indexOf('/**\r\n * 确保这个会话有一个**活着的 agent**。')
+if (start < 0) throw new Error('doc start not found')
+const fnStart = text.indexOf('export async function wakeAgent', start)
+const endMarker = text.indexOf('\r\n}\r\n', fnStart)
+if (fnStart < 0 || endMarker < 0) throw new Error('function end not found')
+text = text.slice(0, start) + text.slice(endMarker + '\r\n}\r\n'.length)
+fs.writeFileSync(p, text)
+console.log('已删除 wakeAgent')

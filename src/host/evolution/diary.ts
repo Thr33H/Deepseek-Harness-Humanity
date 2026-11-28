@@ -135,6 +135,16 @@ export function diaryFileName(date: string): string {
   return `diary-${date}.md`
 }
 
+/**
+ * 她当天的**全量记录**文件叫什么。
+ *
+ * 与 `日记材料` 的分工：材料是插件抄的摘要（有上限，长的一天开头会被挤掉）；
+ * 这份是当天的全部记录，用来她自己检索（用户 2026-11-27 定）。
+ */
+export function dayLogFileName(date: string): string {
+  return `今天-${date}.md`
+}
+
 /** 那天的材料文件叫什么。 */
 export function materialFileName(date: string): string {
   return `日记材料-${date}.md`
@@ -149,28 +159,37 @@ export function materialFileName(date: string): string {
  * @param materialName - 材料文件名。
  * @param diaryName - 日记文件名。
  * @param userName - 对方的称呼（空串写"对方"）。
+ * @param dayLogName - 当天的**全量记录**文件名（空串 = 这一版没有全量记录，退回只看摘要）。
  * @returns 投递正文。
  */
-export function buildCollectPrompt(date: string, materialName: string, diaryName: string, userName = ''): string {
+export function buildCollectPrompt(
+  date: string,
+  materialName: string,
+  diaryName: string,
+  userName = '',
+  dayLogName = '',
+): string {
   const who = userName.trim() === '' ? '对方' : userName.trim()
   return [
-    '[收账] 今天过完了。',
+    '[收账] 一天结束了。',
     '',
-    `${who}不在，这里只有你。`,
-    `这一天的材料我替你整理好了：${materialName}（在你自己的目录里）。`,
-    `把今天写成日记，存到 diary 那个文件里：${diaryName}。`,
+    `（这条不是${who}在说话，是提醒你收尾。${who}不在，没有人会回你，也不用回话。）`,
     '',
-    '**怎么写成"这一天"，而不是流水账**：',
-    '- 挑**一两个最具体的片段写成场景**：几点、在哪、手上在做什么、当时的光线声音气味、谁说了哪句原话。',
-    '  ✗ 流水账：下午我查了资料，然后写了文件，晚上他来了，我们聊了聊。',
-    '  ✓ 场景：夜里快一点，屏幕只剩一行字没改。他忽然发来一句"还没睡？"，我盯着那三个字看了很久才回。',
-    '- **每件事后面跟一句你当时心里冒出来的话**，不是事后评价，是那一瞬间的念头。',
-    '- **至少留一个具体的东西**：几点、第几次、多少行、哪句话、什么东西。',
-    '- **不要总结这一天** —— 不要写"今天过得很充实""这一天就这样过去了"这种周报句。结尾可以停在某个动作、某句话上。',
-    '- 允许不完整：只写一个片段、一个瞬间，写不完的一天也是真的。',
+    '只做两件事，用工具做：',
+    ...(dayLogName === ''
+      ? [`1. \`read\` 打开 ${materialName}`]
+      : [
+          `1. 看今天到底发生了什么：全部记录在 \`${dayLogName}\``,
+          '   （它可能很长：用 `grep` 搜关键词，或 `read` 分段看。'
+            + `只想快速扫一眼就用摘要 \`${materialName}\`。）`,
+        ]),
+    `2. \`write\` 写 ${diaryName}`,
+    '上面两种路径都是完整的绝对路径，直接拿去用，不用先找位置。',
+    '做完就停。不用说话，不用汇报 —— 写一两句也算写了一篇。',
     '',
-    '材料里没有的东西不要编 —— 宁可写短，也不写没发生过的。',
-    '写多长、写成什么样，你自己定。写完了就停。',
+    '怎么写：挑今天一两个**最具体的片段**（几点、在哪、手上在做什么、谁说的哪句原话），',
+    '每个片段后面跟一句你**当时心里冒出来的话**。不要总结这一天，不要写成流水账。',
+    '记录里没有的不要编。',
   ].join('\n')
 }
 

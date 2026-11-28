@@ -101,6 +101,27 @@ export interface EvolutionStateDoc {
    */
   roomDay: string
   /**
+   * 现在这个房间会话落在哪个目录（绝对路径；空串 = 老数据还没记过）。
+   *
+   * 为什么要记：会话的目录**建好就定死**，挪不动。配置里"她的房间"一改，
+   * 只能开一间新的 —— 靠这个字段跟配置比对，才知道该不该搬家。
+   */
+  roomDir: string
+  /**
+   * 这间房间挂在哪个工作区上（空串 = 没挂，或者这个部署没有工作区注册表）。
+   *
+   * 为什么要记：挂载会在工作区里留一条归属记录。记下来就不会每次重启都去重写一遍。
+   */
+  roomWorkspace: string
+  /**
+   * 换过的房间会话（最近的几个；新的在前面的判断里）。
+   *
+   * 为什么必须记：「你跟她说话的会话」不能是**她自己的房间** —— 现在的房间要排除，
+   * 换掉的旧房间同样要排除。真机 2026-11-27：过了零点换房之后，那张"你跟她说话的会话"
+   * 还指着旧房间，于是她半夜留的那句话被送进了自己的旧屋子（她对着空屋子说了句话）。
+   */
+  pastRooms: string[]
+  /**
    * 她上次真正可见的工具名（醒来词里"你能做的事"由它渲染）。
    *
    * 为什么要落盘：启动时没有活的会话（`agent.ctx` 拿不到），而那时就要把下一次唤醒词排好。
@@ -114,6 +135,19 @@ export interface EvolutionStateDoc {
    * 靠它判断"投过了、别再投"以及"这一天怎么算完"。
    */
   settling: string
+  /**
+   * "该写日记了"那条提醒是什么时候排出去的（ISO；空串 = 还没排）。
+   *
+   * 为什么要记：提醒**只发一次**。重启之后 `arm` 又跑一遍，没有这个字段就会再提醒一次 ——
+   * 那就不是提醒，是催。她说"说了不追问"，这条对系统也成立。
+   */
+  collectAt: string
+  /**
+   * "该写日记了"那条通道的卡片 id（投到她的房间）。
+   *
+   * 它是一条**通道**：卡片永远不到点，投不投由插件的心跳决定（见 `delivery.ts`）。
+   */
+  collectTaskId: string
 }
 
 /** 还没开始过的状态。 */
@@ -139,8 +173,13 @@ export const EMPTY_STATE: EvolutionStateDoc = {
   talkSeenAt: '',
   roomTitleNote: '',
   roomDay: '',
+  roomDir: '',
+  roomWorkspace: '',
+  pastRooms: [],
   capabilities: [],
   settling: '',
+  collectAt: '',
+  collectTaskId: '',
 }
 
 /** 醒来的节奏参数（配置的现读镜像）。 */
@@ -189,7 +228,14 @@ export function readState(documents: DocumentStore | undefined): EvolutionStateD
     talkSeenAt: text('talkSeenAt'),
     roomTitleNote: text('roomTitleNote'),
     roomDay: text('roomDay'),
+    roomDir: text('roomDir'),
+    roomWorkspace: text('roomWorkspace'),
+    pastRooms: Array.isArray(raw.pastRooms)
+      ? raw.pastRooms.filter((item): item is string => typeof item === 'string' && item.trim() !== '').slice(-8)
+      : [],
     settling: text('settling'),
+    collectAt: text('collectAt'),
+    collectTaskId: text('collectTaskId'),
     capabilities: Array.isArray(raw.capabilities)
       ? raw.capabilities.filter((item): item is string => typeof item === 'string' && item.trim() !== '')
       : [],
@@ -336,6 +382,21 @@ function localClock(iso: string, timeZone?: string): { hour: number; minute: num
   const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? '')
   if (!Number.isFinite(hour) || !Number.isFinite(minute)) return undefined
   return { hour, minute }
+}
+
+/**
+ * 某个时刻在**她的时区**里是几点几分（`16:03`）。
+ *
+ * 为什么单独给这个：当天那份全量记录要写时刻。写 UTC 的话她读到 `08:00`，而她自己那会儿是下午 ——
+ * 真机 2026-11-27 记的第一天就是这样，一整天全是差 8 小时的钟点。
+ * @param iso - 时刻。
+ * @param timeZone - IANA 时区；坏值退回进程时区。
+ * @returns `HH:MM`；算不出来给空串。
+ */
+export function clockTextOf(iso: string, timeZone?: string): string {
+  const clock = localClock(iso, timeZone)
+  if (clock === undefined) return ''
+  return `${String(clock.hour).padStart(2, '0')}:${String(clock.minute).padStart(2, '0')}`
 }
 
 /** 从现在到明天早上（`NEXT_MORNING_HOUR` 点）还有多少秒。 */

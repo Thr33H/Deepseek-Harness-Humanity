@@ -34,6 +34,8 @@ export const EXPECTED_DEFAULTS = {
       maxWakesPerDay: 8,
       minGapMinutes: 40,
       maxGapMinutes: 150,
+      // 2026-11-26：她的房间放在哪。空串 = 老位置（升级后不搬家）。
+      room: '',
     },
   },
 }
